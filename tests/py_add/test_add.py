@@ -9,7 +9,7 @@ def test_tensor_addition_on_gpu():
 
     print("Tensor A:", a)
     print("Tensor B:", b)
-    for i in range(3):  
+    for i in range(3):
         a = a + b
 
     print("Result (A + B):", a)
