@@ -1,4 +1,5 @@
 #!/bin/bash
+# Copyright (c) Meta Platforms, Inc. and affiliates.
 
 # Script to automatically download and install the latest version of NVBit to the third_party directory
 
