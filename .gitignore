@@ -66,3 +66,6 @@ nvbit_release/
 third_party/nvbit
 
 tests/vectoradd/vectoradd
+
+.cache/
+compile_commands.json
