@@ -1,4 +1,4 @@
-name: CUTracer Tests
+name: Test
 
 on:
     push:
