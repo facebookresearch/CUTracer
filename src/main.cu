@@ -30,19 +30,15 @@
 /* contains definition of the reg_info_t structure */
 #include "common.h"
 
+/* analysis functionality */
+#include "analysis.h"
+
 /* Channel used to communicate from GPU to CPU receiving thread */
-#define CHANNEL_SIZE (1l << 20)
 static __managed__ ChannelDev channel_dev;
 static ChannelHost channel_host;
 
 /* receiving thread and its control variables */
 pthread_t recv_thread;
-
-enum class RecvThreadState {
-  WORKING,
-  STOP,
-  FINISHED,
-};
 volatile RecvThreadState recv_thread_done = RecvThreadState::STOP;
 
 /* lock */
@@ -59,7 +55,7 @@ int verbose = 0;
 
 std::map<int, std::string> id_to_sass_map;
 
-// Based on NVIDIA code with Meta modifications for unified register support
+/* Based on NVIDIA code with Meta modifications for unified register support */
 void instrument_function_if_needed(CUcontext ctx, CUfunction func) {
   /* Get related functions of the kernel (device function that can be
    * called by the kernel) */
@@ -126,7 +122,7 @@ void instrument_function_if_needed(CUcontext ctx, CUfunction func) {
   }
 }
 
-// Based on NVIDIA code with Meta modifications for message type support
+/* Based on NVIDIA code with Meta modifications for message type support */
 __global__ void flush_channel(ChannelDev *ch_dev = NULL) {
   // Get the channel to use
   ChannelDev *channel = (ch_dev == NULL) ? &channel_dev : ch_dev;
@@ -142,46 +138,7 @@ __global__ void flush_channel(ChannelDev *ch_dev = NULL) {
   channel->flush();
 }
 
-// Based on NVIDIA code
-void *recv_thread_fun(void *) {
-  char *recv_buffer = (char *)malloc(CHANNEL_SIZE);
-
-  while (recv_thread_done == RecvThreadState::WORKING) {
-    uint32_t num_recv_bytes = channel_host.recv(recv_buffer, CHANNEL_SIZE);
-
-    if (num_recv_bytes > 0) {
-      uint32_t num_processed_bytes = 0;
-      while (num_processed_bytes < num_recv_bytes) {
-        reg_info_t *ri = (reg_info_t *)&recv_buffer[num_processed_bytes];
-
-        /* when we get this cta_id_x it means the kernel has completed */
-        if (ri->cta_id_x == -1) {
-          break;
-        }
-
-        // Simple instruction trace output
-        printf("CTA %d,%d,%d - warp %d - PC %ld - %s:\n", ri->cta_id_x, ri->cta_id_y, ri->cta_id_z,
-               ri->warp_id, ri->pc, id_to_sass_map[ri->opcode_id].c_str());
-
-        // Print register values
-        for (int reg_idx = 0; reg_idx < ri->num_regs; reg_idx++) {
-          printf("  * ");
-          for (int i = 0; i < 32; i++) {
-            printf("Reg%d_T%d: 0x%08x ", reg_idx, i, ri->reg_vals[i][reg_idx]);
-          }
-          printf("\n");
-        }
-        printf("\n");
-        num_processed_bytes += sizeof(reg_info_t);
-      }
-    }
-  }
-  free(recv_buffer);
-  recv_thread_done = RecvThreadState::FINISHED;
-  return NULL;
-}
-
-// Original NVIDIA implementation
+/* Handle all CUDA kernel launch events */
 void nvbit_at_cuda_event(CUcontext ctx, int is_exit, nvbit_api_cuda_t cbid, const char *name, void *params,
                          CUresult *pStatus) {
   pthread_mutex_lock(&cuda_event_mutex);
@@ -256,6 +213,7 @@ void nvbit_at_cuda_event(CUcontext ctx, int is_exit, nvbit_api_cuda_t cbid, cons
       assert(cudaGetLastError() == cudaSuccess);
     }
   }
+
   skip_callback_flag = false;
   pthread_mutex_unlock(&cuda_event_mutex);
 }
@@ -267,6 +225,9 @@ void nvbit_tool_init(CUcontext ctx) {
   pthread_mutexattr_init(&attr);
   pthread_mutexattr_settype(&attr, PTHREAD_MUTEX_RECURSIVE);
   pthread_mutex_init(&cuda_event_mutex, &attr);
+
+  /* Initialize analysis dependencies */
+  init_recv_thread_deps(&channel_host, &recv_thread_done, &id_to_sass_map);
 
   recv_thread_done = RecvThreadState::WORKING;
   channel_host.init(0, CHANNEL_SIZE, &channel_dev, recv_thread_fun, NULL);
