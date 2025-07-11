@@ -1,0 +1,87 @@
+name: CUTracer Tests
+
+on:
+    push:
+        branches: [main, develop]
+        paths-ignore:
+            - "*.md"
+            - ".gitignore"
+            - "docs/**"
+    pull_request:
+        branches: [main]
+        paths-ignore:
+            - "*.md"
+            - ".gitignore"
+            - "docs/**"
+    workflow_dispatch:
+        inputs:
+            test-type:
+                description: "Type of tests to run"
+                required: true
+                default: "all"
+                type: choice
+                options:
+                    - "all"
+                    - "build-only"
+                    - "vectoradd"
+            debug:
+                description: "Enable debug build"
+                required: true
+                default: false
+                type: boolean
+
+jobs:
+    build-and-test:
+        runs-on: 4-core-ubuntu-gpu-t4
+        timeout-minutes: 60
+        strategy:
+            matrix:
+                cuda-version: ["12.8"]
+                debug: [false, true]
+        
+        steps:
+            - name: Checkout repository
+              uses: actions/checkout@v4
+              with:
+                  submodules: recursive
+
+            - name: Setup environment
+              env:
+                  CUDA_VERSION: ${{ matrix.cuda-version }}
+                  DEBUG: ${{ matrix.debug && '1' || '0' }}
+              run: |
+                  bash .ci/setup.sh
+
+            - name: Run tests
+              env:
+                  DEBUG: ${{ matrix.debug && '1' || '0' }}
+                  TEST_TYPE: ${{ github.event.inputs.test-type || 'all' }}
+                  TIMEOUT: 60
+              run: |
+                  bash .ci/run_tests.sh
+
+            - name: Upload test artifacts
+              if: always()
+              uses: actions/upload-artifact@v3
+              with:
+                  name: test-artifacts-cuda${{ matrix.cuda-version }}-debug${{ matrix.debug }}
+                  path: |
+                      lib/cutracer.so
+                      tests/vectoradd/vectoradd
+                      tests/vectoradd/cutracer_output.log
+                      tests/vectoradd/*.sass
+                      tests/vectoradd/*.log
+
+    check-status:
+        runs-on: ubuntu-latest
+        needs: build-and-test
+        if: always()
+        steps:
+            - name: Check test results
+              run: |
+                  if [ "${{ needs.build-and-test.result }}" = "success" ]; then
+                      echo "✅ All tests passed!"
+                  else
+                      echo "❌ Some tests failed!"
+                      exit 1
+                  fi 
