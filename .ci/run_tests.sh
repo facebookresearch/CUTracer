@@ -24,11 +24,51 @@ export CUDA_HOME="/usr/local/cuda"
 export PATH="/usr/local/cuda/bin:$PATH"
 export LD_LIBRARY_PATH="/usr/local/cuda/lib64:$LD_LIBRARY_PATH"
 
+# Function to install third-party dependencies
+install_third_party() {
+    echo "📦 Installing third-party dependencies..."
+    
+    cd "$PROJECT_ROOT"
+    
+    # Check if install script exists
+    if [ ! -f "install_third_party.sh" ]; then
+        echo "❌ install_third_party.sh not found!"
+        return 1
+    fi
+    
+    # Make script executable and run it
+    chmod +x install_third_party.sh
+    
+    if ./install_third_party.sh; then
+        echo "✅ Third-party dependencies installed successfully"
+        
+        # Verify NVBit was installed
+        if [ -d "third_party/nvbit" ]; then
+            echo "✅ NVBit found in third_party/nvbit"
+            ls -la third_party/nvbit/
+        else
+            echo "❌ NVBit directory not found after installation"
+            return 1
+        fi
+        
+        return 0
+    else
+        echo "❌ Failed to install third-party dependencies"
+        return 1
+    fi
+}
+
 # Function to build CUTracer
 build_cutracer() {
     echo "🔨 Building CUTracer..."
     
     cd "$PROJECT_ROOT"
+    
+    # Install third-party dependencies first
+    if ! install_third_party; then
+        echo "❌ Failed to install third-party dependencies"
+        return 1
+    fi
     
     # Clean previous build
     make clean
