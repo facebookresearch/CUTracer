@@ -62,13 +62,10 @@ jobs:
 
             - name: Upload test artifacts
               if: always()
-              uses: actions/upload-artifact@v3
+              uses: actions/upload-artifact@v4
               with:
                   name: test-artifacts-cuda${{ matrix.cuda-version }}-debug${{ matrix.debug }}
                   path: |
-                      lib/cutracer.so
-                      tests/vectoradd/vectoradd
-                      tests/vectoradd/cutracer_output.log
                       tests/vectoradd/*.sass
                       tests/vectoradd/*.log
 
