@@ -25,7 +25,7 @@ echo "Installing CUDA and development libraries..."
 
 echo "📦 Installing CUDA $CUDA_VERSION and development libraries..."
 # Install all packages including CUDA toolkit
-sudo apt-get install -y cuda-toolkit-$(echo $CUDA_VERSION | tr '.' '-') build-essential cmake git bc gdb
+sudo apt-get install -y cuda-toolkit-$(echo $CUDA_VERSION | tr '.' '-') build-essential cmake git bc gdb curl wget
 
 # Set up CUDA environment variables
 echo "Setting up CUDA environment..."
