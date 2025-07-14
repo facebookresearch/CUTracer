@@ -40,27 +40,52 @@ void *recv_thread_fun(void *) {
     if (num_recv_bytes > 0) {
       uint32_t num_processed_bytes = 0;
       while (num_processed_bytes < num_recv_bytes) {
-        reg_info_t *ri = (reg_info_t *)&recv_buffer[num_processed_bytes];
+        // First read the message header to determine the message type
+        message_header_t *header = (message_header_t *)&recv_buffer[num_processed_bytes];
 
-        /* when we get this cta_id_x it means the kernel has completed */
-        if (ri->cta_id_x == -1) {
-          break;
-        }
+        if (header->type == MSG_TYPE_REG_INFO) {
+          reg_info_t *ri = (reg_info_t *)&recv_buffer[num_processed_bytes];
 
-        // Simple instruction trace output
-        printf("CTA %d,%d,%d - warp %d - PC %ld - %s:\n", ri->cta_id_x, ri->cta_id_y, ri->cta_id_z,
-               ri->warp_id, ri->pc, (*g_id_to_sass_map)[ri->opcode_id].c_str());
+          /* when we get this cta_id_x it means the kernel has completed */
+          if (ri->cta_id_x == -1) {
+            break;
+          }
 
-        // Print register values
-        for (int reg_idx = 0; reg_idx < ri->num_regs; reg_idx++) {
-          printf("  * ");
-          for (int i = 0; i < 32; i++) {
-            printf("Reg%d_T%d: 0x%08x ", reg_idx, i, ri->reg_vals[i][reg_idx]);
+          // Simple instruction trace output
+          printf("CTA %d,%d,%d - warp %d - PC %ld - %s:\n", ri->cta_id_x, ri->cta_id_y, ri->cta_id_z,
+                ri->warp_id, ri->pc, (*g_id_to_sass_map)[ri->opcode_id].c_str());
+
+          // Print register values
+          for (int reg_idx = 0; reg_idx < ri->num_regs; reg_idx++) {
+            printf("  * ");
+            for (int i = 0; i < 32; i++) {
+              printf("Reg%d_T%d: 0x%08x ", reg_idx, i, ri->reg_vals[i][reg_idx]);
+            }
+            printf("\n");
           }
           printf("\n");
+          num_processed_bytes += sizeof(reg_info_t);
+        } else if (header->type == MSG_TYPE_MEM_ACCESS) {
+          // Process memory access message
+          mem_access_t *mem = (mem_access_t *)&recv_buffer[num_processed_bytes];
+
+          // Print memory access information
+          printf("CTA %d,%d,%d - warp %d - PC %ld - %s:\n", mem->cta_id_x, mem->cta_id_y, mem->cta_id_z,
+                mem->warp_id, mem->pc, (*g_id_to_sass_map)[mem->opcode_id].c_str());
+          printf("  Memory Addresses:\n  * ");
+          int printed = 0;
+          for (int i = 0; i < 32; i++) {
+            if (mem->addrs[i] != 0) {  // Only print non-zero addresses
+              printf("T%d: 0x%016lx ", i, mem->addrs[i]);
+              printed++;
+              if (printed % 4 == 0 && i < 31) {
+                printf("\n    ");
+              }
+            }
+          }
+          printf("\n\n");
+          num_processed_bytes += sizeof(mem_access_t);
         }
-        printf("\n");
-        num_processed_bytes += sizeof(reg_info_t);
       }
     }
   }

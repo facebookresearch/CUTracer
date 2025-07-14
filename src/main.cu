@@ -74,7 +74,9 @@ void instrument_function_if_needed(CUcontext ctx, CUfunction func) {
     uint32_t cnt = 0;
     /* iterate on all the static instructions in the function */
     for (auto instr : instrs) {
-      if (cnt < instr_begin_interval || cnt >= instr_end_interval) {
+      if (cnt < instr_begin_interval || cnt >= instr_end_interval ||
+          instr->getMemorySpace() == InstrType::MemorySpace::NONE ||
+          instr->getMemorySpace() == InstrType::MemorySpace::CONSTANT) {
         cnt++;
         continue;
       }
@@ -84,6 +86,7 @@ void instrument_function_if_needed(CUcontext ctx, CUfunction func) {
 
       std::vector<int> reg_num_list;
       std::vector<int> ureg_num_list;
+      int mref_idx = 0;
       int opcode_id = instr->getIdx();
       id_to_sass_map[opcode_id] = std::string(instr->getSass());
       /* iterate on the operands */
@@ -94,10 +97,34 @@ void instrument_function_if_needed(CUcontext ctx, CUfunction func) {
           for (int reg_idx = 0; reg_idx < instr->getSize() / 4; reg_idx++) {
             reg_num_list.push_back(op->u.reg.num + reg_idx);
           }
+        } else if (op->type == InstrType::OperandType::UREG) {
+          for (int reg_idx = 0; reg_idx < instr->getSize() / 4; reg_idx++) {
+            ureg_num_list.push_back(op->u.reg.num + reg_idx);
+          }
+        } else if (op->type == InstrType::OperandType::MREF) {
+          // Not sure if this is correct
+          if (op->u.mref.has_desc) {
+            ureg_num_list.push_back(op->u.mref.desc_ureg_num);
+            ureg_num_list.push_back(op->u.mref.desc_ureg_num + 1);
+          }
+          /* insert call to the instrumentation function with its
+           * arguments */
+          nvbit_insert_call(instr, "instrument_mem", IPOINT_BEFORE);
+          /* predicate value */
+          nvbit_add_call_arg_guard_pred_val(instr);
+          /* opcode id */
+          nvbit_add_call_arg_const_val32(instr, opcode_id);
+          /* memory reference 64 bit address */
+          nvbit_add_call_arg_mref_addr64(instr, mref_idx);
+          /* add instruction PC */
+          nvbit_add_call_arg_const_val64(instr, instr->getOffset());
+          /* add pointer to channel_dev*/
+          nvbit_add_call_arg_const_val64(instr, (uint64_t)&channel_dev);
+          mref_idx++;
         }
       }
-
-      /* insert call to the instrumentation function with its arguments */
+      /* insert call to the instrumentation function with its
+       * arguments */
       nvbit_insert_call(instr, "record_reg_val", IPOINT_BEFORE);
       /* guard predicate value */
       nvbit_add_call_arg_guard_pred_val(instr);
