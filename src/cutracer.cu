@@ -29,6 +29,9 @@
 /* contains definition of the reg_info_t structure */
 #include "common.h"
 
+/* analysis functionality */
+#include "analysis.h"
+
 /* Channel used to communicate from GPU to CPU receiving thread */
 #define CHANNEL_SIZE (1l << 20)
 static __managed__ ChannelDev channel_dev;
@@ -36,12 +39,6 @@ static ChannelHost channel_host;
 
 /* receiving thread and its control variables */
 pthread_t recv_thread;
-
-enum class RecvThreadState {
-  WORKING,
-  STOP,
-  FINISHED,
-};
 volatile RecvThreadState recv_thread_done = RecvThreadState::STOP;
 
 /* lock */
@@ -125,6 +122,22 @@ void instrument_function_if_needed(CUcontext ctx, CUfunction func) {
   }
 }
 
+// Based on NVIDIA code with Meta modifications for message type support
+__global__ void flush_channel(ChannelDev *ch_dev = NULL) {
+  // Get the channel to use
+  ChannelDev *channel = (ch_dev == NULL) ? &channel_dev : ch_dev;
+
+  /* push completion marker with negative cta id */
+  reg_info_t ri;
+  ri.header.type = MSG_TYPE_REG_INFO;
+  ri.cta_id_x = -1;  // Completion marker
+  ri.pc = 0;
+  ri.num_uregs = 0;
+
+  channel->push(&ri, sizeof(reg_info_t));
+  channel->flush();
+}
+
 // Original NVIDIA implementation
 void nvbit_at_cuda_event(CUcontext ctx, int is_exit, nvbit_api_cuda_t cbid, const char *name, void *params,
                          CUresult *pStatus) {
@@ -193,6 +206,9 @@ void nvbit_at_cuda_event(CUcontext ctx, int is_exit, nvbit_api_cuda_t cbid, cons
         assert(0);
       }
 
+      /* issue flush of channel so we are sure all the memory accesses
+       * have been pushed */
+      flush_channel<<<1, 1>>>();
       cudaDeviceSynchronize();
       assert(cudaGetLastError() == cudaSuccess);
     }
@@ -208,6 +224,9 @@ void nvbit_tool_init(CUcontext ctx) {
   pthread_mutexattr_init(&attr);
   pthread_mutexattr_settype(&attr, PTHREAD_MUTEX_RECURSIVE);
   pthread_mutex_init(&cuda_event_mutex, &attr);
+
+  /* Initialize analysis dependencies */
+  init_recv_thread_deps(&channel_host, &recv_thread_done, &id_to_sass_map);
 
   recv_thread_done = RecvThreadState::WORKING;
   channel_host.init(0, CHANNEL_SIZE, &channel_dev, recv_thread_fun, NULL);
