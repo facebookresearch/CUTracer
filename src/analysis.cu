@@ -29,7 +29,7 @@ void init_recv_thread_deps(ChannelHost* host, volatile RecvThreadState* thread_s
   g_id_to_sass_map = sass_map;
 }
 
-// Based on NVIDIA code
+// Based on NVIDIA NVBit record_reg_vals example.
 void* recv_thread_fun(void*) {
   char* recv_buffer = (char*)malloc(CHANNEL_SIZE);
 
