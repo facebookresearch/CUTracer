@@ -12,8 +12,8 @@ RELEASE_INFO=$(curl -s https://api.github.com/repos/NVlabs/NVBit/releases/latest
 
 # Check if API call was successful
 if [ $? -ne 0 ]; then
-    echo "Error: Unable to get NVBit release information. Please check your network connection or GitHub API access."
-    exit 1
+  echo "Error: Unable to get NVBit release information. Please check your network connection or GitHub API access."
+  exit 1
 fi
 
 # Get the latest version number
@@ -25,8 +25,8 @@ DOWNLOAD_URL=$(echo $RELEASE_INFO | grep -o '"browser_download_url": "[^"]*x86_6
 
 # Check if download link was found
 if [ -z "$DOWNLOAD_URL" ]; then
-    echo "Error: Unable to find download link for x86_64 version."
-    exit 1
+  echo "Error: Unable to find download link for x86_64 version."
+  exit 1
 fi
 
 echo "Download link: $DOWNLOAD_URL"
@@ -38,9 +38,9 @@ curl -L -o "$TEMP_FILE" "$DOWNLOAD_URL"
 
 # Check if download was successful
 if [ $? -ne 0 ]; then
-    echo "Error: Download failed."
-    rm -f "$TEMP_FILE"
-    exit 1
+  echo "Error: Download failed."
+  rm -f "$TEMP_FILE"
+  exit 1
 fi
 
 # Clean up old version (if exists)
@@ -54,19 +54,19 @@ tar -xjf "$TEMP_FILE" -C "$TEMP_DIR"
 
 # Check if extraction was successful
 if [ $? -ne 0 ]; then
-    echo "Error: Extraction failed."
-    rm -f "$TEMP_FILE"
-    rm -rf "$TEMP_DIR"
-    exit 1
+  echo "Error: Extraction failed."
+  rm -f "$TEMP_FILE"
+  rm -rf "$TEMP_DIR"
+  exit 1
 fi
 
 # Find the extracted directory
 EXTRACTED_DIR=$(find "$TEMP_DIR" -maxdepth 1 -name "nvbit*" -type d | head -1)
 if [ -z "$EXTRACTED_DIR" ]; then
-    echo "Error: Unable to find extracted NVBit directory."
-    rm -f "$TEMP_FILE"
-    rm -rf "$TEMP_DIR"
-    exit 1
+  echo "Error: Unable to find extracted NVBit directory."
+  rm -f "$TEMP_FILE"
+  rm -rf "$TEMP_DIR"
+  exit 1
 fi
 
 # Move the extracted directory to third_party/nvbit
