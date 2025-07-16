@@ -58,6 +58,71 @@ int verbose = 0;
 
 std::map<int, std::string> id_to_sass_map;
 
+// Based on NVIDIA code with Meta modifications for unified register support
+void instrument_function_if_needed(CUcontext ctx, CUfunction func) {
+  /* Get related functions of the kernel (device function that can be
+   * called by the kernel) */
+  std::vector<CUfunction> related_functions = nvbit_get_related_functions(ctx, func);
+
+  /* add kernel itself to the related function vector */
+  related_functions.push_back(func);
+
+  /* iterate on function */
+  for (auto f : related_functions) {
+    const std::vector<Instr *> &instrs = nvbit_get_instrs(ctx, f);
+    if (verbose) {
+      printf("Inspecting function %s at address 0x%lx\n", nvbit_get_func_name(ctx, f), nvbit_get_func_addr(ctx, f));
+    }
+
+    uint32_t cnt = 0;
+    /* iterate on all the static instructions in the function */
+    for (auto instr : instrs) {
+      if (cnt < instr_begin_interval || cnt >= instr_end_interval) {
+        cnt++;
+        continue;
+      }
+      if (verbose) {
+        instr->printDecoded();
+      }
+
+      std::vector<int> reg_num_list;
+      std::vector<int> ureg_num_list;
+      int opcode_id = instr->getIdx();
+      id_to_sass_map[opcode_id] = std::string(instr->getSass());
+      /* iterate on the operands */
+      for (int i = 0; i < instr->getNumOperands(); i++) {
+        /* get the operand "i" */
+        const InstrType::operand_t *op = instr->getOperand(i);
+        if (op->type == InstrType::OperandType::REG) {
+          for (int reg_idx = 0; reg_idx < instr->getSize() / 4; reg_idx++) {
+            reg_num_list.push_back(op->u.reg.num + reg_idx);
+          }
+        }
+      }
+
+      /* guard predicate value */
+      nvbit_add_call_arg_guard_pred_val(instr);
+      /* opcode id */
+      nvbit_add_call_arg_const_val32(instr, opcode_id);
+      /* add pointer to channel_dev*/
+      nvbit_add_call_arg_const_val64(instr, (uint64_t)&channel_dev);
+      /* add instruction PC */
+      nvbit_add_call_arg_const_val64(instr, instr->getOffset());
+      /* how many register values are passed next */
+      nvbit_add_call_arg_const_val32(instr, reg_num_list.size());
+      nvbit_add_call_arg_const_val32(instr, ureg_num_list.size());
+      for (int num : reg_num_list) {
+        /* last parameter tells it is a variadic parameter passed to
+         * the instrument function record_reg_val() */
+        nvbit_add_call_arg_reg_val(instr, num, true);
+      }
+      for (int num : ureg_num_list) {
+        nvbit_add_call_arg_ureg_val(instr, num, true);
+      }
+    }
+  }
+}
+
 // Original NVIDIA implementation
 void nvbit_at_cuda_event(CUcontext ctx, int is_exit, nvbit_api_cuda_t cbid, const char *name, void *params,
                          CUresult *pStatus) {
@@ -96,6 +161,8 @@ void nvbit_at_cuda_event(CUcontext ctx, int is_exit, nvbit_api_cuda_t cbid, cons
 
       int shmem_static_nbytes = 0;
       CUDA_SAFECALL(cuFuncGetAttribute(&shmem_static_nbytes, CU_FUNC_ATTRIBUTE_SHARED_SIZE_BYTES, func));
+
+      instrument_function_if_needed(ctx, func);
 
       nvbit_enable_instrumented(ctx, func, true);
 
