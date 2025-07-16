@@ -42,4 +42,18 @@ typedef struct {
   uint32_t ureg_vals[8];  // Unified registers shared by all threads in the same warp
 } reg_info_t;
 
+/* memory access information collected and passed
+ * on the channel from the GPU to the CPU */
+typedef struct {
+  message_header_t header;  // Common header with type=MSG_TYPE_MEM_ACCESS
+  uint64_t grid_launch_id;
+  int cta_id_x;
+  int cta_id_y;
+  int cta_id_z;
+  uint64_t pc;
+  int warp_id;
+  int opcode_id;
+  uint64_t addrs[32];
+} mem_access_t;
+
 #endif /* COMMON_H */
