@@ -100,6 +100,8 @@ void instrument_function_if_needed(CUcontext ctx, CUfunction func) {
         }
       }
 
+      /* insert call to the instrumentation function with its arguments */
+      nvbit_insert_call(instr, "record_reg_val", IPOINT_BEFORE);
       /* guard predicate value */
       nvbit_add_call_arg_guard_pred_val(instr);
       /* opcode id */
