@@ -26,7 +26,6 @@ typedef struct {
  * and adds CUTracer specific extensions */
 typedef struct {
   message_header_t header;  // Common header with type=MSG_TYPE_REG_INFO
-
   int32_t cta_id_x;
   int32_t cta_id_y;
   int32_t cta_id_z;

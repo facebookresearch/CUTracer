@@ -16,9 +16,8 @@
 
 #include <map>
 #include <string>
-
-// Forward declarations
-class ChannelHost;
+/* for channel */
+#include "utils/channel.hpp"
 
 /* Channel buffer size */
 #define CHANNEL_SIZE (1l << 20)
@@ -30,11 +29,21 @@ enum class RecvThreadState {
   FINISHED,
 };
 
+struct CTXstate {
+  /* context id */
+  int id;
+
+  /* Channel used to communicate from GPU to CPU receiving thread */
+  ChannelDev* channel_dev;
+  ChannelHost channel_host;
+
+  // After initialization, set it to WORKING to make recv thread get data,
+  // parent thread sets it to STOP to make recv thread stop working.
+  // recv thread sets it to FINISHED when it cleans up.
+  // parent thread should wait until the state becomes FINISHED to clean up.
+  volatile RecvThreadState recv_thread_done = RecvThreadState::STOP;
+};
 /* Receiver thread function */
 void* recv_thread_fun(void*);
-
-/* Initialize receiver thread dependencies */
-void init_recv_thread_deps(ChannelHost* host, volatile RecvThreadState* thread_state,
-                           std::map<int, std::string>* sass_map);
 
 #endif /* ANALYSIS_H */

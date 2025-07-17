@@ -72,8 +72,8 @@ extern "C" __device__ __noinline__ void record_reg_val(int pred, int opcode_id, 
 }
 
 /* Based on NVIDIA NVBit mem_trace example with Meta modifications for message type */
-extern "C" __device__ __noinline__ void instrument_mem(int pred, int opcode_id, uint64_t addr, uint64_t pc,
-                                                       uint64_t pchannel_dev) {
+extern "C" __device__ __noinline__ void instrument_mem(int pred, int opcode_id, uint64_t addr, uint64_t grid_launch_id,
+                                                       uint64_t pc, uint64_t pchannel_dev) {
   /* if thread is predicated off, return */
   if (!pred) {
     return;
@@ -91,7 +91,7 @@ extern "C" __device__ __noinline__ void instrument_mem(int pred, int opcode_id, 
   for (int i = 0; i < 32; i++) {
     ma.addrs[i] = __shfl_sync(active_mask, addr, i);
   }
-
+  ma.grid_launch_id = grid_launch_id;
   int4 cta = get_ctaid();
   ma.cta_id_x = cta.x;
   ma.cta_id_y = cta.y;
