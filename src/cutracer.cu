@@ -32,6 +32,9 @@
 /* analysis functionality */
 #include "analysis.h"
 
+/* env config */
+#include "env_config.h"
+
 /* Channel used to communicate from GPU to CPU receiving thread */
 #define CHANNEL_SIZE (1l << 20)
 static __managed__ ChannelDev channel_dev;
@@ -47,11 +50,6 @@ pthread_mutex_t cuda_event_mutex;
 /* skip flag used to avoid re-entry on the nvbit_callback when issuing
  * flush_channel kernel call */
 bool skip_callback_flag = false;
-
-/* global control variables for this tool */
-uint32_t instr_begin_interval = 0;
-uint32_t instr_end_interval = UINT32_MAX;
-int verbose = 0;
 
 std::map<int, std::string> id_to_sass_map;
 
@@ -269,4 +267,9 @@ void nvbit_at_ctx_term(CUcontext ctx) {
   while (recv_thread_done != RecvThreadState::FINISHED);
   channel_host.destroy(false);
   skip_callback_flag = false;
+}
+
+void nvbit_at_init() {
+  // Initialize configuration from environment variables
+  init_config_from_env();
 }
