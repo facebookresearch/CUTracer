@@ -25,7 +25,6 @@
 /* nvbit interface file */
 #include "nvbit.h"
 
-
 /* contains definition of the reg_info_t and mem_access_t structure */
 #include "common.h"
 
@@ -38,13 +37,12 @@
 /* Channel used to communicate from GPU to CPU receiving thread */
 #define CHANNEL_SIZE (1l << 20)
 
-
 /* lock */
 pthread_mutex_t mutex;
 pthread_mutex_t cuda_event_mutex;
 
 /* map to store context state */
-std::unordered_map<CUcontext, CTXstate*> ctx_state_map;
+std::unordered_map<CUcontext, CTXstate *> ctx_state_map;
 
 /* skip flag used to avoid re-entry on the nvbit_callback when issuing
  * flush_channel kernel call */
@@ -56,7 +54,7 @@ uint64_t global_grid_launch_id = 0;
 // Based on NVIDIA code with Meta modifications for unified register support
 void instrument_function_if_needed(CUcontext ctx, CUfunction func) {
   assert(ctx_state_map.find(ctx) != ctx_state_map.end());
-  CTXstate* ctx_state = ctx_state_map[ctx];
+  CTXstate *ctx_state = ctx_state_map[ctx];
 
   /* Get related functions of the kernel (device function that can be
    * called by the kernel) */
@@ -154,9 +152,11 @@ void instrument_function_if_needed(CUcontext ctx, CUfunction func) {
   }
 }
 
+// Reference code from NVIDIA nvbit mem_trace tool
 /* flush channel */
-__global__ void flush_channel(ChannelDev* ch_dev) { ch_dev->flush(); }
+__global__ void flush_channel(ChannelDev *ch_dev) { ch_dev->flush(); }
 
+// Reference code from NVIDIA nvbit mem_trace tool
 void init_context_state(CUcontext ctx) {
   assert(ctx_state_map.find(ctx) != ctx_state_map.end());
   CTXstate *ctx_state = ctx_state_map[ctx];
@@ -166,9 +166,9 @@ void init_context_state(CUcontext ctx) {
                                ctx);
   nvbit_set_tool_pthread(ctx_state->channel_host.get_thread());
 }
-
-static void enter_kernel_launch(CUcontext ctx, CUfunction func, uint64_t& grid_launch_id, nvbit_api_cuda_t cbid,
-                                void* params, bool stream_capture = false, bool build_graph = false) {
+// Reference code from NVIDIA nvbit mem_trace tool
+static void enter_kernel_launch(CUcontext ctx, CUfunction func, uint64_t &grid_launch_id, nvbit_api_cuda_t cbid,
+                                void *params, bool stream_capture = false, bool build_graph = false) {
   // no need to sync during stream capture or manual graph build, since no
   // kernel is actually launched.
   if (!stream_capture && !build_graph) {
@@ -238,7 +238,7 @@ static void leave_kernel_launch(CTXstate *ctx_state, uint64_t &grid_launch_id) {
   cudaDeviceSynchronize();
   assert(cudaGetLastError() == cudaSuccess);
 }
-
+// Reference code from NVIDIA nvbit mem_trace tool
 void nvbit_at_cuda_event(CUcontext ctx, int is_exit, nvbit_api_cuda_t cbid, const char *name, void *params,
                          CUresult *pStatus) {
   pthread_mutex_lock(&cuda_event_mutex);
@@ -384,17 +384,16 @@ void nvbit_tool_init(CUcontext ctx) {
   pthread_mutex_unlock(&mutex);
 }
 
-
 // Reference code from NVIDIA nvbit mem_trace tool
 void nvbit_at_ctx_init(CUcontext ctx) {
-    pthread_mutex_lock(&mutex);
-    if (verbose) {
-        printf("MEMTRACE: STARTING CONTEXT %p\n", ctx);
-    }
-    assert(ctx_state_map.find(ctx) == ctx_state_map.end());
-    CTXstate* ctx_state = new CTXstate;
-    ctx_state_map[ctx] = ctx_state;
-    pthread_mutex_unlock(&mutex);
+  pthread_mutex_lock(&mutex);
+  if (verbose) {
+    printf("MEMTRACE: STARTING CONTEXT %p\n", ctx);
+  }
+  assert(ctx_state_map.find(ctx) == ctx_state_map.end());
+  CTXstate *ctx_state = new CTXstate;
+  ctx_state_map[ctx] = ctx_state;
+  pthread_mutex_unlock(&mutex);
 }
 
 // Reference code from NVIDIA nvbit mem_trace tool
