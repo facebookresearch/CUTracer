@@ -158,6 +158,7 @@ void instrument_function_if_needed(CUcontext ctx, CUfunction func) {
 __global__ void flush_channel(ChannelDev* ch_dev) { ch_dev->flush(); }
 
 void init_context_state(CUcontext ctx) {
+  assert(ctx_state_map.find(ctx) != ctx_state_map.end());
   CTXstate *ctx_state = ctx_state_map[ctx];
   ctx_state->recv_thread_done = RecvThreadState::WORKING;
   cudaMallocManaged(&ctx_state->channel_dev, sizeof(ChannelDev));
@@ -381,6 +382,19 @@ void nvbit_tool_init(CUcontext ctx) {
   assert(ctx_state_map.find(ctx) != ctx_state_map.end());
   init_context_state(ctx);
   pthread_mutex_unlock(&mutex);
+}
+
+
+// Reference code from NVIDIA nvbit mem_trace tool
+void nvbit_at_ctx_init(CUcontext ctx) {
+    pthread_mutex_lock(&mutex);
+    if (verbose) {
+        printf("MEMTRACE: STARTING CONTEXT %p\n", ctx);
+    }
+    assert(ctx_state_map.find(ctx) == ctx_state_map.end());
+    CTXstate* ctx_state = new CTXstate;
+    ctx_state_map[ctx] = ctx_state;
+    pthread_mutex_unlock(&mutex);
 }
 
 // Reference code from NVIDIA nvbit mem_trace tool
