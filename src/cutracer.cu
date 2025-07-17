@@ -35,6 +35,9 @@
 /* env config */
 #include "env_config.h"
 
+/* log handle */
+#include "log_handle.h"
+
 /* Channel used to communicate from GPU to CPU receiving thread */
 #define CHANNEL_SIZE (1l << 20)
 static __managed__ ChannelDev channel_dev;
@@ -53,6 +56,8 @@ bool skip_callback_flag = false;
 
 std::map<int, std::string> id_to_sass_map;
 
+/* ===== Main Functionality ===== */
+
 // Based on NVIDIA code with Meta modifications for unified register support
 void instrument_function_if_needed(CUcontext ctx, CUfunction func) {
   /* Get related functions of the kernel (device function that can be
@@ -66,7 +71,7 @@ void instrument_function_if_needed(CUcontext ctx, CUfunction func) {
   for (auto f : related_functions) {
     const std::vector<Instr *> &instrs = nvbit_get_instrs(ctx, f);
     if (verbose) {
-      printf("Inspecting function %s at address 0x%lx\n", nvbit_get_func_name(ctx, f), nvbit_get_func_addr(ctx, f));
+      oprintf("Inspecting function %s at address 0x%lx\n", nvbit_get_func_name(ctx, f), nvbit_get_func_addr(ctx, f));
     }
 
     uint32_t cnt = 0;
@@ -208,7 +213,7 @@ void nvbit_at_cuda_event(CUcontext ctx, int is_exit, nvbit_api_cuda_t cbid, cons
 
       if (cbid == API_CUDA_cuLaunchKernelEx_ptsz || cbid == API_CUDA_cuLaunchKernelEx) {
         cuLaunchKernelEx_params *p = (cuLaunchKernelEx_params *)params;
-        printf(
+        loprintf(
             "Kernel %s - grid size %d,%d,%d - block size %d,%d,%d - nregs "
             "%d - shmem %d - cuda stream id %ld\n",
             nvbit_get_func_name(ctx, func), p->config->gridDimX, p->config->gridDimY, p->config->gridDimZ,
@@ -216,7 +221,7 @@ void nvbit_at_cuda_event(CUcontext ctx, int is_exit, nvbit_api_cuda_t cbid, cons
             shmem_static_nbytes + p->config->sharedMemBytes, (uint64_t)p->config->hStream);
       } else {
         cuLaunchKernel_params *p = (cuLaunchKernel_params *)params;
-        printf(
+        loprintf(
             "Kernel %s - grid size %d,%d,%d - block size %d,%d,%d - nregs "
             "%d - shmem %d - cuda stream id %ld\n",
             nvbit_get_func_name(ctx, func), p->gridDimX, p->gridDimY, p->gridDimZ, p->blockDimX, p->blockDimY,
@@ -227,7 +232,7 @@ void nvbit_at_cuda_event(CUcontext ctx, int is_exit, nvbit_api_cuda_t cbid, cons
       cudaDeviceSynchronize();
       cudaError_t kernelError = cudaGetLastError();
       if (kernelError != cudaSuccess) {
-        printf("Kernel launch error: %s\n", cudaGetErrorString(kernelError));
+        loprintf("Kernel launch error: %s\n", cudaGetErrorString(kernelError));
         assert(0);
       }
 
@@ -267,9 +272,15 @@ void nvbit_at_ctx_term(CUcontext ctx) {
   while (recv_thread_done != RecvThreadState::FINISHED);
   channel_host.destroy(false);
   skip_callback_flag = false;
+
+  // Cleanup log handle system
+  cleanup_log_handle();
 }
 
 void nvbit_at_init() {
   // Initialize configuration from environment variables
   init_config_from_env();
+
+  // Initialize log handle system
+  init_log_handle();
 }
