@@ -37,7 +37,8 @@ jobs:
         strategy:
             matrix:
                 cuda-version: ["12.8"]
-                debug: [false, true]
+                debug: [false]
+                build-system: ["cmake", "make"]
 
         steps:
             - name: Checkout repository
@@ -56,13 +57,14 @@ jobs:
                   DEBUG: ${{ matrix.debug && '1' || '0' }}
                   TEST_TYPE: ${{ github.event.inputs.test-type || 'all' }}
                   TIMEOUT: 60
+                  BUILD_SYSTEM: ${{ matrix.build-system }}
               run: |
                   bash .ci/run_tests.sh
             - name: Upload test artifacts
               if: always()
               uses: actions/upload-artifact@v4
               with:
-                  name: test-artifacts-cuda${{ matrix.cuda-version }}-debug${{ matrix.debug }}
+                  name: test-artifacts-cuda${{ matrix.cuda-version }}-debug${{ matrix.debug }}-${{ matrix.build-system }}
                   path: |
                       tests/vectoradd/*.sass
                       tests/vectoradd/*.log

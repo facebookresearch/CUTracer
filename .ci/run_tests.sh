@@ -9,11 +9,13 @@ set -e
 DEBUG=${DEBUG:-"0"}
 TEST_TYPE=${TEST_TYPE:-"all"}
 TIMEOUT=${TIMEOUT:-"60"}
+BUILD_SYSTEM=${BUILD_SYSTEM:-"cmake"}  # Options: "cmake" or "make"
 
 echo "Running CUTracer tests..."
 echo "DEBUG: $DEBUG"
 echo "TEST_TYPE: $TEST_TYPE"
 echo "TIMEOUT: $TIMEOUT"
+echo "BUILD_SYSTEM: $BUILD_SYSTEM"
 
 # Define project root path (absolute path)
 PROJECT_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -24,6 +26,42 @@ export CUDA_HOME="/usr/local/cuda"
 export PATH="/usr/local/cuda/bin:$PATH"
 export LD_LIBRARY_PATH="/usr/local/cuda/lib64:$LD_LIBRARY_PATH"
 
+# Function to check dependencies
+check_dependencies() {
+  echo "🔍 Checking dependencies..."
+  
+  # Check for CMake if using cmake build system
+  if [ "$BUILD_SYSTEM" = "cmake" ]; then
+    if ! command -v cmake &> /dev/null; then
+      echo "❌ CMake not found! Please install CMake."
+      echo "On Ubuntu/Debian: sudo apt-get install cmake"
+      echo "On CentOS/RHEL: sudo yum install cmake"
+      return 1
+    else
+      cmake_version=$(cmake --version | head -n1)
+      echo "✅ Found CMake: $cmake_version"
+    fi
+  fi
+  
+  # Check for make
+  if ! command -v make &> /dev/null; then
+    echo "❌ Make not found! Please install make."
+    return 1
+  else
+    echo "✅ Found Make: $(make --version | head -n1)"
+  fi
+  
+  # Check for NVCC
+  if ! command -v nvcc &> /dev/null; then
+    echo "❌ NVCC not found! Please install CUDA toolkit."
+    return 1
+  else
+    nvcc_version=$(nvcc --version | grep release | cut -f2 -d, | cut -f3 -d' ')
+    echo "✅ Found NVCC: version $nvcc_version"
+  fi
+  
+  return 0
+}
 # Function to install third-party dependencies
 install_third_party() {
   echo "📦 Installing third-party dependencies..."
@@ -64,22 +102,57 @@ build_cutracer() {
 
   cd "$PROJECT_ROOT"
 
+  # Check dependencies first
+  if ! check_dependencies; then
+    echo "❌ Dependency check failed"
+    return 1
+  fi
+
   # Install third-party dependencies first
   if ! install_third_party; then
     echo "❌ Failed to install third-party dependencies"
     return 1
   fi
 
-  # Clean previous build
-  make clean
-
-  # Build based on debug flag
-  if [ "$DEBUG" = "1" ]; then
-    echo "Building in DEBUG mode..."
-    DEBUG=1 make -j$(nproc)
-  else
-    echo "Building in RELEASE mode..."
+  if [ "$BUILD_SYSTEM" = "cmake" ]; then
+    echo "🔧 Using CMake build system..."
+    
+    # Clean previous build
+    rm -rf build lib obj
+    
+    # Create build directory
+    mkdir -p build
+    cd build
+    
+    # Configure with CMake
+    if [ "$DEBUG" = "1" ]; then
+      echo "Configuring CMake in DEBUG mode..."
+      cmake -DCMAKE_BUILD_TYPE=Debug ..
+    else
+      echo "Configuring CMake in RELEASE mode..."
+      cmake -DCMAKE_BUILD_TYPE=Release ..
+    fi
+    
+    # Build with make
+    echo "Building with make..."
     make -j$(nproc)
+    
+    cd "$PROJECT_ROOT"
+    
+  else
+    echo "🔧 Using traditional Makefile..."
+    
+    # Clean previous build
+    make clean
+
+    # Build based on debug flag
+    if [ "$DEBUG" = "1" ]; then
+      echo "Building in DEBUG mode..."
+      DEBUG=1 make -j$(nproc)
+    else
+      echo "Building in RELEASE mode..."
+      make -j$(nproc)
+    fi
   fi
 
   # Verify the library was built
