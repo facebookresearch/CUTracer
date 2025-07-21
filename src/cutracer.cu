@@ -1,5 +1,6 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) Meta Platforms, Inc. and affiliates.
+
+* SPDX-FileCopyrightText: Copyright (c) Meta Platforms, Inc. and affiliates.
  * SPDX-FileCopyrightText: Copyright (c) 2019 NVIDIA CORPORATION & AFFILIATES.
  * SPDX-License-Identifier: MIT AND BSD-3-Clause
  *
@@ -17,8 +18,8 @@
 #include <map>
 #include <string>
 #include <unordered_map>
-#include <unordered_set>
 
+/* ===== NVBit Tool Includes ===== */
 /* every tool needs to include this once */
 #include "nvbit_tool.h"
 
@@ -30,6 +31,7 @@
 
 /* analysis functionality */
 #include "analysis.h"
+/* contains definition of the reg_info_t and mem_access_t structure */
 
 /* env config */
 #include "env_config.h"
