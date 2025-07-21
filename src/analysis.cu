@@ -22,8 +22,103 @@
 extern std::map<int, std::string> id_to_sass_map;
 extern pthread_mutex_t mutex;
 extern std::unordered_map<CUcontext, CTXstate*> ctx_state_map;
+/* Warp Tracking */
+// <global launch id, <WarpKey, TraceRecord>>
+std::map<uint64_t, std::map<WarpKey, std::vector<TraceRecord>>> warp_traces;
+extern uint64_t global_grid_launch_id;
+std::map<WarpKey, WarpLoopState> loop_states;
 
-// Based on NVIDIA NVBit record_reg_vals example.
+// Updates the loop state for a warp based on its current PC.
+//
+// Args:
+// - key: The warp key
+// - pc: The program counter
+// - current_trace: The current trace record
+void update_loop_state(const WarpKey& key, uint64_t pc, const TraceRecord& current_trace) {
+
+  if (loop_states.find(key) == loop_states.end()) loop_states.emplace(key, WarpLoopState(
+    
+  ));
+  auto& state = loop_states[key];
+
+  state.pcs[state.head] = pc;
+  state.head = (state.head + 1) % loop_win_size;
+  active_warps.insert(key);
+  if (state.head != 0) return;
+
+  uint8_t period = loop_win_size;
+  for (uint8_t p = 1; p < loop_win_size; ++p) {
+    bool ok = true;
+    for (uint8_t i = p; i < loop_win_size && ok; ++i) ok &= (state.pcs[i] == state.pcs[i - p]);
+    if (ok) {
+      period = p;
+      break;
+    }
+  }
+
+  if (period == loop_win_size) {
+    state.repeat_cnt = 0;
+    state.loop_flag = false;
+    state.last_sig = 0;
+    return;
+  }
+
+  // Build rotation-invariant signature
+  auto canonical_hash = [&](uint8_t P) -> uint64_t {
+    // Find min_rot to make the first P pcs sorted
+    uint8_t min_rot = 0;
+    for (uint8_t r = 1; r < P; ++r) {
+      for (uint8_t i = 0; i < P; ++i) {
+        uint64_t a = state.pcs[(i + r) % P];
+        uint64_t b = state.pcs[(i + min_rot) % P];
+        if (a == b) continue;
+        if (a < b) min_rot = r;
+        break;
+      }
+    }
+    // Build signature
+    uint64_t h = 14695981039346656037ULL ^ P;
+    for (uint8_t i = 0; i < P; ++i) {
+      uint64_t pc_rot = state.pcs[(i + min_rot) % P];
+      h = (h ^ pc_rot) * 1099511628211ULL;
+    }
+    return h;
+  };
+
+  uint64_t sig = canonical_hash(period);
+
+  if (sig == state.last_sig) {
+    if (++state.repeat_cnt >= loop_repeat_thresh && !state.loop_flag) {
+      state.loop_flag = true;
+      state.first_loop_time = time(nullptr);
+
+      // Store detailed loop information
+      state.current_loop.period = period;
+      state.current_loop.instructions.clear();
+
+      // Save complete instruction information for each instruction in the loop
+      for (uint8_t i = 0; i < period; ++i) {
+        WarpLoopState::LoopInstruction instr;
+        instr.pc = state.pcs[i];
+        instr.opcode_id = current_trace.opcode_id;
+        instr.reg_values = current_trace.reg_values;
+        instr.ureg_values = current_trace.ureg_values;
+        state.current_loop.instructions.push_back(instr);
+      }
+
+      if (verbose >= 2) {
+        trace_lprintf("Warp loop detected (P=%u): CTA %d,%d,%d warp %d\n", period, key.cta_id_x, key.cta_id_y, key.cta_id_z,
+                 key.warp_id);
+      }
+    }
+  } else {
+    state.repeat_cnt = 1;
+    state.loop_flag = false;
+    state.last_sig = sig;
+  }
+}
+
+// Based on NVIDIA NVBit record_reg_vals example with Meta modifications for message type and analysis support.
 void* recv_thread_fun(void* args) {
   CUcontext ctx = (CUcontext)args;
 
@@ -47,12 +142,8 @@ void* recv_thread_fun(void* args) {
         if (header->type == MSG_TYPE_REG_INFO) {
           reg_info_t* ri = (reg_info_t*)&recv_buffer[num_processed_bytes];
 
-          /* when we get this cta_id_x it means the kernel has completed */
-          if (ri->cta_id_x == -1) {
-            break;
-          }
-          trace_lprintf("CTX %p - CTA %d,%d,%d - warp %d - %s:\n", ctx, ri->cta_id_x, ri->cta_id_y, ri->cta_id_z,
-                        ri->warp_id, (id_to_sass_map)[ri->opcode_id].c_str());
+          trace_lprintf("CTX %p - grid_launch_id %ld - CTA %d,%d,%d - warp %d - %s:\n", ctx, global_grid_launch_id, ri->cta_id_x,
+                 ri->cta_id_y, ri->cta_id_z, ri->warp_id, (id_to_sass_map)[ri->opcode_id].c_str());
 
           // Print register values
           for (int reg_idx = 0; reg_idx < ri->num_regs; reg_idx++) {
