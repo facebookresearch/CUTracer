@@ -34,6 +34,9 @@
 /* env config */
 #include "env_config.h"
 
+/* logging functionality */
+#include "log.h"
+
 /* Channel used to communicate from GPU to CPU receiving thread */
 #define CHANNEL_SIZE (1l << 20)
 
@@ -51,6 +54,12 @@ bool skip_callback_flag = false;
 std::map<int, std::string> id_to_sass_map;
 /* grid launch id, incremented at every launch */
 uint64_t global_grid_launch_id = 0;
+
+// map to store the iteration count for each kernel
+static std::map<CUfunction, uint32_t> kernel_iter_map;
+
+
+/* ===== Main Functionality ===== */
 // Based on NVIDIA NVBit record_reg_vals and mem_trace examples with Meta modifications for unified register support
 void instrument_function_if_needed(CUcontext ctx, CUfunction func) {
   assert(ctx_state_map.find(ctx) != ctx_state_map.end());
@@ -67,7 +76,7 @@ void instrument_function_if_needed(CUcontext ctx, CUfunction func) {
   for (auto f : related_functions) {
     const std::vector<Instr *> &instrs = nvbit_get_instrs(ctx, f);
     if (verbose) {
-      printf("Inspecting function %s at address 0x%lx\n", nvbit_get_func_name(ctx, f), nvbit_get_func_addr(ctx, f));
+      loprintf("Inspecting function %s at address 0x%lx\n", nvbit_get_func_name(ctx, f), nvbit_get_func_addr(ctx, f));
     }
 
     uint32_t cnt = 0;
@@ -198,7 +207,7 @@ static void enter_kernel_launch(CUcontext ctx, CUfunction func, uint64_t &grid_l
 
     if (cbid == API_CUDA_cuLaunchKernelEx_ptsz || cbid == API_CUDA_cuLaunchKernelEx) {
       cuLaunchKernelEx_params *p = (cuLaunchKernelEx_params *)params;
-      printf(
+      loprintf(
           "MEMTRACE: CTX 0x%016lx - LAUNCH - Kernel pc 0x%016lx - "
           "Kernel name %s - grid launch id %ld - grid size %d,%d,%d "
           "- block size %d,%d,%d - nregs %d - shmem %d - cuda stream "
@@ -208,7 +217,7 @@ static void enter_kernel_launch(CUcontext ctx, CUfunction func, uint64_t &grid_l
           shmem_static_nbytes + p->config->sharedMemBytes, (uint64_t)p->config->hStream);
     } else {
       cuLaunchKernel_params *p = (cuLaunchKernel_params *)params;
-      printf(
+      loprintf(
           "MEMTRACE: CTX 0x%016lx - LAUNCH - Kernel pc 0x%016lx - "
           "Kernel name %s - grid launch id %ld - grid size %d,%d,%d "
           "- block size %d,%d,%d - nregs %d - shmem %d - cuda stream "
@@ -329,15 +338,16 @@ void nvbit_at_cuda_event(CUcontext ctx, int is_exit, nvbit_api_cuda_t cbid, cons
       if (!is_exit) {
         bool stream_capture = (streamStatus == cudaStreamCaptureStatusActive);
         enter_kernel_launch(ctx, func, global_grid_launch_id, cbid, params, stream_capture);
+        log_open_kernel_file(ctx, func, kernel_iter_map[func]++);
       } else {
         if (streamStatus != cudaStreamCaptureStatusActive) {
           if (verbose >= 1) {
-            printf("kernel %s not captured by cuda graph\n", nvbit_get_func_name(ctx, func));
+            loprintf("kernel %s not captured by cuda graph\n", nvbit_get_func_name(ctx, func));
           }
           leave_kernel_launch(ctx_state, global_grid_launch_id);
         } else {
           if (verbose >= 1) {
-            printf("kernel %s captured by cuda graph\n", nvbit_get_func_name(ctx, func));
+            loprintf("kernel %s captured by cuda graph\n", nvbit_get_func_name(ctx, func));
           }
         }
       }
@@ -401,7 +411,7 @@ void nvbit_at_ctx_term(CUcontext ctx) {
   pthread_mutex_lock(&mutex);
   skip_callback_flag = true;
   if (verbose) {
-    printf("MEMTRACE: TERMINATING CONTEXT %p\n", ctx);
+    loprintf("MEMTRACE: TERMINATING CONTEXT %p\n", ctx);
   }
   /* get context state from map */
   assert(ctx_state_map.find(ctx) != ctx_state_map.end());
@@ -417,6 +427,8 @@ void nvbit_at_ctx_term(CUcontext ctx) {
   skip_callback_flag = false;
   delete ctx_state;
   pthread_mutex_unlock(&mutex);
+  // Cleanup log handle system
+  cleanup_log_handle();
 }
 
 // Reference code from NVIDIA nvbit mem_trace tool
@@ -429,7 +441,7 @@ void nvbit_at_graph_node_launch(CUcontext ctx, CUfunction func, CUstream stream,
   nvbit_set_at_launch(ctx, func, (uint64_t)global_grid_launch_id, stream, launch_handle);
   nvbit_get_func_config(ctx, func, &config);
 
-  printf(
+  loprintf(
       "MEMTRACE: CTX 0x%016lx - LAUNCH - Kernel pc 0x%016lx - "
       "Kernel name %s - grid launch id %ld - grid size %d,%d,%d "
       "- block size %d,%d,%d - nregs %d - shmem %d - cuda stream "
@@ -445,6 +457,7 @@ void nvbit_at_graph_node_launch(CUcontext ctx, CUfunction func, CUstream stream,
 
 // Reference code from NVIDIA nvbit mem_trace tool with Meta modifications for env config
 void nvbit_at_init() {
+  init_log_handle();
   // Initialize configuration from environment variables
   init_config_from_env();
   /* set mutex as recursive */
