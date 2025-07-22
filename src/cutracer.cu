@@ -457,7 +457,7 @@ void nvbit_at_graph_node_launch(CUcontext ctx, CUfunction func, CUstream stream,
 
 // Reference code from NVIDIA nvbit mem_trace tool with Meta modifications for env config
 void nvbit_at_init() {
-  init_log_handle();
+
   // Initialize configuration from environment variables
   init_config_from_env();
   /* set mutex as recursive */
