@@ -56,6 +56,8 @@ bool skip_callback_flag = false;
 
 std::map<int, std::string> id_to_sass_map;
 
+static std::map<CUfunction, uint32_t> kernel_iter_map;
+
 /* ===== Main Functionality ===== */
 
 // Based on NVIDIA code with Meta modifications for unified register support
@@ -210,7 +212,8 @@ void nvbit_at_cuda_event(CUcontext ctx, int is_exit, nvbit_api_cuda_t cbid, cons
       instrument_function_if_needed(ctx, func);
 
       nvbit_enable_instrumented(ctx, func, true);
-
+      log_switch_to_kernel(ctx, func, kernel_iter_map[func]++);
+      /* print kernel info */
       if (cbid == API_CUDA_cuLaunchKernelEx_ptsz || cbid == API_CUDA_cuLaunchKernelEx) {
         cuLaunchKernelEx_params *p = (cuLaunchKernelEx_params *)params;
         loprintf(
@@ -228,6 +231,7 @@ void nvbit_at_cuda_event(CUcontext ctx, int is_exit, nvbit_api_cuda_t cbid, cons
             p->blockDimZ, nregs, shmem_static_nbytes + p->sharedMemBytes, (uint64_t)p->hStream);
       }
     } else {
+      log_revert_to_main();
       /* make sure current kernel is completed */
       cudaDeviceSynchronize();
       cudaError_t kernelError = cudaGetLastError();

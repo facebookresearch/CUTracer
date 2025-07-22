@@ -15,8 +15,8 @@
 #include <stdio.h>
 #include <string.h>
 #include <time.h>
-
 #include <string>
+#include <functional>
 
 /* nvbit interface file */
 #include "nvbit.h"
@@ -29,175 +29,131 @@
 
 /* ===== Global Variables ===== */
 
-/* File handling */
-FILE *log_handle = NULL;
-FILE *log_handle_main_trace = NULL;
+// The main log file for the entire process run
+static FILE *g_main_log_file = NULL;
+// The currently active log file (can point to main log or a kernel log)
+static FILE *g_active_log_file = NULL;
+
 
 /* ===== Utility Functions for Logging ===== */
 
 /**
- * Base function for formatted output to different destinations
+ * @brief Base function for formatted output. Uses va_list to avoid re-formatting.
+ * 
+ * @param file_output if true, output to the active log file
+ * @param stdout_output if true, output to stdout
+ * @param format format string
+ * @param args variable argument list
  */
-void base_fprintf(bool file_output, bool stdout_output, const char *format, ...) {
-  // if no output, return
-  if (!file_output && !stdout_output) return;
+static void vfprintf_base(bool file_output, bool stdout_output, const char *format, va_list args) {
+  if (!file_output && !stdout_output) {
+    return;
+  }
 
-  char output_buffer[2048];  // use a large enough buffer
-  
-  va_list args;
-  va_start(args, format);
+  char output_buffer[2048];
   vsnprintf(output_buffer, sizeof(output_buffer), format, args);
-  va_end(args);
 
-  // output to stdout
   if (stdout_output) {
     fprintf(stdout, "%s", output_buffer);
   }
-
-  // output to log file (if not stdout)
-  if (file_output && log_handle != NULL && log_handle != stdout) {
-    fprintf(log_handle, "%s", output_buffer);
+  
+  if (file_output && g_active_log_file) {
+    fprintf(g_active_log_file, "%s", output_buffer);
   }
 }
 
-/**
- * lprintf - print to log file only (log print)
- */
 void lprintf(const char *format, ...) {
   va_list args;
   va_start(args, format);
-  
-  char output_buffer[2048];
-  vsnprintf(output_buffer, sizeof(output_buffer), format, args);
+  vfprintf_base(true, false, format, args);
   va_end(args);
-  
-  base_fprintf(true, false, "%s", output_buffer);
 }
 
-/**
- * oprintf - print to stdout only (output print)
- */
 void oprintf(const char *format, ...) {
   va_list args;
   va_start(args, format);
-  
-  char output_buffer[2048];
-  vsnprintf(output_buffer, sizeof(output_buffer), format, args);
+  vfprintf_base(false, true, format, args);
   va_end(args);
-  
-  base_fprintf(false, true, "%s", output_buffer);
 }
 
-/**
- * loprintf - print to log file and stdout (log and output print)
- */
 void loprintf(const char *format, ...) {
   va_list args;
   va_start(args, format);
-  
-  char output_buffer[2048];
-  vsnprintf(output_buffer, sizeof(output_buffer), format, args);
+  vfprintf_base(true, true, format, args);
   va_end(args);
-  
-  base_fprintf(true, true, "%s", output_buffer);
 }
 
 /* ===== File Management Functions ===== */
 
-/**
- * Creates the intermediate trace file if needed
- */
-void create_trace_file(const char *custom_filename, bool create_new_file) {
-  // For cutracer.cu, we'll use a simplified approach
-  // Always log to stdout for now, can be enhanced later
-  if (log_handle != NULL && log_handle != stdout) {
-    fclose(log_handle);
-  }
-  log_handle = stdout;
-  
-  if (custom_filename != nullptr) {
-    oprintf("Writing traces to %s\n", custom_filename);
-  } else {
-    oprintf("Writing traces to stdout\n");
-  }
-}
+void log_switch_to_kernel(CUcontext_ptr ctx, CUfunction_ptr func, uint32_t iteration) {
+  // First, ensure any previous kernel log is closed and we've reverted to main.
+  // This handles cases where kernel exits might have been missed.
+  log_revert_to_main();
 
-/**
- * Truncates a mangled function name to make it suitable for use as a filename
- */
-void truncate_mangled_name(const char *mangled_name, char *truncated_buffer, size_t buffer_size) {
-  if (!truncated_buffer || buffer_size == 0) {
-    return;
-  }
-
-  // Default to unknown if no name provided
-  if (!mangled_name) {
-    snprintf(truncated_buffer, buffer_size, "unknown_kernel");
-    return;
-  }
-
-  // Truncate the name if it's longer than buffer_size - 1 (leave room for null terminator)
-  size_t max_length = buffer_size - 1;
-  size_t name_len = strlen(mangled_name);
-
-  if (name_len > max_length) {
-    strncpy(truncated_buffer, mangled_name, max_length);
-    truncated_buffer[max_length] = '\0';  // Ensure null termination
-  } else {
-    strcpy(truncated_buffer, mangled_name);
-  }
-}
-
-/**
- * Creates a log file specifically for a kernel based on its mangled name and iteration count
- */
-void create_kernel_log_file(CUcontext_ptr ctx, CUfunction_ptr func, uint32_t iteration) {
-  // For cutracer.cu, we'll use a simplified approach
-  // Get mangled function name for file naming
   const char *mangled_name = nvbit_get_func_name((CUcontext)ctx, (CUfunction)func, true);
+  if (!mangled_name) {
+    mangled_name = "unknown_kernel";
+  }
 
-  // Create a buffer for the truncated name
-  char truncated_name[201];  // 200 chars + null terminator
+  std::hash<std::string> hasher;
+  size_t name_hash = hasher(mangled_name);
 
-  // Truncate the name
-  truncate_mangled_name(mangled_name, truncated_name, sizeof(truncated_name));
-
-  // Create a filename with the truncated name
   char filename[256];
-  snprintf(filename, sizeof(filename), "%s_iter%u.log", truncated_name, iteration);
+  snprintf(filename, sizeof(filename), "kernel_%.150s_%zx_iter%u.log", mangled_name, name_hash, iteration);
 
-  // Create trace file with the custom filename
-  create_trace_file(filename, true);
+  FILE *kernel_log = fopen(filename, "w");
+  if (kernel_log) {
+    g_active_log_file = kernel_log;
+    loprintf("Switched to kernel log: %s\n", filename);
+  } else {
+    oprintf("ERROR: Failed to open kernel log file: %s\n", filename);
+  }
 }
 
-/**
- * Initializes the log handle system
- */
+void log_revert_to_main() {
+  if (g_active_log_file && g_active_log_file != g_main_log_file) {
+    fclose(g_active_log_file);
+  }
+  g_active_log_file = g_main_log_file;
+}
+
+
 void init_log_handle() {
-  // Initialize log handle to stdout by default
-  log_handle = stdout;
-  log_handle_main_trace = stdout;
+  // Get current timestamp for filename
+  time_t now = time(0);
+  struct tm* timeinfo = localtime(&now);
+  char timestamp[32];
+  strftime(timestamp, sizeof(timestamp), "%Y%m%d_%H%M%S", timeinfo);
+  
+  char main_log_filename[256];
+  snprintf(main_log_filename, sizeof(main_log_filename), "cutracer_main_%s.log", timestamp);
+  
+  g_main_log_file = fopen(main_log_filename, "w");
+  if (!g_main_log_file) {
+    // Fallback to stdout if file creation fails
+    g_main_log_file = stdout;
+    oprintf("WARNING: Failed to create main log file. Falling back to stdout.\n");
+  }
+  g_active_log_file = g_main_log_file;
   
   if (verbose) {
-    oprintf("Log handle system initialized\n");
+    loprintf("Log handle system initialized. Main log is %s.\n", (g_main_log_file == stdout) ? "stdout" : main_log_filename);
   }
 }
 
-/**
- * Cleans up the log handle system
- */
 void cleanup_log_handle() {
-  if (log_handle != NULL && log_handle != stdout) {
-    fclose(log_handle);
-    log_handle = NULL;
+  if (g_active_log_file && g_active_log_file != g_main_log_file) {
+      fclose(g_active_log_file);
   }
   
-  if (log_handle_main_trace != NULL && log_handle_main_trace != stdout) {
-    fclose(log_handle_main_trace);
-    log_handle_main_trace = NULL;
+  if (g_main_log_file && g_main_log_file != stdout) {
+    fclose(g_main_log_file);
   }
+
+  g_active_log_file = NULL;
+  g_main_log_file = NULL;
   
   if (verbose) {
-    oprintf("Log handle system cleaned up\n");
+    oprintf("Log handle system cleaned up.\n");
   }
 } 
