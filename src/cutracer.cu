@@ -58,8 +58,6 @@ std::map<int, std::string> id_to_sass_map;
 
 static std::map<CUfunction, uint32_t> kernel_iter_map;
 
-/* ===== Main Functionality ===== */
-
 // Based on NVIDIA code with Meta modifications for unified register support
 void instrument_function_if_needed(CUcontext ctx, CUfunction func) {
   /* Get related functions of the kernel (device function that can be
@@ -150,6 +148,7 @@ void instrument_function_if_needed(CUcontext ctx, CUfunction func) {
       for (int num : ureg_num_list) {
         nvbit_add_call_arg_ureg_val(instr, num, true);
       }
+      cnt++;
     }
   }
 }
@@ -212,7 +211,7 @@ void nvbit_at_cuda_event(CUcontext ctx, int is_exit, nvbit_api_cuda_t cbid, cons
       instrument_function_if_needed(ctx, func);
 
       nvbit_enable_instrumented(ctx, func, true);
-      log_switch_to_kernel(ctx, func, kernel_iter_map[func]++);
+      log_open_kernel_file(ctx, func, kernel_iter_map[func]++);
       /* print kernel info */
       if (cbid == API_CUDA_cuLaunchKernelEx_ptsz || cbid == API_CUDA_cuLaunchKernelEx) {
         cuLaunchKernelEx_params *p = (cuLaunchKernelEx_params *)params;
@@ -231,7 +230,7 @@ void nvbit_at_cuda_event(CUcontext ctx, int is_exit, nvbit_api_cuda_t cbid, cons
             p->blockDimZ, nregs, shmem_static_nbytes + p->sharedMemBytes, (uint64_t)p->hStream);
       }
     } else {
-      log_revert_to_main();
+      log_close_kernel_file();
       /* make sure current kernel is completed */
       cudaDeviceSynchronize();
       cudaError_t kernelError = cudaGetLastError();
@@ -273,7 +272,8 @@ void nvbit_at_ctx_term(CUcontext ctx) {
   /* Notify receiver thread and wait for receiver thread to
    * notify back */
   recv_thread_done = RecvThreadState::STOP;
-  while (recv_thread_done != RecvThreadState::FINISHED);
+  while (recv_thread_done != RecvThreadState::FINISHED)
+    ;
   channel_host.destroy(false);
   skip_callback_flag = false;
 

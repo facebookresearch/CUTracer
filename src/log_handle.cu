@@ -31,8 +31,8 @@
 
 // The main log file for the entire process run
 static FILE *g_main_log_file = NULL;
-// The currently active log file (can point to main log or a kernel log)
-static FILE *g_active_log_file = NULL;
+// The currently active log file for kernel traces
+static FILE *g_kernel_log_file = NULL;
 
 
 /* ===== Utility Functions for Logging ===== */
@@ -57,8 +57,8 @@ static void vfprintf_base(bool file_output, bool stdout_output, const char *form
     fprintf(stdout, "%s", output_buffer);
   }
   
-  if (file_output && g_active_log_file) {
-    fprintf(g_active_log_file, "%s", output_buffer);
+  if (file_output && g_main_log_file) {
+    fprintf(g_main_log_file, "%s", output_buffer);
   }
 }
 
@@ -83,12 +83,22 @@ void loprintf(const char *format, ...) {
   va_end(args);
 }
 
+void trace_lprintf(const char *format, ...) {
+  if (!g_kernel_log_file) {
+    return;
+  }
+
+  va_list args;
+  va_start(args, format);
+  vfprintf(g_kernel_log_file, format, args);
+  va_end(args);
+}
+
 /* ===== File Management Functions ===== */
 
-void log_switch_to_kernel(CUcontext_ptr ctx, CUfunction_ptr func, uint32_t iteration) {
-  // First, ensure any previous kernel log is closed and we've reverted to main.
-  // This handles cases where kernel exits might have been missed.
-  log_revert_to_main();
+void log_open_kernel_file(CUcontext_ptr ctx, CUfunction_ptr func, uint32_t iteration) {
+  // First, ensure any previous kernel log is closed.
+  log_close_kernel_file();
 
   const char *mangled_name = nvbit_get_func_name((CUcontext)ctx, (CUfunction)func, true);
   if (!mangled_name) {
@@ -101,20 +111,19 @@ void log_switch_to_kernel(CUcontext_ptr ctx, CUfunction_ptr func, uint32_t itera
   char filename[256];
   snprintf(filename, sizeof(filename), "kernel_%.150s_%zx_iter%u.log", mangled_name, name_hash, iteration);
 
-  FILE *kernel_log = fopen(filename, "w");
-  if (kernel_log) {
-    g_active_log_file = kernel_log;
-    loprintf("Switched to kernel log: %s\n", filename);
+  g_kernel_log_file = fopen(filename, "w");
+  if (g_kernel_log_file) {
+    loprintf("Opened kernel trace log: %s\n", filename);
   } else {
-    oprintf("ERROR: Failed to open kernel log file: %s\n", filename);
+    oprintf("ERROR: Failed to open kernel trace log file: %s\n", filename);
   }
 }
 
-void log_revert_to_main() {
-  if (g_active_log_file && g_active_log_file != g_main_log_file) {
-    fclose(g_active_log_file);
+void log_close_kernel_file() {
+  if (g_kernel_log_file) {
+    fclose(g_kernel_log_file);
+    g_kernel_log_file = NULL;
   }
-  g_active_log_file = g_main_log_file;
 }
 
 
@@ -134,7 +143,6 @@ void init_log_handle() {
     g_main_log_file = stdout;
     oprintf("WARNING: Failed to create main log file. Falling back to stdout.\n");
   }
-  g_active_log_file = g_main_log_file;
   
   if (verbose) {
     loprintf("Log handle system initialized. Main log is %s.\n", (g_main_log_file == stdout) ? "stdout" : main_log_filename);
@@ -142,15 +150,12 @@ void init_log_handle() {
 }
 
 void cleanup_log_handle() {
-  if (g_active_log_file && g_active_log_file != g_main_log_file) {
-      fclose(g_active_log_file);
-  }
+  log_close_kernel_file();
   
   if (g_main_log_file && g_main_log_file != stdout) {
     fclose(g_main_log_file);
   }
 
-  g_active_log_file = NULL;
   g_main_log_file = NULL;
   
   if (verbose) {

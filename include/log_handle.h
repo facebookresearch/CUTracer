@@ -37,22 +37,27 @@ void oprintf(const char *format, ...);
  */
 void loprintf(const char *format, ...);
 
+/**
+ * trace_lprintf - print to the kernel trace log file only
+ */
+void trace_lprintf(const char *format, ...);
+
 /* ===== File Management Functions ===== */
 
 /**
- * Switches the active log to a new file for a specific kernel invocation.
+ * Opens a new log file for a specific kernel invocation.
  * This should be called on kernel entry.
  * @param ctx CUDA context
  * @param func CUfunction representing the kernel
  * @param iteration Current iteration of the kernel execution
  */
-void log_switch_to_kernel(CUcontext_ptr ctx, CUfunction_ptr func, uint32_t iteration);
+void log_open_kernel_file(CUcontext_ptr ctx, CUfunction_ptr func, uint32_t iteration);
 
 /**
- * Closes the kernel-specific log and reverts to the main process log file.
+ * Closes the kernel-specific log file.
  * This should be called on kernel exit.
  */
-void log_revert_to_main();
+void log_close_kernel_file();
 
 
 /**

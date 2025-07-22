@@ -51,38 +51,38 @@ void* recv_thread_fun(void*) {
           }
 
           // Simple instruction trace output
-          lprintf("CTA %d,%d,%d - warp %d - PC %ld - %s:\n", ri->cta_id_x, ri->cta_id_y, ri->cta_id_z, ri->warp_id,
+          trace_lprintf("CTA %d,%d,%d - warp %d - PC %ld - %s:\n", ri->cta_id_x, ri->cta_id_y, ri->cta_id_z, ri->warp_id,
                   ri->pc, (*g_id_to_sass_map)[ri->opcode_id].c_str());
 
           // Print register values
           for (int reg_idx = 0; reg_idx < ri->num_regs; reg_idx++) {
-            lprintf("  * ");
+            trace_lprintf("  * ");
             for (int i = 0; i < 32; i++) {
-              lprintf("Reg%d_T%d: 0x%08x ", reg_idx, i, ri->reg_vals[i][reg_idx]);
+              trace_lprintf("Reg%d_T%d: 0x%08x ", reg_idx, i, ri->reg_vals[i][reg_idx]);
             }
-            lprintf("\n");
+            trace_lprintf("\n");
           }
-          lprintf("\n");
+          trace_lprintf("\n");
           num_processed_bytes += sizeof(reg_info_t);
         } else if (header->type == MSG_TYPE_MEM_ACCESS) {
           // Process memory access message
           mem_access_t* mem = (mem_access_t*)&recv_buffer[num_processed_bytes];
 
           // Print memory access information
-          lprintf("CTA %d,%d,%d - warp %d - PC %ld - %s:\n", mem->cta_id_x, mem->cta_id_y, mem->cta_id_z, mem->warp_id,
+          trace_lprintf("CTA %d,%d,%d - warp %d - PC %ld - %s:\n", mem->cta_id_x, mem->cta_id_y, mem->cta_id_z, mem->warp_id,
                   mem->pc, (*g_id_to_sass_map)[mem->opcode_id].c_str());
-          lprintf("  Memory Addresses:\n  * ");
+          trace_lprintf("  Memory Addresses:\n  * ");
           int printed = 0;
           for (int i = 0; i < 32; i++) {
             if (mem->addrs[i] != 0) {  // Only print non-zero addresses
-              lprintf("T%d: 0x%016lx ", i, mem->addrs[i]);
+              trace_lprintf("T%d: 0x%016lx ", i, mem->addrs[i]);
               printed++;
               if (printed % 4 == 0 && i < 31) {
-                lprintf("\n    ");
+                trace_lprintf("\n    ");
               }
             }
           }
-          lprintf("\n\n");
+          trace_lprintf("\n\n");
           num_processed_bytes += sizeof(mem_access_t);
         }
       }
