@@ -1,12 +1,8 @@
 /*
  * SPDX-FileCopyrightText: Copyright (c) Meta Platforms, Inc. and affiliates.
- * SPDX-FileCopyrightText: Copyright (c) 2019 NVIDIA CORPORATION & AFFILIATES.
- * SPDX-License-Identifier: MIT AND BSD-3-Clause
+ * SPDX-License-Identifier: MIT
  *
- * This source code contains modifications by Meta Platforms, Inc. licensed under MIT,
- * based on original NVIDIA nvbit sample code licensed under BSD-3-Clause.
  * See LICENSE file in the root directory for Meta's license terms.
- * See LICENSE-BSD file in the root directory for NVIDIA's license terms.
  */
 
 #include <assert.h>

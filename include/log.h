@@ -2,7 +2,6 @@
  * SPDX-FileCopyrightText: Copyright (c) Meta Platforms, Inc. and affiliates.
  * SPDX-License-Identifier: MIT
  *
- * This source code is created by Meta Platforms, Inc. licensed under MIT.
  * See LICENSE file in the root directory for Meta's license terms.
  */
 
