@@ -80,11 +80,17 @@ void loprintf(const char *format, ...) {
   va_list args;
   va_start(args, format);
   vfprintf_base(true, true, format, args);
+  // Flush the main log file if it exists
+  if (!g_main_log_file) {
+    oprintf("ERROR: Main log file not initialized before loprintf\n");
+  }
+
   va_end(args);
 }
 
 void trace_lprintf(const char *format, ...) {
   if (!g_kernel_log_file) {
+    oprintf("ERROR: Kernel trace log file not initialized before trace_lprintf\n");
     return;
   }
 
@@ -109,7 +115,7 @@ void log_open_kernel_file(CUcontext_ptr ctx, CUfunction_ptr func, uint32_t itera
   size_t name_hash = hasher(mangled_name);
 
   char filename[256];
-  snprintf(filename, sizeof(filename), "kernel_%.150s_%zx_iter%u.log", mangled_name, name_hash, iteration);
+  snprintf(filename, sizeof(filename), "kernel_%zx_iter%u_%.150s.log", name_hash, iteration, mangled_name);
 
   g_kernel_log_file = fopen(filename, "w");
   if (g_kernel_log_file) {
@@ -143,10 +149,8 @@ void init_log_handle() {
     oprintf("WARNING: Failed to create main log file. Falling back to stdout.\n");
   }
 
-  if (verbose) {
-    loprintf("Log handle system initialized. Main log is %s.\n",
-             (g_main_log_file == stdout) ? "stdout" : main_log_filename);
-  }
+  loprintf("Log handle system initialized. Main log is %s.\n",
+           (g_main_log_file == stdout) ? "stdout" : main_log_filename);
 }
 
 void cleanup_log_handle() {
