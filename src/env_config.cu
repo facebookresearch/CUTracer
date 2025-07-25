@@ -19,6 +19,10 @@ uint32_t instr_begin_interval;
 uint32_t instr_end_interval;
 int verbose;
 
+// Loop detection configuration variables
+int loop_win_size;
+uint32_t loop_repeat_thresh;
+
 // Helper function for reading environment variables
 static void get_var_int(int &var, const char *env_name, int default_val, const char *description) {
   const char *env_val = getenv(env_name);
@@ -53,6 +57,8 @@ void init_config_from_env() {
                  "Beginning of the instruction interval where to apply instrumentation");
   get_var_uint32(instr_end_interval, "INSTR_END", UINT32_MAX,
                  "End of the instruction interval where to apply instrumentation");
+  get_var_int(loop_win_size, "LOOP_WIN_SIZE", 32, "Size of the PC window for loop detection");
+  get_var_uint32(loop_repeat_thresh, "LOOP_REPEAT_THRESH", 10, "Threshold for loop detection");
   std::string pad(100, '-');
   loprintf("%s\n", pad.c_str());
 }
