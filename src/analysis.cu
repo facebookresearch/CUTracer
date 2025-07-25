@@ -53,7 +53,7 @@ void* recv_thread_fun(void* args) {
           for (int reg_idx = 0; reg_idx < ri->num_regs; reg_idx++) {
             trace_lprintf("  * ");
             for (int i = 0; i < 32; i++) {
-              trace_lprintf("Reg%d_T%d: 0x%08x ", reg_idx, i, ri->reg_vals[i][reg_idx]);
+              trace_lprintf("Reg%d_T%02d: 0x%08x ", reg_idx, i, ri->reg_vals[i][reg_idx]);
             }
             trace_lprintf("\n");
           }
@@ -69,7 +69,7 @@ void* recv_thread_fun(void* args) {
           int printed = 0;
           for (int i = 0; i < 32; i++) {
             if (mem->addrs[i] != 0) {  // Only print non-zero addresses
-              trace_lprintf("T%d: 0x%016lx ", i, mem->addrs[i]);
+              trace_lprintf("T%02d: 0x%016lx ", i, mem->addrs[i]);
               printed++;
               if (printed % 4 == 0 && i < 31) {
                 trace_lprintf("\n    ");

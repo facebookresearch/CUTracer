@@ -9,20 +9,23 @@ set -e
 DEBUG=${DEBUG:-"0"}
 TEST_TYPE=${TEST_TYPE:-"all"}
 TIMEOUT=${TIMEOUT:-"60"}
+INSTALL_THIRD_PARTY=${INSTALL_THIRD_PARTY:-"0"} # Set to 1 to force installation
 
 echo "Running CUTracer tests..."
 echo "DEBUG: $DEBUG"
 echo "TEST_TYPE: $TEST_TYPE"
 echo "TIMEOUT: $TIMEOUT"
+echo "INSTALL_THIRD_PARTY: $INSTALL_THIRD_PARTY"
 
 # Define project root path (absolute path)
 PROJECT_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 echo "Project root: $PROJECT_ROOT"
 
-# Set up CUDA environment variables
-export CUDA_HOME="/usr/local/cuda"
-export PATH="/usr/local/cuda/bin:$PATH"
-export LD_LIBRARY_PATH="/usr/local/cuda/lib64:$LD_LIBRARY_PATH"
+# Setup CUDA environment
+# Use existing CUDA_HOME if set, otherwise default to /usr/local/cuda
+export CUDA_HOME="${CUDA_HOME:-/usr/local/cuda}"
+export PATH="${CUDA_HOME}/bin:$PATH"
+export LD_LIBRARY_PATH="${CUDA_HOME}/lib64:$LD_LIBRARY_PATH"
 
 # Function to install third-party dependencies
 install_third_party() {
@@ -65,9 +68,13 @@ build_cutracer() {
   cd "$PROJECT_ROOT"
 
   # Install third-party dependencies first
-  if ! install_third_party; then
-    echo "❌ Failed to install third-party dependencies"
-    return 1
+  if [ "$INSTALL_THIRD_PARTY" = "1" ]; then
+    if ! install_third_party; then
+      echo "❌ Failed to install third-party dependencies"
+      return 1
+    fi
+  else
+    echo "⏩ Skipping installation of third-party dependencies."
   fi
 
   # Clean previous build
@@ -172,31 +179,37 @@ validate_cutracer_output() {
 
   cd "$PROJECT_ROOT/tests/vectoradd"
 
-  if [ ! -f cutracer_output.log ]; then
-    echo "❌ CUTracer output log not found!"
+  # Find the kernel trace log file dynamically
+  kernel_log_file=$(ls -1 kernel_*vecAdd*.log 2>/dev/null | head -n 1)
+
+  if [ -z "$kernel_log_file" ] || [ ! -f "$kernel_log_file" ]; then
+    echo "❌ Kernel trace log file (kernel_*vecAdd*.log) not found!"
+    echo "Listing current directory contents:"
+    ls -la
     return 1
   fi
+  echo "✅ Found kernel trace log: $kernel_log_file"
 
-  # Check for register trace output
-  if grep -q "Reg0_T0: 0x00000000" cutracer_output.log; then
-    echo "✅ Found expected register trace: Reg0_T0: 0x00000000"
+  # Check for register trace output in the kernel log
+  if grep -q "Reg0_T00: 0x00000000" "$kernel_log_file"; then
+    echo "✅ Found expected register trace: Reg0_T00: 0x00000000"
   else
-    echo "❌ Missing expected register trace: Reg0_T0: 0x00000000"
-    echo "=== Searching for similar patterns ==="
-    grep -i "reg.*t0" cutracer_output.log || echo "No register patterns found"
+    echo "❌ Missing expected register trace: Reg0_T00: 0x00000000"
+    echo "=== Searching for similar patterns in $kernel_log_file ==="
+    grep -i "reg.*t0" "$kernel_log_file" || echo "No register patterns found"
     return 1
   fi
 
-  # Check for CTA exit pattern with flexible PC value
-  if grep -E "CTA [0-9]+,0,0 - warp [0-9]+ - PC [0-9]+ - EXIT" cutracer_output.log; then
+  # Check for CTA exit pattern in the kernel log
+  new_exit_pattern="CTX 0x[0-9a-f]+ - CTA [0-9]+,[0-9]+,[0-9]+ - warp [0-9]+ - EXIT ;:"
+  if grep -qE "$new_exit_pattern" "$kernel_log_file"; then
     echo "✅ Found expected CTA exit pattern"
-    echo "Matching lines:"
-    grep -E "CTA [0-9]+,0,0 - warp [0-9]+ - PC [0-9]+ - EXIT" cutracer_output.log
+    echo "Matching line:"
+    grep -m 1 -E "$new_exit_pattern" "$kernel_log_file"
   else
     echo "❌ Missing expected CTA exit pattern"
-    echo "=== Searching for similar patterns ==="
-    grep -i "cta.*warp.*pc.*exit" cutracer_output.log || echo "No CTA exit patterns found"
-    grep -i "exit" cutracer_output.log || echo "No exit patterns found"
+    echo "=== Searching for similar patterns in $kernel_log_file ==="
+    grep -i "cta.*warp.*exit" "$kernel_log_file" || echo "No CTA exit patterns found"
     return 1
   fi
 

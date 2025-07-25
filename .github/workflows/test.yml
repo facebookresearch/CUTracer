@@ -57,7 +57,7 @@ jobs:
                   TEST_TYPE: ${{ github.event.inputs.test-type || 'all' }}
                   TIMEOUT: 60
               run: |
-                  bash .ci/run_tests.sh
+                  INSTALL_THIRD_PARTY=1 bash .ci/run_tests.sh
             - name: Upload test artifacts
               if: always()
               uses: actions/upload-artifact@v4

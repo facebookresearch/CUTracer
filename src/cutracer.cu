@@ -58,7 +58,6 @@ uint64_t global_grid_launch_id = 0;
 // map to store the iteration count for each kernel
 static std::map<CUfunction, uint32_t> kernel_iter_map;
 
-
 /* ===== Main Functionality ===== */
 // Based on NVIDIA NVBit record_reg_vals and mem_trace examples with Meta modifications for unified register support
 void instrument_function_if_needed(CUcontext ctx, CUfunction func) {
@@ -82,9 +81,7 @@ void instrument_function_if_needed(CUcontext ctx, CUfunction func) {
     uint32_t cnt = 0;
     /* iterate on all the static instructions in the function */
     for (auto instr : instrs) {
-      if (cnt < instr_begin_interval || cnt >= instr_end_interval ||
-          instr->getMemorySpace() == InstrType::MemorySpace::NONE ||
-          instr->getMemorySpace() == InstrType::MemorySpace::CONSTANT) {
+      if (cnt < instr_begin_interval || cnt >= instr_end_interval) {
         cnt++;
         continue;
       }
@@ -115,6 +112,7 @@ void instrument_function_if_needed(CUcontext ctx, CUfunction func) {
             ureg_num_list.push_back(op->u.mref.desc_ureg_num);
             ureg_num_list.push_back(op->u.mref.desc_ureg_num + 1);
           }
+          loprintf("Instrumenting memory access\n");
           /* insert call to the instrumentation function with its
            * arguments */
           nvbit_insert_call(instr, "instrument_mem", IPOINT_BEFORE);
@@ -457,7 +455,6 @@ void nvbit_at_graph_node_launch(CUcontext ctx, CUfunction func, CUstream stream,
 
 // Reference code from NVIDIA nvbit mem_trace tool with Meta modifications for env config
 void nvbit_at_init() {
-
   // Initialize configuration from environment variables
   init_config_from_env();
   /* set mutex as recursive */
