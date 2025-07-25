@@ -12,29 +12,31 @@
 #include <stdio.h>
 #include <stdlib.h>
 
+#include <unordered_map>
+
 #include "analysis.h"
 #include "common.h"
 #include "utils/channel.hpp"
+extern std::map<int, std::string> id_to_sass_map;
+extern pthread_mutex_t mutex;
+#include "cuda.h"
+extern std::unordered_map<CUcontext, CTXstate*> ctx_state_map;
 
-/* Global pointers to dependencies - initialized by init_recv_thread_deps */
-static ChannelHost* g_channel_host = nullptr;
-static volatile RecvThreadState* g_recv_thread_done = nullptr;
-static std::map<int, std::string>* g_id_to_sass_map = nullptr;
+// Based on NVIDIA NVBit record_reg_vals example.
+void* recv_thread_fun(void* args) {
+  CUcontext ctx = (CUcontext)args;
 
-/* Initialize receiver thread dependencies */
-void init_recv_thread_deps(ChannelHost* host, volatile RecvThreadState* thread_state,
-                           std::map<int, std::string>* sass_map) {
-  g_channel_host = host;
-  g_recv_thread_done = thread_state;
-  g_id_to_sass_map = sass_map;
-}
+  pthread_mutex_lock(&mutex);
+  /* get context state from map */
+  assert(ctx_state_map.find(ctx) != ctx_state_map.end());
+  CTXstate* ctx_state = ctx_state_map[ctx];
 
-// Based on NVIDIA NVBit record_reg_vals and mem_trace example with Meta modification for message type support.
-void* recv_thread_fun(void*) {
+  ChannelHost* ch_host = &ctx_state->channel_host;
+  pthread_mutex_unlock(&mutex);
   char* recv_buffer = (char*)malloc(CHANNEL_SIZE);
 
-  while (*g_recv_thread_done == RecvThreadState::WORKING) {
-    uint32_t num_recv_bytes = g_channel_host->recv(recv_buffer, CHANNEL_SIZE);
+  while (ctx_state->recv_thread_done == RecvThreadState::WORKING) {
+    uint32_t num_recv_bytes = ch_host->recv(recv_buffer, CHANNEL_SIZE);
 
     if (num_recv_bytes > 0) {
       uint32_t num_processed_bytes = 0;
@@ -45,7 +47,7 @@ void* recv_thread_fun(void*) {
           reg_info_t* ri = (reg_info_t*)&recv_buffer[num_processed_bytes];
           // Simple instruction trace output
           printf("CTA %d,%d,%d - warp %d - PC %ld - %s:\n", ri->cta_id_x, ri->cta_id_y, ri->cta_id_z, ri->warp_id,
-                 ri->pc, (*g_id_to_sass_map)[ri->opcode_id].c_str());
+                 ri->pc, id_to_sass_map[ri->opcode_id].c_str());
 
           // Print register values
           for (int reg_idx = 0; reg_idx < ri->num_regs; reg_idx++) {
@@ -63,7 +65,7 @@ void* recv_thread_fun(void*) {
 
           // Print memory access information
           printf("CTA %d,%d,%d - warp %d - PC %ld - %s:\n", mem->cta_id_x, mem->cta_id_y, mem->cta_id_z, mem->warp_id,
-                 mem->pc, (*g_id_to_sass_map)[mem->opcode_id].c_str());
+                 mem->pc, id_to_sass_map[mem->opcode_id].c_str());
           printf("  Memory Addresses:\n  * ");
           int printed = 0;
           for (int i = 0; i < 32; i++) {
@@ -82,6 +84,6 @@ void* recv_thread_fun(void*) {
     }
   }
   free(recv_buffer);
-  *g_recv_thread_done = RecvThreadState::FINISHED;
+  ctx_state->recv_thread_done = RecvThreadState::FINISHED;
   return NULL;
 }
