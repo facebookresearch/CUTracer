@@ -4,7 +4,7 @@
  * SPDX-License-Identifier: MIT AND BSD-3-Clause
  *
  * This source code contains modifications by Meta Platforms, Inc. licensed under MIT,
- * based on original NVIDIA nvbit sample code licensed under BSD-3-Clause.
+ * based on original NVIDIA NVBit sample code licensed under BSD-3-Clause.
  * See LICENSE file in the root directory for Meta's license terms.
  * See LICENSE-BSD file in the root directory for NVIDIA's license terms.
  */
@@ -55,7 +55,7 @@ int verbose = 0;
 
 std::map<int, std::string> id_to_sass_map;
 
-// Based on NVIDIA code with Meta modifications for unified register support
+// Based on NVIDIA NVBit record_reg_vals and mem_trace examples with Meta modifications for unified register support
 void instrument_function_if_needed(CUcontext ctx, CUfunction func) {
   /* Get related functions of the kernel (device function that can be
    * called by the kernel) */
@@ -74,7 +74,9 @@ void instrument_function_if_needed(CUcontext ctx, CUfunction func) {
     uint32_t cnt = 0;
     /* iterate on all the static instructions in the function */
     for (auto instr : instrs) {
-      if (cnt < instr_begin_interval || cnt >= instr_end_interval) {
+      if (cnt < instr_begin_interval || cnt >= instr_end_interval ||
+          instr->getMemorySpace() == InstrType::MemorySpace::NONE ||
+          instr->getMemorySpace() == InstrType::MemorySpace::CONSTANT) {
         cnt++;
         continue;
       }
@@ -84,6 +86,7 @@ void instrument_function_if_needed(CUcontext ctx, CUfunction func) {
 
       std::vector<int> reg_num_list;
       std::vector<int> ureg_num_list;
+      int mref_idx = 0;
       int opcode_id = instr->getIdx();
       id_to_sass_map[opcode_id] = std::string(instr->getSass());
       /* iterate on the operands */
@@ -94,6 +97,34 @@ void instrument_function_if_needed(CUcontext ctx, CUfunction func) {
           for (int reg_idx = 0; reg_idx < instr->getSize() / 4; reg_idx++) {
             reg_num_list.push_back(op->u.reg.num + reg_idx);
           }
+        } else if (op->type == InstrType::OperandType::UREG) {
+          for (int reg_idx = 0; reg_idx < instr->getSize() / 4; reg_idx++) {
+            ureg_num_list.push_back(op->u.reg.num + reg_idx);
+          }
+        } else if (op->type == InstrType::OperandType::MREF) {
+          // TODO: double check this with NVIDIA people
+          if (op->u.mref.has_desc) {
+            ureg_num_list.push_back(op->u.mref.desc_ureg_num);
+            ureg_num_list.push_back(op->u.mref.desc_ureg_num + 1);
+          }
+          /* insert call to the instrumentation function with its
+           * arguments */
+          nvbit_insert_call(instr, "instrument_mem", IPOINT_BEFORE);
+          /* predicate value */
+          nvbit_add_call_arg_guard_pred_val(instr);
+          /* opcode id */
+          nvbit_add_call_arg_const_val32(instr, opcode_id);
+          /* memory reference 64 bit address */
+          nvbit_add_call_arg_mref_addr64(instr, mref_idx);
+          /* add "space" for kernel function pointer that will be set
+           * at launch time (64 bit value at offset 0 of the dynamic
+           * arguments)*/
+          nvbit_add_call_arg_launch_val64(instr, 0);
+          /* add instruction PC */
+          nvbit_add_call_arg_const_val64(instr, instr->getOffset());
+          /* add pointer to channel_dev*/
+          nvbit_add_call_arg_const_val64(instr, (uint64_t)&channel_dev);
+          mref_idx++;
         }
       }
 
@@ -126,15 +157,6 @@ void instrument_function_if_needed(CUcontext ctx, CUfunction func) {
 __global__ void flush_channel(ChannelDev *ch_dev = NULL) {
   // Get the channel to use
   ChannelDev *channel = (ch_dev == NULL) ? &channel_dev : ch_dev;
-
-  /* push completion marker with negative cta id */
-  reg_info_t ri;
-  ri.header.type = MSG_TYPE_REG_INFO;
-  ri.cta_id_x = -1;  // Completion marker
-  ri.pc = 0;
-  ri.num_uregs = 0;
-
-  channel->push(&ri, sizeof(reg_info_t));
   channel->flush();
 }
 
@@ -217,7 +239,7 @@ void nvbit_at_cuda_event(CUcontext ctx, int is_exit, nvbit_api_cuda_t cbid, cons
   pthread_mutex_unlock(&cuda_event_mutex);
 }
 
-// Original NVIDIA implementation
+// Reference NVIDIA record_reg_vals example
 void nvbit_tool_init(CUcontext ctx) {
   /* set mutex as recursive */
   pthread_mutexattr_t attr;
@@ -233,7 +255,7 @@ void nvbit_tool_init(CUcontext ctx) {
   nvbit_set_tool_pthread(channel_host.get_thread());
 }
 
-// Original NVIDIA implementation
+// Reference NVIDIA record_reg_vals example
 void nvbit_at_ctx_term(CUcontext ctx) {
   skip_callback_flag = true;
   /* Notify receiver thread and wait for receiver thread to

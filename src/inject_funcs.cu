@@ -17,7 +17,7 @@
 /* for channel */
 #include "utils/channel.hpp"
 
-/* Based on NVIDIA code with Meta modifications for message type and unified register support */
+/* Based on NVIDIA NVBit reg_trace example with Meta modifications for message type and unified register support */
 #include "common.h"
 extern "C" __device__ __noinline__ void record_reg_val(int pred, int opcode_id, uint64_t pchannel_dev, uint64_t pc,
                                                        int32_t num_regs, int32_t num_uregs, ...) {
@@ -68,5 +68,41 @@ extern "C" __device__ __noinline__ void record_reg_val(int pred, int opcode_id, 
   if (first_laneid == laneid) {
     ChannelDev *channel_dev = (ChannelDev *)pchannel_dev;
     channel_dev->push(&ri, sizeof(reg_info_t));
+  }
+}
+
+/* Based on NVIDIA NVBit mem_trace example with Meta modifications for message type */
+extern "C" __device__ __noinline__ void instrument_mem(int pred, int opcode_id, uint64_t addr,
+                                                       uint64_t kernel_launch_id, uint64_t pc, uint64_t pchannel_dev) {
+  /* if thread is predicated off, return */
+  if (!pred) {
+    return;
+  }
+
+  int active_mask = __ballot_sync(__activemask(), 1);
+  const int laneid = get_laneid();
+  const int first_laneid = __ffs(active_mask) - 1;
+
+  mem_access_t ma;
+
+  ma.header.type = MSG_TYPE_MEM_ACCESS;
+
+  /* collect memory address information from other threads */
+  for (int i = 0; i < 32; i++) {
+    ma.addrs[i] = __shfl_sync(active_mask, addr, i);
+  }
+  ma.kernel_launch_id = kernel_launch_id;
+  int4 cta = get_ctaid();
+  ma.cta_id_x = cta.x;
+  ma.cta_id_y = cta.y;
+  ma.cta_id_z = cta.z;
+  ma.pc = pc;
+  ma.warp_id = get_global_warp_id();
+  ma.opcode_id = opcode_id;
+
+  /* first active lane pushes information on the channel */
+  if (first_laneid == laneid) {
+    ChannelDev *channel_dev = (ChannelDev *)pchannel_dev;
+    channel_dev->push(&ma, sizeof(mem_access_t));
   }
 }

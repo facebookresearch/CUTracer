@@ -22,8 +22,8 @@ typedef struct {
   message_type_t type;  // Type of the message
 } message_header_t;
 
-/* Based on NVIDIA code with Meta modifications for message type support
- * and adds CUTracer specific extensions */
+/* Based on NVIDIA record_reg_vals example with Meta modifications for message type support and adds CUTracer specific
+ * extensions */
 typedef struct {
   message_header_t header;  // Common header with type=MSG_TYPE_REG_INFO
 
@@ -41,5 +41,18 @@ typedef struct {
   int32_t num_uregs;      // Number of unified registers
   uint32_t ureg_vals[8];  // Unified registers shared by all threads in the same warp
 } reg_info_t;
+
+/* Based on NVIDIA mem_trace example with Meta modifications for message type support */
+typedef struct {
+  message_header_t header;  // Common header with type=MSG_TYPE_MEM_ACCESS
+  uint64_t kernel_launch_id;
+  int cta_id_x;
+  int cta_id_y;
+  int cta_id_z;
+  uint64_t pc;
+  int warp_id;
+  int opcode_id;
+  uint64_t addrs[32];
+} mem_access_t;
 
 #endif /* COMMON_H */
