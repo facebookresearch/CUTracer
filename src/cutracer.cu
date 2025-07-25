@@ -31,7 +31,6 @@
 
 /* analysis functionality */
 #include "analysis.h"
-/* contains definition of the reg_info_t and mem_access_t structure */
 
 /* env config */
 #include "env_config.h"
@@ -55,7 +54,7 @@ bool skip_callback_flag = false;
 
 std::map<int, std::string> id_to_sass_map;
 /* grid launch id, incremented at every launch */
-uint64_t global_grid_launch_id = 0;
+uint64_t global_kernel_launch_id = 0;
 
 // map to store the iteration count for each kernel
 static std::map<CUfunction, uint32_t> kernel_iter_map;
@@ -272,9 +271,9 @@ void nvbit_at_cuda_event(CUcontext ctx, int is_exit, nvbit_api_cuda_t cbid, cons
       cuLaunch_params *p = (cuLaunch_params *)params;
       CUfunction func = p->f;
       if (!is_exit) {
-        enter_kernel_launch(ctx, func, global_grid_launch_id, cbid, params);
+        enter_kernel_launch(ctx, func, global_kernel_launch_id, cbid, params);
       } else {
-        leave_kernel_launch(ctx_state, global_grid_launch_id);
+        leave_kernel_launch(ctx_state, global_kernel_launch_id);
       }
     } break;
     // To support kernel launched by cuda graph (in addition to existing kernel
@@ -339,14 +338,14 @@ void nvbit_at_cuda_event(CUcontext ctx, int is_exit, nvbit_api_cuda_t cbid, cons
       CUDA_SAFECALL(cudaStreamIsCapturing(hStream, &streamStatus));
       if (!is_exit) {
         bool stream_capture = (streamStatus == cudaStreamCaptureStatusActive);
-        enter_kernel_launch(ctx, func, global_grid_launch_id, cbid, params, stream_capture);
+        enter_kernel_launch(ctx, func, global_kernel_launch_id, cbid, params, stream_capture);
         log_open_kernel_file(ctx, func, kernel_iter_map[func]++);
       } else {
         if (streamStatus != cudaStreamCaptureStatusActive) {
           if (verbose >= 1) {
             loprintf("kernel %s not captured by cuda graph\n", nvbit_get_func_name(ctx, func));
           }
-          leave_kernel_launch(ctx_state, global_grid_launch_id);
+          leave_kernel_launch(ctx_state, global_kernel_launch_id);
         } else {
           if (verbose >= 1) {
             loprintf("kernel %s captured by cuda graph\n", nvbit_get_func_name(ctx, func));
@@ -354,6 +353,7 @@ void nvbit_at_cuda_event(CUcontext ctx, int is_exit, nvbit_api_cuda_t cbid, cons
         }
       }
     } break;
+    
     case API_CUDA_cuGraphAddKernelNode: {
       cuGraphAddKernelNode_params *p = (cuGraphAddKernelNode_params *)params;
       CUfunction func = p->nodeParams->func;
@@ -361,7 +361,7 @@ void nvbit_at_cuda_event(CUcontext ctx, int is_exit, nvbit_api_cuda_t cbid, cons
       if (!is_exit) {
         // cuGraphAddKernelNode_params->nodeParams is the same as
         // cuLaunchKernel_params up to sharedMemBytes
-        enter_kernel_launch(ctx, func, global_grid_launch_id, cbid, (void *)p->nodeParams, false, true);
+        enter_kernel_launch(ctx, func, global_kernel_launch_id, cbid, (void *)p->nodeParams, false, true);
       }
     } break;
     case API_CUDA_cuGraphLaunch: {
@@ -440,20 +440,20 @@ void nvbit_at_graph_node_launch(CUcontext ctx, CUfunction func, CUstream stream,
   uint64_t pc = nvbit_get_func_addr(ctx, func);
 
   pthread_mutex_lock(&mutex);
-  nvbit_set_at_launch(ctx, func, (uint64_t)global_grid_launch_id, stream, launch_handle);
+  nvbit_set_at_launch(ctx, func, (uint64_t)global_kernel_launch_id, stream, launch_handle);
   nvbit_get_func_config(ctx, func, &config);
 
   loprintf(
       "MEMTRACE: CTX 0x%016lx - LAUNCH - Kernel pc 0x%016lx - "
-      "Kernel name %s - grid launch id %ld - grid size %d,%d,%d "
+      "Kernel name %s - kernel launch id %ld - grid size %d,%d,%d "
       "- block size %d,%d,%d - nregs %d - shmem %d - cuda stream "
       "id %ld\n",
-      (uint64_t)ctx, pc, func_name, global_grid_launch_id, config.gridDimX, config.gridDimY, config.gridDimZ,
+      (uint64_t)ctx, pc, func_name, global_kernel_launch_id, config.gridDimX, config.gridDimY, config.gridDimZ,
       config.blockDimX, config.blockDimY, config.blockDimZ, config.num_registers,
       config.shmem_static_nbytes + config.shmem_dynamic_nbytes, (uint64_t)stream);
   // grid id can be changed here, since nvbit_set_at_launch() has copied its
   // value above.
-  global_grid_launch_id++;
+  global_kernel_launch_id++;
   pthread_mutex_unlock(&mutex);
 }
 

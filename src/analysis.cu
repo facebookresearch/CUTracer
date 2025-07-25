@@ -23,10 +23,15 @@ extern std::map<int, std::string> id_to_sass_map;
 extern pthread_mutex_t mutex;
 extern std::unordered_map<CUcontext, CTXstate*> ctx_state_map;
 /* Warp Tracking */
-// <global launch id, <WarpKey, TraceRecord>>
+// <global kernel launch id, <WarpKey, TraceRecord>>
 std::map<uint64_t, std::map<WarpKey, std::vector<TraceRecord>>> warp_traces;
-extern uint64_t global_grid_launch_id;
+extern uint64_t global_kernel_launch_id;
 std::map<WarpKey, WarpLoopState> loop_states;
+
+extern int verbose;
+// Loop detection configuration variables
+extern int loop_win_size;
+extern uint32_t loop_repeat_thresh;
 
 // Updates the loop state for a warp based on its current PC.
 //
@@ -142,7 +147,7 @@ void* recv_thread_fun(void* args) {
         if (header->type == MSG_TYPE_REG_INFO) {
           reg_info_t* ri = (reg_info_t*)&recv_buffer[num_processed_bytes];
 
-          trace_lprintf("CTX %p - grid_launch_id %ld - CTA %d,%d,%d - warp %d - %s:\n", ctx, global_grid_launch_id, ri->cta_id_x,
+          trace_lprintf("CTX %p - grid_launch_id %ld - CTA %d,%d,%d - warp %d - %s:\n", ctx, global_kernel_launch_id, ri->cta_id_x,
                  ri->cta_id_y, ri->cta_id_z, ri->warp_id, (id_to_sass_map)[ri->opcode_id].c_str());
 
           // Print register values
