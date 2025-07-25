@@ -46,11 +46,6 @@ void* recv_thread_fun(void* args) {
         message_header_t* header = (message_header_t*)&recv_buffer[num_processed_bytes];
         if (header->type == MSG_TYPE_REG_INFO) {
           reg_info_t* ri = (reg_info_t*)&recv_buffer[num_processed_bytes];
-
-          /* when we get this cta_id_x it means the kernel has completed */
-          if (ri->cta_id_x == -1) {
-            break;
-          }
           trace_lprintf("CTX %p - CTA %d,%d,%d - warp %d - %s:\n", ctx, ri->cta_id_x, ri->cta_id_y, ri->cta_id_z,
                         ri->warp_id, (id_to_sass_map)[ri->opcode_id].c_str());
 
@@ -68,7 +63,7 @@ void* recv_thread_fun(void* args) {
           // Process memory access message
           mem_access_t* mem = (mem_access_t*)&recv_buffer[num_processed_bytes];
           trace_lprintf("CTX %p - grid_launch_id %ld - CTA %d,%d,%d - warp %d - PC %ld - %s:\n", ctx,
-                        mem->grid_launch_id, mem->cta_id_x, mem->cta_id_y, mem->cta_id_z, mem->warp_id, mem->pc,
+                        mem->kernel_launch_id, mem->cta_id_x, mem->cta_id_y, mem->cta_id_z, mem->warp_id, mem->pc,
                         id_to_sass_map[mem->opcode_id].c_str());
           trace_lprintf("  Memory Addresses:\n  * ");
           int printed = 0;
