@@ -53,7 +53,7 @@ std::unordered_map<CUcontext, CTXstate *> ctx_state_map;
 bool skip_callback_flag = false;
 
 std::map<int, std::string> id_to_sass_map;
-/* grid launch id, incremented at every launch */
+/* global kernel launch id, incremented at every launch */
 uint64_t global_kernel_launch_id = 0;
 
 // map to store the iteration count for each kernel
@@ -113,7 +113,6 @@ void instrument_function_if_needed(CUcontext ctx, CUfunction func) {
             ureg_num_list.push_back(op->u.mref.desc_ureg_num);
             ureg_num_list.push_back(op->u.mref.desc_ureg_num + 1);
           }
-          loprintf("Instrumenting memory access\n");
           /* insert call to the instrumentation function with its
            * arguments */
           nvbit_insert_call(instr, "instrument_mem", IPOINT_BEFORE);
@@ -175,7 +174,7 @@ void init_context_state(CUcontext ctx) {
   nvbit_set_tool_pthread(ctx_state->channel_host.get_thread());
 }
 // Reference code from NVIDIA nvbit mem_trace tool
-static void enter_kernel_launch(CUcontext ctx, CUfunction func, uint64_t &grid_launch_id, nvbit_api_cuda_t cbid,
+static void enter_kernel_launch(CUcontext ctx, CUfunction func, uint64_t &kernel_launch_id, nvbit_api_cuda_t cbid,
                                 void *params, bool stream_capture = false, bool build_graph = false) {
   // no need to sync during stream capture or manual graph build, since no
   // kernel is actually launched.
@@ -199,10 +198,10 @@ static void enter_kernel_launch(CUcontext ctx, CUfunction func, uint64_t &grid_l
 
   // during stream capture or manual graph build, no kernel is launched, so
   // do not set launch argument, do not print kernel info, do not increase
-  // grid_launch_id. All these should be done at graph node launch time.
+  // kernel_launch_id. All these should be done at graph node launch time.
   if (!stream_capture && !build_graph) {
     /* set grid launch id at launch time */
-    nvbit_set_at_launch(ctx, func, (uint64_t)grid_launch_id);
+    nvbit_set_at_launch(ctx, func, (uint64_t)kernel_launch_id);
 
     if (cbid == API_CUDA_cuLaunchKernelEx_ptsz || cbid == API_CUDA_cuLaunchKernelEx) {
       cuLaunchKernelEx_params *p = (cuLaunchKernelEx_params *)params;
@@ -211,7 +210,7 @@ static void enter_kernel_launch(CUcontext ctx, CUfunction func, uint64_t &grid_l
           "Kernel name %s - grid launch id %ld - grid size %d,%d,%d "
           "- block size %d,%d,%d - nregs %d - shmem %d - cuda stream "
           "id %ld\n",
-          (uint64_t)ctx, pc, func_name, grid_launch_id, p->config->gridDimX, p->config->gridDimY, p->config->gridDimZ,
+          (uint64_t)ctx, pc, func_name, kernel_launch_id, p->config->gridDimX, p->config->gridDimY, p->config->gridDimZ,
           p->config->blockDimX, p->config->blockDimY, p->config->blockDimZ, nregs,
           shmem_static_nbytes + p->config->sharedMemBytes, (uint64_t)p->config->hStream);
     } else {
@@ -221,14 +220,14 @@ static void enter_kernel_launch(CUcontext ctx, CUfunction func, uint64_t &grid_l
           "Kernel name %s - grid launch id %ld - grid size %d,%d,%d "
           "- block size %d,%d,%d - nregs %d - shmem %d - cuda stream "
           "id %ld\n",
-          (uint64_t)ctx, pc, func_name, grid_launch_id, p->gridDimX, p->gridDimY, p->gridDimZ, p->blockDimX,
+          (uint64_t)ctx, pc, func_name, kernel_launch_id, p->gridDimX, p->gridDimY, p->gridDimZ, p->blockDimX,
           p->blockDimY, p->blockDimZ, nregs, shmem_static_nbytes + p->sharedMemBytes, (uint64_t)p->hStream);
     }
 
     // increment grid launch id for next launch
     // grid id can be changed here, since nvbit_set_at_launch() has copied
     // its value above.
-    grid_launch_id++;
+    kernel_launch_id++;
   }
 
   /* enable instrumented code to run */
@@ -236,7 +235,7 @@ static void enter_kernel_launch(CUcontext ctx, CUfunction func, uint64_t &grid_l
 }
 
 // the function is only called for non cuda graph launch cases.
-static void leave_kernel_launch(CTXstate *ctx_state, uint64_t &grid_launch_id) {
+static void leave_kernel_launch(CTXstate *ctx_state, uint64_t &kernel_launch_id) {
   // make sure user kernel finishes to avoid deadlock
   cudaDeviceSynchronize();
   /* push a flush channel kernel */
@@ -245,7 +244,9 @@ static void leave_kernel_launch(CTXstate *ctx_state, uint64_t &grid_launch_id) {
   /* Make sure GPU is idle */
   cudaDeviceSynchronize();
   assert(cudaGetLastError() == cudaSuccess);
+  clear_loop_state();
 }
+
 // Reference code from NVIDIA nvbit mem_trace tool
 void nvbit_at_cuda_event(CUcontext ctx, int is_exit, nvbit_api_cuda_t cbid, const char *name, void *params,
                          CUresult *pStatus) {

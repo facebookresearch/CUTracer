@@ -121,4 +121,6 @@ struct WarpLoopState {
 /* Receiver thread function */
 void *recv_thread_fun(void *);
 
+// Clear loop detection state when a kernel completes
+void clear_loop_state();
 #endif /* ANALYSIS_H */

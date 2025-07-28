@@ -19,6 +19,7 @@
 #include "cuda.h"
 #include "log.h"
 #include "utils/channel.hpp"
+
 extern std::map<int, std::string> id_to_sass_map;
 extern pthread_mutex_t mutex;
 extern std::unordered_map<CUcontext, CTXstate*> ctx_state_map;
@@ -32,23 +33,24 @@ extern int verbose;
 // Loop detection configuration variables
 extern int loop_win_size;
 extern uint32_t loop_repeat_thresh;
+extern int loop_detection_enabled;
 
-// Updates the loop state for a warp based on its current PC.
-//
+// Updates the loop state for a warp based on its current PC. It is called when a new register trace is received. We ignore the memory access trace because a memory access trace is always followed by a register trace for the same SASS instruction and reigster trace should be enough to detect the loop.
+// We also record the active warps for each kernel. It is used to detect the kernel hang.
 // Args:
 // - key: The warp key
 // - pc: The program counter
 // - current_trace: The current trace record
 void update_loop_state(const WarpKey& key, uint64_t pc, const TraceRecord& current_trace) {
+  if (!loop_detection_enabled) return;
+  if (loop_states.find(key) == loop_states.end())
+    loop_states.emplace(key, WarpLoopState(
 
-  if (loop_states.find(key) == loop_states.end()) loop_states.emplace(key, WarpLoopState(
-    
-  ));
+                                 ));
   auto& state = loop_states[key];
 
   state.pcs[state.head] = pc;
   state.head = (state.head + 1) % loop_win_size;
-  active_warps.insert(key);
   if (state.head != 0) return;
 
   uint8_t period = loop_win_size;
@@ -112,8 +114,8 @@ void update_loop_state(const WarpKey& key, uint64_t pc, const TraceRecord& curre
       }
 
       if (verbose >= 2) {
-        trace_lprintf("Warp loop detected (P=%u): CTA %d,%d,%d warp %d\n", period, key.cta_id_x, key.cta_id_y, key.cta_id_z,
-                 key.warp_id);
+        trace_lprintf("Warp loop detected (P=%u): CTA %d,%d,%d warp %d\n", period, key.cta_id_x, key.cta_id_y,
+                      key.cta_id_z, key.warp_id);
       }
     }
   } else {
@@ -147,8 +149,8 @@ void* recv_thread_fun(void* args) {
         if (header->type == MSG_TYPE_REG_INFO) {
           reg_info_t* ri = (reg_info_t*)&recv_buffer[num_processed_bytes];
 
-          trace_lprintf("CTX %p - grid_launch_id %ld - CTA %d,%d,%d - warp %d - %s:\n", ctx, global_kernel_launch_id, ri->cta_id_x,
-                 ri->cta_id_y, ri->cta_id_z, ri->warp_id, (id_to_sass_map)[ri->opcode_id].c_str());
+          trace_lprintf("CTX %p - grid_launch_id %ld - CTA %d,%d,%d - warp %d - %s:\n", ctx, global_kernel_launch_id,
+                        ri->cta_id_x, ri->cta_id_y, ri->cta_id_z, ri->warp_id, (id_to_sass_map)[ri->opcode_id].c_str());
 
           // Print register values
           for (int reg_idx = 0; reg_idx < ri->num_regs; reg_idx++) {
@@ -160,6 +162,33 @@ void* recv_thread_fun(void* args) {
           }
           trace_lprintf("\n");
           num_processed_bytes += sizeof(reg_info_t);
+          
+          // Create key for this warp
+          WarpKey key;
+          key.cta_id_x = ri->cta_id_x;
+          key.cta_id_y = ri->cta_id_y;
+          key.cta_id_z = ri->cta_id_z;
+          key.warp_id = ri->warp_id;
+          // Create trace record
+          TraceRecord trace;
+          trace.opcode_id = ri->opcode_id;
+          trace.pc = ri->pc;
+          // Store register values
+          trace.reg_values.resize(ri->num_regs);
+          for (int reg_idx = 0; reg_idx < ri->num_regs; reg_idx++) {
+            trace.reg_values[reg_idx].resize(32);
+            for (int i = 0; i < 32; i++) {
+              trace.reg_values[reg_idx][i] = ri->reg_vals[i][reg_idx];
+            }
+          }
+
+          // Store unified register values
+          trace.ureg_values.resize(ri->num_uregs);
+          for (int i = 0; i < ri->num_uregs; i++) {
+            trace.ureg_values[i] = ri->ureg_vals[i];
+          }
+          // Update loop detection state for this warp
+          update_loop_state(key, ri->pc, trace);
         } else if (header->type == MSG_TYPE_MEM_ACCESS) {
           // Process memory access message
           mem_access_t* mem = (mem_access_t*)&recv_buffer[num_processed_bytes];
@@ -186,4 +215,15 @@ void* recv_thread_fun(void* args) {
   free(recv_buffer);
   ctx_state->recv_thread_done = RecvThreadState::FINISHED;
   return NULL;
+}
+
+/**
+ * Clears loop detection state when a kernel completes
+ */
+void clear_loop_state() {
+  if (!loop_detection_enabled) {
+    return;
+  }
+
+  loop_states.clear();
 }
