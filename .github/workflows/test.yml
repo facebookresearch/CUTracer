@@ -31,6 +31,21 @@ on:
                 type: boolean
 
 jobs:
+    format-check:
+        runs-on: ubuntu-latest
+        steps:
+            - name: Checkout repository
+              uses: actions/checkout@v4
+
+            - name: Install clang-format
+              run: |
+                  sudo apt-get update
+                  sudo apt-get install -y clang-format
+
+            - name: Run formatter check
+              run: |
+                  ./format.sh check
+
     build-and-test:
         runs-on: 4-core-ubuntu-gpu-t4
         timeout-minutes: 60
