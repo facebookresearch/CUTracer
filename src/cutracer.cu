@@ -60,7 +60,7 @@ static std::map<CUfunction, uint32_t> kernel_iter_map;
 
 /* ===== Main Functionality ===== */
 // Based on NVIDIA NVBit record_reg_vals and mem_trace examples with Meta modifications for unified register support
-void instrument_function_if_needed(CUcontext ctx, CUfunction func) {
+bool instrument_function_if_needed(CUcontext ctx, CUfunction func) {
   assert(ctx_state_map.find(ctx) != ctx_state_map.end());
   CTXstate *ctx_state = ctx_state_map[ctx];
 
@@ -186,6 +186,7 @@ void instrument_function_if_needed(CUcontext ctx, CUfunction func) {
       }
     }
   }
+  return any_kernel_matched;
 }
 
 // Reference code from NVIDIA nvbit mem_trace tool
@@ -213,7 +214,7 @@ static void enter_kernel_launch(CUcontext ctx, CUfunction func, uint64_t &grid_l
     assert(cudaGetLastError() == cudaSuccess);
   }
 
-  instrument_function_if_needed(ctx, func);
+  bool should_instrument = instrument_function_if_needed(ctx, func);
 
   int nregs = 0;
   CUDA_SAFECALL(cuFuncGetAttribute(&nregs, CU_FUNC_ATTRIBUTE_NUM_REGS, func));
@@ -260,7 +261,10 @@ static void enter_kernel_launch(CUcontext ctx, CUfunction func, uint64_t &grid_l
   }
 
   /* enable instrumented code to run */
-  nvbit_enable_instrumented(ctx, func, true);
+  nvbit_enable_instrumented(ctx, func, should_instrument);
+  if (should_instrument) {
+    log_open_kernel_file(ctx, func, kernel_iter_map[func]++);
+  }
 }
 
 // the function is only called for non cuda graph launch cases.
@@ -365,7 +369,6 @@ void nvbit_at_cuda_event(CUcontext ctx, int is_exit, nvbit_api_cuda_t cbid, cons
       if (!is_exit) {
         bool stream_capture = (streamStatus == cudaStreamCaptureStatusActive);
         enter_kernel_launch(ctx, func, global_grid_launch_id, cbid, params, stream_capture);
-        log_open_kernel_file(ctx, func, kernel_iter_map[func]++);
       } else {
         if (streamStatus != cudaStreamCaptureStatusActive) {
           if (verbose >= 1) {
