@@ -8,11 +8,17 @@
 #pragma once
 
 #include <stdint.h>
+#include <vector>
+#include <string>
 
 // Configuration variables
 extern uint32_t instr_begin_interval;
 extern uint32_t instr_end_interval;
 extern int verbose;
+
+// Function name patterns to filter
+extern std::vector<std::string> kernel_patterns;
+extern bool any_kernel_matched;
 
 // Initialize configuration from environment variables
 void init_config_from_env();

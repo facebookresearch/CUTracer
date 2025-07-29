@@ -73,9 +73,39 @@ void instrument_function_if_needed(CUcontext ctx, CUfunction func) {
 
   /* iterate on function */
   for (auto f : related_functions) {
+    // Get function name (both mangled and unmangled versions)
+    const char *unmangled_name = nvbit_get_func_name(ctx, f, false);
+    const char *mangled_name = nvbit_get_func_name(ctx, f, true);
+
+    // Check if function name contains any of the patterns
+    bool should_instrument = true;  // Default to true if no filters specified
+
+    if (!kernel_patterns.empty()) {
+      should_instrument = false;  // Start with false when we have filters
+      for (const auto &pattern : kernel_patterns) {
+        if ((unmangled_name && strstr(unmangled_name, pattern.c_str()) != NULL) ||
+            (mangled_name && strstr(mangled_name, pattern.c_str()) != NULL)) {
+          should_instrument = true;
+          any_kernel_matched = true;  // Mark that at least one kernel matched
+          if (verbose) {
+            loprintf("Found matching kernel for filter '%s': %s (mangled: %s)\n", pattern.c_str(),
+                     unmangled_name ? unmangled_name : "unknown", mangled_name ? mangled_name : "unknown");
+          }
+          break;
+        }
+      }
+    } else if (verbose) {
+      loprintf("Instrumenting kernel: %s (mangled: %s)\n", unmangled_name ? unmangled_name : "unknown",
+               mangled_name ? mangled_name : "unknown");
+    }
+
     const std::vector<Instr *> &instrs = nvbit_get_instrs(ctx, f);
     if (verbose) {
-      loprintf("Inspecting function %s at address 0x%lx\n", nvbit_get_func_name(ctx, f), nvbit_get_func_addr(ctx, f));
+      loprintf("Inspecting kernel %s at address 0x%lx\n", nvbit_get_func_name(ctx, f), nvbit_get_func_addr(ctx, f));
+    }
+
+    if (!should_instrument) {
+      continue;
     }
 
     uint32_t cnt = 0;
