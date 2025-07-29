@@ -8,8 +8,9 @@
 #pragma once
 
 #include <stdint.h>
-#include <vector>
+
 #include <string>
+#include <vector>
 
 // Configuration variables
 extern uint32_t instr_begin_interval;

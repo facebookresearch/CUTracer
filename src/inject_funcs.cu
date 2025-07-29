@@ -19,6 +19,7 @@
 
 /* Based on NVIDIA NVBit reg_trace example with Meta modifications for message type and unified register support */
 #include "common.h"
+
 extern "C" __device__ __noinline__ void record_reg_val(int pred, int opcode_id, uint64_t pchannel_dev, uint64_t pc,
                                                        int32_t num_regs, int32_t num_uregs, ...) {
   if (!pred) {

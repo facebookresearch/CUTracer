@@ -43,6 +43,7 @@ struct CTXstate {
   // parent thread should wait until the state becomes FINISHED to clean up.
   volatile RecvThreadState recv_thread_done = RecvThreadState::STOP;
 };
+
 /* Receiver thread function */
 void* recv_thread_fun(void*);
 

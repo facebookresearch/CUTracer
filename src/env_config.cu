@@ -8,7 +8,6 @@
 #include <stdio.h>
 #include <stdlib.h>
 
-
 #include "env_config.h"
 #include "log.h"
 
