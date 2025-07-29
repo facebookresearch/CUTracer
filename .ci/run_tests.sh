@@ -241,9 +241,9 @@ test_py_add_with_kernel_filters() {
   # Run the test with KERNEL_FILTERS enabled
   CUDA_INJECTION64_PATH=$PROJECT_ROOT/lib/cutracer.so KERNEL_FILTERS=vectorized_elementwise_kernel python ./test_add.py
   if [ $? -ne 0 ]; then
-      echo "❌ Python script test_add.py failed to execute."
-      cd "$PROJECT_ROOT"
-      return 1
+    echo "❌ Python script test_add.py failed to execute."
+    cd "$PROJECT_ROOT"
+    return 1
   fi
 
   # Find logs that match the kernel filter
@@ -324,15 +324,15 @@ run_all_tests() {
 
 # Main execution
 case "$TEST_TYPE" in
-  "build-only")
-    build_cutracer && build_vectoradd
-    ;;
-  "vectoradd")
-    test_vectoradd_baseline && test_vectoradd_with_cutracer && validate_cutracer_output && test_py_add_with_kernel_filters
-    ;;
-  "all" | *)
-    run_all_tests
-    ;;
+"build-only")
+  build_cutracer && build_vectoradd
+  ;;
+"vectoradd")
+  test_vectoradd_baseline && test_vectoradd_with_cutracer && validate_cutracer_output && test_py_add_with_kernel_filters
+  ;;
+"all" | *)
+  run_all_tests
+  ;;
 esac
 
 exit_code=$?
