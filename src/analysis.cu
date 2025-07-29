@@ -16,10 +16,11 @@
 
 #include "analysis.h"
 #include "common.h"
+#include "cuda.h"
+#include "log.h"
 #include "utils/channel.hpp"
 extern std::map<int, std::string> id_to_sass_map;
 extern pthread_mutex_t mutex;
-#include "cuda.h"
 extern std::unordered_map<CUcontext, CTXstate*> ctx_state_map;
 
 // Based on NVIDIA NVBit record_reg_vals example.
@@ -45,39 +46,37 @@ void* recv_thread_fun(void* args) {
         message_header_t* header = (message_header_t*)&recv_buffer[num_processed_bytes];
         if (header->type == MSG_TYPE_REG_INFO) {
           reg_info_t* ri = (reg_info_t*)&recv_buffer[num_processed_bytes];
-          // Simple instruction trace output
-          printf("CTA %d,%d,%d - warp %d - PC %ld - %s:\n", ri->cta_id_x, ri->cta_id_y, ri->cta_id_z, ri->warp_id,
-                 ri->pc, id_to_sass_map[ri->opcode_id].c_str());
+          trace_lprintf("CTX %p - CTA %d,%d,%d - warp %d - %s:\n", ctx, ri->cta_id_x, ri->cta_id_y, ri->cta_id_z,
+                        ri->warp_id, (id_to_sass_map)[ri->opcode_id].c_str());
 
           // Print register values
           for (int reg_idx = 0; reg_idx < ri->num_regs; reg_idx++) {
-            printf("  * ");
+            trace_lprintf("  * ");
             for (int i = 0; i < 32; i++) {
-              printf("Reg%d_T%d: 0x%08x ", reg_idx, i, ri->reg_vals[i][reg_idx]);
+              trace_lprintf("Reg%d_T%02d: 0x%08x ", reg_idx, i, ri->reg_vals[i][reg_idx]);
             }
-            printf("\n");
+            trace_lprintf("\n");
           }
-          printf("\n");
+          trace_lprintf("\n");
           num_processed_bytes += sizeof(reg_info_t);
         } else if (header->type == MSG_TYPE_MEM_ACCESS) {
           // Process memory access message
           mem_access_t* mem = (mem_access_t*)&recv_buffer[num_processed_bytes];
-
-          // Print memory access information
-          printf("CTA %d,%d,%d - warp %d - PC %ld - %s:\n", mem->cta_id_x, mem->cta_id_y, mem->cta_id_z, mem->warp_id,
-                 mem->pc, id_to_sass_map[mem->opcode_id].c_str());
-          printf("  Memory Addresses:\n  * ");
+          trace_lprintf("CTX %p - grid_launch_id %ld - CTA %d,%d,%d - warp %d - PC %ld - %s:\n", ctx,
+                        mem->kernel_launch_id, mem->cta_id_x, mem->cta_id_y, mem->cta_id_z, mem->warp_id, mem->pc,
+                        id_to_sass_map[mem->opcode_id].c_str());
+          trace_lprintf("  Memory Addresses:\n  * ");
           int printed = 0;
           for (int i = 0; i < 32; i++) {
             if (mem->addrs[i] != 0) {  // Only print non-zero addresses
-              printf("T%d: 0x%016lx ", i, mem->addrs[i]);
+              trace_lprintf("T%02d: 0x%016lx ", i, mem->addrs[i]);
               printed++;
               if (printed % 4 == 0 && i < 31) {
-                printf("\n    ");
+                trace_lprintf("\n    ");
               }
             }
           }
-          printf("\n\n");
+          trace_lprintf("\n\n");
           num_processed_bytes += sizeof(mem_access_t);
         }
       }

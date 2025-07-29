@@ -71,6 +71,7 @@ jobs:
                   DEBUG: ${{ matrix.debug && '1' || '0' }}
                   TEST_TYPE: ${{ github.event.inputs.test-type || 'all' }}
                   TIMEOUT: 60
+                  INSTALL_THIRD_PARTY: 1
               run: |
                   bash .ci/run_tests.sh
             - name: Upload test artifacts
