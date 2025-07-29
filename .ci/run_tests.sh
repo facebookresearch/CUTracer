@@ -313,6 +313,11 @@ run_all_tests() {
     return 1
   fi
 
+  if ! test_py_add_with_kernel_filters; then
+    echo "❌ Python script test_add.py failed to execute."
+    return 1
+  fi
+
   echo "🎉 All tests passed successfully!"
   return 0
 }
@@ -323,7 +328,7 @@ case "$TEST_TYPE" in
     build_cutracer && build_vectoradd
     ;;
   "vectoradd")
-    test_vectoradd_baseline && test_vectoradd_with_cutracer && validate_cutracer_output
+    test_vectoradd_baseline && test_vectoradd_with_cutracer && validate_cutracer_output && test_py_add_with_kernel_filters
     ;;
   "all" | *)
     run_all_tests
