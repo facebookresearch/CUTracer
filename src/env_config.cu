@@ -18,52 +18,57 @@ uint32_t instr_begin_interval;
 uint32_t instr_end_interval;
 int verbose;
 // kernel name filters
-std::vector<std::string> kernel_patterns;
+std::vector<std::string> kernel_filters;
 bool any_kernel_matched = false;
 
 /**
- * @brief Parses a comma-separated string of kernel name patterns.
+ * @brief Parses a comma-separated string of kernel name filters for substring matching.
  *
  * This function takes a string from an environment variable, splits it by commas,
- * and populates the global `kernel_patterns` vector with the individual patterns.
- * These patterns are later used to filter which CUDA kernels should be instrumented.
+ * and populates the global `kernel_filters` vector with the individual filters.
+ * These filters are then used to determine which CUDA kernels to instrument by
+ * checking if a filter string appears as a **substring** of the kernel's name
+ * (either mangled or unmangled).
  * Empty tokens resulting from ",," or trailing/leading commas are ignored.
  *
- * @param patterns_env A C-style string containing comma-separated kernel name patterns.
+ * @param filters_env A C-style string containing comma-separated kernel name filters.
  *                     If NULL, the function does nothing.
  *
  * @example
- * If the environment variable (e.g., `CUTOMP_KERNEL_PATTERNS`) is set as:
- * `export CUTOMP_KERNEL_PATTERNS="add_kernel,_Z2_gemm,reduce"`
+ * If the environment variable (e.g., `KERNEL_FILTERS`) is set as:
+ * `export KERNEL_FILTERS="add,_Z2_gemm,reduce"`
  *
- * After calling this function, the `kernel_patterns` vector will contain:
- * `{"add_kernel", "_Z2_gemm", "reduce"}`
+ * A kernel named "add_kernel" would be matched by the "add" filter. A kernel
+ * named "my_reduce_kernel" would be matched by "reduce".
+ *
+ * After calling this function with the example string, the `kernel_filters`
+ * vector will contain: `{"add", "_Z2_gemm", "reduce"}`
  */
-static void parse_kernel_patterns(const char *patterns_env) {
-  if (!patterns_env) return;
+static void parse_kernel_filters(const char *filters_env) {
+  if (!filters_env) return;
 
-  std::string patterns_str(patterns_env);
+  std::string filters_str(filters_env);
   size_t pos = 0;
   std::string token;
 
   // Split by commas
-  while ((pos = patterns_str.find(',')) != std::string::npos) {
-    token = patterns_str.substr(0, pos);
+  while ((pos = filters_str.find(',')) != std::string::npos) {
+    token = filters_str.substr(0, pos);
     if (!token.empty()) {
-      kernel_patterns.push_back(token);
+      kernel_filters.push_back(token);
     }
-    patterns_str.erase(0, pos + 1);
+    filters_str.erase(0, pos + 1);
   }
 
   // Add the last token (if it exists)
-  if (!patterns_str.empty()) {
-    kernel_patterns.push_back(patterns_str);
+  if (!filters_str.empty()) {
+    kernel_filters.push_back(filters_str);
   }
 
   if (verbose) {
     printf("Kernel name filters to instrument:\n");
-    for (const auto &pattern : kernel_patterns) {
-      printf("  - %s\n", pattern.c_str());
+    for (const auto &filter : kernel_filters) {
+      printf("  - %s\n", filter.c_str());
     }
   }
 }
@@ -103,9 +108,9 @@ void init_config_from_env() {
   get_var_uint32(instr_end_interval, "INSTR_END", UINT32_MAX,
                  "End of the instruction interval where to apply instrumentation");
   // Get kernel name filters
-  const char *kernel_patterns_env = getenv("KERNEL_PATTERNS");
-  if (kernel_patterns_env) {
-    parse_kernel_patterns(kernel_patterns_env);
+  const char *kernel_filters_env = getenv("KERNEL_FILTERS");
+  if (kernel_filters_env) {
+    parse_kernel_filters(kernel_filters_env);
   }
   std::string pad(100, '-');
   loprintf("%s\n", pad.c_str());

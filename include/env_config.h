@@ -16,8 +16,8 @@ extern uint32_t instr_begin_interval;
 extern uint32_t instr_end_interval;
 extern int verbose;
 
-// Function name patterns to filter
-extern std::vector<std::string> kernel_patterns;
+// Kernel name filters
+extern std::vector<std::string> kernel_filters;
 extern bool any_kernel_matched;
 
 // Initialize configuration from environment variables

@@ -80,15 +80,15 @@ void instrument_function_if_needed(CUcontext ctx, CUfunction func) {
     // Check if function name contains any of the patterns
     bool should_instrument = true;  // Default to true if no filters specified
 
-    if (!kernel_patterns.empty()) {
+    if (!kernel_filters.empty()) {
       should_instrument = false;  // Start with false when we have filters
-      for (const auto &pattern : kernel_patterns) {
-        if ((unmangled_name && strstr(unmangled_name, pattern.c_str()) != NULL) ||
-            (mangled_name && strstr(mangled_name, pattern.c_str()) != NULL)) {
+      for (const auto &filter : kernel_filters) {
+        if ((unmangled_name && strstr(unmangled_name, filter.c_str()) != NULL) ||
+            (mangled_name && strstr(mangled_name, filter.c_str()) != NULL)) {
           should_instrument = true;
           any_kernel_matched = true;  // Mark that at least one kernel matched
           if (verbose) {
-            loprintf("Found matching kernel for filter '%s': %s (mangled: %s)\n", pattern.c_str(),
+            loprintf("Found matching kernel for filter '%s': %s (mangled: %s)\n", filter.c_str(),
                      unmangled_name ? unmangled_name : "unknown", mangled_name ? mangled_name : "unknown");
           }
           break;
@@ -142,7 +142,6 @@ void instrument_function_if_needed(CUcontext ctx, CUfunction func) {
             ureg_num_list.push_back(op->u.mref.desc_ureg_num);
             ureg_num_list.push_back(op->u.mref.desc_ureg_num + 1);
           }
-          loprintf("Instrumenting memory access\n");
           /* insert call to the instrumentation function with its
            * arguments */
           nvbit_insert_call(instr, "instrument_mem", IPOINT_BEFORE);
