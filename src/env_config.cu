@@ -18,7 +18,6 @@ uint32_t instr_end_interval;
 int verbose;
 // kernel name filters
 std::vector<std::string> kernel_filters;
-bool any_kernel_matched = false;
 
 /**
  * @brief Parses a comma-separated string of kernel name filters for substring matching.
@@ -64,11 +63,9 @@ static void parse_kernel_filters(const char *filters_env) {
     kernel_filters.push_back(filters_str);
   }
 
-  if (verbose) {
-    printf("Kernel name filters to instrument:\n");
-    for (const auto &filter : kernel_filters) {
-      printf("  - %s\n", filter.c_str());
-    }
+  printf("Kernel name filters to instrument:\n");
+  for (const auto &filter : kernel_filters) {
+    printf("  - %s\n", filter.c_str());
   }
 }
 

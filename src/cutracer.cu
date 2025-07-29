@@ -86,6 +86,7 @@ bool instrument_function_if_needed(CUcontext ctx, CUfunction func) {
   /* add kernel itself to the related function vector */
   related_functions.push_back(func);
 
+  bool any_related_function_matched = false;
   /* iterate on function */
   for (auto f : related_functions) {
     // Get function name (both mangled and unmangled versions)
@@ -101,7 +102,7 @@ bool instrument_function_if_needed(CUcontext ctx, CUfunction func) {
         if ((unmangled_name && strstr(unmangled_name, filter.c_str()) != NULL) ||
             (mangled_name && strstr(mangled_name, filter.c_str()) != NULL)) {
           should_instrument = true;
-          any_kernel_matched = true;  // Mark that at least one kernel matched
+          any_related_function_matched = true;  // Mark that at least one kernel matched
           if (verbose) {
             loprintf("Found matching kernel for filter '%s': %s (mangled: %s)\n", filter.c_str(),
                      unmangled_name ? unmangled_name : "unknown", mangled_name ? mangled_name : "unknown");
@@ -201,7 +202,7 @@ bool instrument_function_if_needed(CUcontext ctx, CUfunction func) {
       }
     }
   }
-  return any_kernel_matched;
+  return any_related_function_matched;
 }
 
 // Reference code from NVIDIA nvbit mem_trace tool
@@ -274,7 +275,7 @@ static bool enter_kernel_launch(CUcontext ctx, CUfunction func, uint64_t &grid_l
     if (cbid == API_CUDA_cuLaunchKernelEx_ptsz || cbid == API_CUDA_cuLaunchKernelEx) {
       cuLaunchKernelEx_params *p = (cuLaunchKernelEx_params *)params;
       loprintf(
-          "MEMTRACE: CTX 0x%016lx - LAUNCH - Kernel pc 0x%016lx - "
+          "CUTracer: CTX 0x%016lx - LAUNCH - Kernel pc 0x%016lx - "
           "Kernel name %s - grid launch id %ld - grid size %d,%d,%d "
           "- block size %d,%d,%d - nregs %d - shmem %d - cuda stream "
           "id %ld\n",
@@ -284,7 +285,7 @@ static bool enter_kernel_launch(CUcontext ctx, CUfunction func, uint64_t &grid_l
     } else {
       cuLaunchKernel_params *p = (cuLaunchKernel_params *)params;
       loprintf(
-          "MEMTRACE: CTX 0x%016lx - LAUNCH - Kernel pc 0x%016lx - "
+          "CUTracer: CTX 0x%016lx - LAUNCH - Kernel pc 0x%016lx - "
           "Kernel name %s - grid launch id %ld - grid size %d,%d,%d "
           "- block size %d,%d,%d - nregs %d - shmem %d - cuda stream "
           "id %ld\n",
@@ -298,11 +299,13 @@ static bool enter_kernel_launch(CUcontext ctx, CUfunction func, uint64_t &grid_l
     grid_launch_id++;
   }
 
-  /* enable instrumented code to run */
-  nvbit_enable_instrumented(ctx, func, should_instrument);
+  // This open should be done before enabling instrumented code to run,
+  // otherwise the log file will not be created.
   if (should_instrument) {
     log_open_kernel_file(ctx, func, kernel_iter_map[func]++);
   }
+  /* enable instrumented code to run */
+  nvbit_enable_instrumented(ctx, func, should_instrument);
   return should_instrument;
 }
 
