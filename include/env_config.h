@@ -19,7 +19,6 @@ extern int verbose;
 
 // Kernel name filters
 extern std::vector<std::string> kernel_filters;
-extern bool any_kernel_matched;
 
 // Initialize configuration from environment variables
 void init_config_from_env();
