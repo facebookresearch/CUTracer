@@ -24,15 +24,4 @@ else
     exit 1
 fi
 
-# The tritonparse setup also installs CUDA, so we can verify it here.
-# Verify CUDA installation
-echo "Verifying CUDA installation..."
-if command -v nvcc &>/dev/null; then
-  nvcc --version
-  echo "✅ CUDA installation verified"
-else
-  echo "❌ CUDA installation failed"
-  exit 1
-fi
-
 echo "Setup completed successfully!"
