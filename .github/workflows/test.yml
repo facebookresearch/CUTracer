@@ -82,6 +82,8 @@ jobs:
                   path: |
                       tests/vectoradd/*.sass
                       tests/vectoradd/*.log
+                      tests/py_add/*.log
+                      tests/py_add/*.sass
     check-status:
         runs-on: ubuntu-latest
         needs: build-and-test
