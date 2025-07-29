@@ -86,7 +86,7 @@ bool instrument_function_if_needed(CUcontext ctx, CUfunction func) {
   /* add kernel itself to the related function vector */
   related_functions.push_back(func);
 
-  bool any_related_function_matched = false;
+  bool any_related_function_matched = kernel_filters.empty();
   /* iterate on function */
   for (auto f : related_functions) {
     // Get function name (both mangled and unmangled versions)
