@@ -10,12 +10,14 @@ DEBUG=${DEBUG:-"0"}
 TEST_TYPE=${TEST_TYPE:-"all"}
 TIMEOUT=${TIMEOUT:-"60"}
 INSTALL_THIRD_PARTY=${INSTALL_THIRD_PARTY:-"0"} # Set to 1 to force installation
+CONDA_ENV=${CONDA_ENV:-"cutracer"}
 
 echo "Running CUTracer tests..."
 echo "DEBUG: $DEBUG"
 echo "TEST_TYPE: $TEST_TYPE"
 echo "TIMEOUT: $TIMEOUT"
 echo "INSTALL_THIRD_PARTY: $INSTALL_THIRD_PARTY"
+echo "CONDA_ENV: $CONDA_ENV"
 
 # Define project root path (absolute path)
 PROJECT_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -26,6 +28,15 @@ echo "Project root: $PROJECT_ROOT"
 export CUDA_HOME="${CUDA_HOME:-/usr/local/cuda}"
 export PATH="${CUDA_HOME}/bin:$PATH"
 export LD_LIBRARY_PATH="${CUDA_HOME}/lib64:$LD_LIBRARY_PATH"
+
+# Activate conda environment
+if [ -f "/opt/miniconda3/etc/profile.d/conda.sh" ]; then
+  echo "🐍 Activating conda environment..."
+  source /opt/miniconda3/etc/profile.d/conda.sh
+  conda activate $CONDA_ENV
+else
+  echo "⚠️ Conda activation script not found, skipping."
+fi
 
 # Function to install third-party dependencies
 install_third_party() {
@@ -149,6 +160,9 @@ test_vectoradd_with_cutracer() {
 
   cd "$PROJECT_ROOT/tests/vectoradd"
 
+  # Clean up old logs to ensure a fresh run
+  rm -f *.log
+
   # Set up CUTracer environment
   export CUDA_INJECTION64_PATH="$PROJECT_ROOT/lib/cutracer.so"
   export DEADLOCK_TIMEOUT=30
@@ -217,6 +231,57 @@ validate_cutracer_output() {
   return 0
 }
 
+test_py_add_with_kernel_filters() {
+  echo "🧪 Testing py_add with kernel filters..."
+  cd "$PROJECT_ROOT/tests/py_add"
+
+  # Clean up old logs to ensure a fresh run
+  rm -f kernel*.log
+
+  # Run the test with KERNEL_FILTERS enabled
+  CUDA_INJECTION64_PATH=$PROJECT_ROOT/lib/cutracer.so KERNEL_FILTERS=vectorized_elementwise_kernel python ./test_add.py
+  if [ $? -ne 0 ]; then
+    echo "❌ Python script test_add.py failed to execute."
+    cd "$PROJECT_ROOT"
+    return 1
+  fi
+
+  # Find logs that match the kernel filter
+  matching_logs=$(ls kernel*vectorized_elementwise_kernel*.log 2>/dev/null)
+  if [ -z "$matching_logs" ]; then
+    echo "❌ Test failed: No log file generated for kernel containing 'vectorized_elementwise_kernel'."
+    cd "$PROJECT_ROOT"
+    return 1
+  fi
+
+  # Ensure ALL generated kernel logs match the filter
+  all_kernel_logs=$(ls kernel*.log 2>/dev/null)
+  unmatched_logs=$(echo "$all_kernel_logs" | grep -v "vectorized_elementwise_kernel")
+
+  if [ -n "$unmatched_logs" ]; then
+    echo "❌ Test failed: Found kernel logs that should have been filtered out:"
+    echo "$unmatched_logs"
+    cd "$PROJECT_ROOT"
+    return 1
+  fi
+
+  echo "✅ All generated kernel logs correctly match the filter."
+
+  # Check the content of the first matching log
+  first_log=$(echo "$matching_logs" | head -n 1)
+  echo "🔎 Inspecting log file: $first_log"
+
+  if grep -q "CTA 0,0,0 - warp 0 - @P0 EXIT" "$first_log"; then
+    echo "✅ Test successful: Found 'CTA 0,0,0 - warp 0 - @P0 EXIT' in the log."
+  else
+    echo "❌ Test failed: Did not find 'CTA 0,0,0 - warp 0 - @P0 EXIT' in $first_log."
+    cd "$PROJECT_ROOT"
+    return 1
+  fi
+
+  cd "$PROJECT_ROOT"
+}
+
 # Function to run all tests
 run_all_tests() {
   echo "🚀 Running all CUTracer tests..."
@@ -248,21 +313,26 @@ run_all_tests() {
     return 1
   fi
 
+  if ! test_py_add_with_kernel_filters; then
+    echo "❌ Python script test_add.py failed to execute."
+    return 1
+  fi
+
   echo "🎉 All tests passed successfully!"
   return 0
 }
 
 # Main execution
 case "$TEST_TYPE" in
-  "build-only")
-    build_cutracer && build_vectoradd
-    ;;
-  "vectoradd")
-    test_vectoradd_baseline && test_vectoradd_with_cutracer && validate_cutracer_output
-    ;;
-  "all" | *)
-    run_all_tests
-    ;;
+"build-only")
+  build_cutracer && build_vectoradd
+  ;;
+"vectoradd")
+  test_vectoradd_baseline && test_vectoradd_with_cutracer && validate_cutracer_output && test_py_add_with_kernel_filters
+  ;;
+"all" | *)
+  run_all_tests
+  ;;
 esac
 
 exit_code=$?

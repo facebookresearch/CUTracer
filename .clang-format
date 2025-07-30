@@ -6,3 +6,5 @@ TabWidth: 2
 UseTab: Never
 InsertNewlineAtEOF: true
 KeepEmptyLinesAtEOF: true
+SeparateDefinitionBlocks: Always
+AllowShortFunctionsOnASingleLine: None

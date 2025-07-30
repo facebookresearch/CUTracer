@@ -3,10 +3,10 @@
  * SPDX-FileCopyrightText: Copyright (c) 2019 NVIDIA CORPORATION & AFFILIATES.
  * SPDX-License-Identifier: MIT AND BSD-3-Clause
  *
- * This source code contains modifications by Meta Platforms, Inc. licensed under MIT,
- * based on original NVIDIA NVBit sample code licensed under BSD-3-Clause.
- * See LICENSE file in the root directory for Meta's license terms.
- * See LICENSE-BSD file in the root directory for NVIDIA's license terms.
+ * This source code contains modifications by Meta Platforms, Inc. licensed
+ * under MIT, based on original NVIDIA NVBit sample code licensed under
+ * BSD-3-Clause. See LICENSE file in the root directory for Meta's license
+ * terms. See LICENSE-BSD file in the root directory for NVIDIA's license terms.
  */
 
 #include <assert.h>
@@ -59,8 +59,23 @@ uint64_t global_grid_launch_id = 0;
 static std::map<CUfunction, uint32_t> kernel_iter_map;
 
 /* ===== Main Functionality ===== */
-// Based on NVIDIA NVBit record_reg_vals and mem_trace examples with Meta modifications for unified register support
-void instrument_function_if_needed(CUcontext ctx, CUfunction func) {
+/**
+ * @brief Conditionally instruments a CUDA function based on active filters.
+ *
+ * This function synthesizes logic from NVIDIA's `mem_trace` and
+ * `record_reg_vals` examples. It inspects a function and its device calls, and
+ * if they match the `kernel_filters`, it instruments SASS instructions.
+ *
+ * Meta's enhancements include:
+ *  - Combining memory (MREF) and register (REG) tracing.
+ *  - Adding support for Unified Registers (UREG).
+ *  - A filter system to selectively instrument kernels via environment variables.
+ *
+ * @param ctx The CUDA context of the function.
+ * @param func The `CUfunction` to inspect and potentially instrument.
+ * @return `true` if any instrumentation was added, `false` otherwise.
+ */
+bool instrument_function_if_needed(CUcontext ctx, CUfunction func) {
   assert(ctx_state_map.find(ctx) != ctx_state_map.end());
   CTXstate *ctx_state = ctx_state_map[ctx];
 
@@ -71,11 +86,42 @@ void instrument_function_if_needed(CUcontext ctx, CUfunction func) {
   /* add kernel itself to the related function vector */
   related_functions.push_back(func);
 
+  bool any_related_function_matched = kernel_filters.empty();
   /* iterate on function */
   for (auto f : related_functions) {
+    // Get function name (both mangled and unmangled versions)
+    const char *unmangled_name = nvbit_get_func_name(ctx, f, false);
+    const char *mangled_name = nvbit_get_func_name(ctx, f, true);
+
+    // Check if function name contains any of the patterns
+    bool should_instrument = true;  // Default to true if no filters specified
+
+    if (!kernel_filters.empty()) {
+      should_instrument = false;  // Start with false when we have filters
+      for (const auto &filter : kernel_filters) {
+        if ((unmangled_name && strstr(unmangled_name, filter.c_str()) != NULL) ||
+            (mangled_name && strstr(mangled_name, filter.c_str()) != NULL)) {
+          should_instrument = true;
+          any_related_function_matched = true;  // Mark that at least one kernel matched
+          if (verbose) {
+            loprintf("Found matching kernel for filter '%s': %s (mangled: %s)\n", filter.c_str(),
+                     unmangled_name ? unmangled_name : "unknown", mangled_name ? mangled_name : "unknown");
+          }
+          break;
+        }
+      }
+    } else if (verbose) {
+      loprintf("Instrumenting kernel: %s (mangled: %s)\n", unmangled_name ? unmangled_name : "unknown",
+               mangled_name ? mangled_name : "unknown");
+    }
+
     const std::vector<Instr *> &instrs = nvbit_get_instrs(ctx, f);
     if (verbose) {
-      loprintf("Inspecting function %s at address 0x%lx\n", nvbit_get_func_name(ctx, f), nvbit_get_func_addr(ctx, f));
+      loprintf("Inspecting kernel %s at address 0x%lx\n", nvbit_get_func_name(ctx, f), nvbit_get_func_addr(ctx, f));
+    }
+
+    if (!should_instrument) {
+      continue;
     }
 
     uint32_t cnt = 0;
@@ -112,7 +158,6 @@ void instrument_function_if_needed(CUcontext ctx, CUfunction func) {
             ureg_num_list.push_back(op->u.mref.desc_ureg_num);
             ureg_num_list.push_back(op->u.mref.desc_ureg_num + 1);
           }
-          loprintf("Instrumenting memory access\n");
           /* insert call to the instrumentation function with its
            * arguments */
           nvbit_insert_call(instr, "instrument_mem", IPOINT_BEFORE);
@@ -157,11 +202,14 @@ void instrument_function_if_needed(CUcontext ctx, CUfunction func) {
       }
     }
   }
+  return any_related_function_matched;
 }
 
 // Reference code from NVIDIA nvbit mem_trace tool
 /* flush channel */
-__global__ void flush_channel(ChannelDev *ch_dev) { ch_dev->flush(); }
+__global__ void flush_channel(ChannelDev *ch_dev) {
+  ch_dev->flush();
+}
 
 // Reference code from NVIDIA nvbit mem_trace tool
 void init_context_state(CUcontext ctx) {
@@ -173,8 +221,29 @@ void init_context_state(CUcontext ctx) {
                                ctx);
   nvbit_set_tool_pthread(ctx_state->channel_host.get_thread());
 }
+
 // Reference code from NVIDIA nvbit mem_trace tool
-static void enter_kernel_launch(CUcontext ctx, CUfunction func, uint64_t &grid_launch_id, nvbit_api_cuda_t cbid,
+/**
+ * @brief Prepares for a kernel launch, conditionally instrumenting and logging.
+ *
+ * Based on `enter_kernel_launch` from NVIDIA's `mem_trace` example, this
+ * function is called just before a kernel launch. It determines if a kernel
+ * should be instrumented based on active filters.
+ *
+ * Key modifications by Meta include making instrumentation and log file creation
+ * conditional on the filtering result. This prevents empty log files for
+ * skipped kernels.
+ *
+ * @param ctx The current CUDA context.
+ * @param func The kernel function being launched.
+ * @param grid_launch_id A reference to the global grid launch counter.
+ * @param cbid The NVBit callback ID for the CUDA API call.
+ * @param params A pointer to the parameters of the CUDA launch call.
+ * @param stream_capture True if the launch is part of a CUDA stream capture.
+ * @param build_graph True if the launch is part of a manual graph build.
+ * @return `true` if the kernel was instrumented, `false` otherwise.
+ */
+static bool enter_kernel_launch(CUcontext ctx, CUfunction func, uint64_t &grid_launch_id, nvbit_api_cuda_t cbid,
                                 void *params, bool stream_capture = false, bool build_graph = false) {
   // no need to sync during stream capture or manual graph build, since no
   // kernel is actually launched.
@@ -184,7 +253,7 @@ static void enter_kernel_launch(CUcontext ctx, CUfunction func, uint64_t &grid_l
     assert(cudaGetLastError() == cudaSuccess);
   }
 
-  instrument_function_if_needed(ctx, func);
+  bool should_instrument = instrument_function_if_needed(ctx, func);
 
   int nregs = 0;
   CUDA_SAFECALL(cuFuncGetAttribute(&nregs, CU_FUNC_ATTRIBUTE_NUM_REGS, func));
@@ -206,7 +275,7 @@ static void enter_kernel_launch(CUcontext ctx, CUfunction func, uint64_t &grid_l
     if (cbid == API_CUDA_cuLaunchKernelEx_ptsz || cbid == API_CUDA_cuLaunchKernelEx) {
       cuLaunchKernelEx_params *p = (cuLaunchKernelEx_params *)params;
       loprintf(
-          "MEMTRACE: CTX 0x%016lx - LAUNCH - Kernel pc 0x%016lx - "
+          "CUTracer: CTX 0x%016lx - LAUNCH - Kernel pc 0x%016lx - "
           "Kernel name %s - grid launch id %ld - grid size %d,%d,%d "
           "- block size %d,%d,%d - nregs %d - shmem %d - cuda stream "
           "id %ld\n",
@@ -216,7 +285,7 @@ static void enter_kernel_launch(CUcontext ctx, CUfunction func, uint64_t &grid_l
     } else {
       cuLaunchKernel_params *p = (cuLaunchKernel_params *)params;
       loprintf(
-          "MEMTRACE: CTX 0x%016lx - LAUNCH - Kernel pc 0x%016lx - "
+          "CUTracer: CTX 0x%016lx - LAUNCH - Kernel pc 0x%016lx - "
           "Kernel name %s - grid launch id %ld - grid size %d,%d,%d "
           "- block size %d,%d,%d - nregs %d - shmem %d - cuda stream "
           "id %ld\n",
@@ -230,8 +299,14 @@ static void enter_kernel_launch(CUcontext ctx, CUfunction func, uint64_t &grid_l
     grid_launch_id++;
   }
 
+  // This open should be done before enabling instrumented code to run,
+  // otherwise the log file will not be created.
+  if (should_instrument) {
+    log_open_kernel_file(ctx, func, kernel_iter_map[func]++);
+  }
   /* enable instrumented code to run */
-  nvbit_enable_instrumented(ctx, func, true);
+  nvbit_enable_instrumented(ctx, func, should_instrument);
+  return should_instrument;
 }
 
 // the function is only called for non cuda graph launch cases.
@@ -245,6 +320,7 @@ static void leave_kernel_launch(CTXstate *ctx_state, uint64_t &grid_launch_id) {
   cudaDeviceSynchronize();
   assert(cudaGetLastError() == cudaSuccess);
 }
+
 // Reference code from NVIDIA nvbit mem_trace tool
 void nvbit_at_cuda_event(CUcontext ctx, int is_exit, nvbit_api_cuda_t cbid, const char *name, void *params,
                          CUresult *pStatus) {
@@ -336,7 +412,6 @@ void nvbit_at_cuda_event(CUcontext ctx, int is_exit, nvbit_api_cuda_t cbid, cons
       if (!is_exit) {
         bool stream_capture = (streamStatus == cudaStreamCaptureStatusActive);
         enter_kernel_launch(ctx, func, global_grid_launch_id, cbid, params, stream_capture);
-        log_open_kernel_file(ctx, func, kernel_iter_map[func]++);
       } else {
         if (streamStatus != cudaStreamCaptureStatusActive) {
           if (verbose >= 1) {
@@ -453,7 +528,8 @@ void nvbit_at_graph_node_launch(CUcontext ctx, CUfunction func, CUstream stream,
   pthread_mutex_unlock(&mutex);
 }
 
-// Reference code from NVIDIA nvbit mem_trace tool with Meta modifications for env config
+// Reference code from NVIDIA nvbit mem_trace tool with Meta modifications for
+// env config
 void nvbit_at_init() {
   // Initialize configuration from environment variables
   init_config_from_env();

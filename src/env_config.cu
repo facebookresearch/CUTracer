@@ -8,8 +8,6 @@
 #include <stdio.h>
 #include <stdlib.h>
 
-#include <string>
-
 #include "env_config.h"
 #include "log.h"
 
@@ -18,6 +16,58 @@
 uint32_t instr_begin_interval;
 uint32_t instr_end_interval;
 int verbose;
+// kernel name filters
+std::vector<std::string> kernel_filters;
+
+/**
+ * @brief Parses a comma-separated string of kernel name filters for substring matching.
+ *
+ * This function takes a string from an environment variable, splits it by commas,
+ * and populates the global `kernel_filters` vector with the individual filters.
+ * These filters are then used to determine which CUDA kernels to instrument by
+ * checking if a filter string appears as a **substring** of the kernel's name
+ * (either mangled or unmangled).
+ * Empty tokens resulting from ",," or trailing/leading commas are ignored.
+ *
+ * @param filters_env A C-style string containing comma-separated kernel name filters.
+ *                     If NULL, the function does nothing.
+ *
+ * @example
+ * If the environment variable (e.g., `KERNEL_FILTERS`) is set as:
+ * `export KERNEL_FILTERS="add,_Z2_gemm,reduce"`
+ *
+ * A kernel named "add_kernel" would be matched by the "add" filter. A kernel
+ * named "my_reduce_kernel" would be matched by "reduce".
+ *
+ * After calling this function with the example string, the `kernel_filters`
+ * vector will contain: `{"add", "_Z2_gemm", "reduce"}`
+ */
+static void parse_kernel_filters(const char *filters_env) {
+  if (!filters_env) return;
+
+  std::string filters_str(filters_env);
+  size_t pos = 0;
+  std::string token;
+
+  // Split by commas
+  while ((pos = filters_str.find(',')) != std::string::npos) {
+    token = filters_str.substr(0, pos);
+    if (!token.empty()) {
+      kernel_filters.push_back(token);
+    }
+    filters_str.erase(0, pos + 1);
+  }
+
+  // Add the last token (if it exists)
+  if (!filters_str.empty()) {
+    kernel_filters.push_back(filters_str);
+  }
+
+  printf("Kernel name filters to instrument:\n");
+  for (const auto &filter : kernel_filters) {
+    printf("  - %s\n", filter.c_str());
+  }
+}
 
 // Helper function for reading environment variables
 static void get_var_int(int &var, const char *env_name, int default_val, const char *description) {
@@ -53,6 +103,11 @@ void init_config_from_env() {
                  "Beginning of the instruction interval where to apply instrumentation");
   get_var_uint32(instr_end_interval, "INSTR_END", UINT32_MAX,
                  "End of the instruction interval where to apply instrumentation");
+  // Get kernel name filters
+  const char *kernel_filters_env = getenv("KERNEL_FILTERS");
+  if (kernel_filters_env) {
+    parse_kernel_filters(kernel_filters_env);
+  }
   std::string pad(100, '-');
   loprintf("%s\n", pad.c_str());
 }
