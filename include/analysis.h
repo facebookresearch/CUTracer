@@ -15,6 +15,9 @@
 #include <stdint.h>
 
 #include <map>
+#include <string>
+#include <unordered_map>
+#include <unordered_set>
 #include <vector>
 
 #include "cuda.h"
@@ -44,8 +47,11 @@ struct CTXstate {
   // recv thread sets it to FINISHED when it cleans up.
   // parent thread should wait until the state becomes FINISHED to clean up.
   volatile RecvThreadState recv_thread_done = RecvThreadState::STOP;
+  volatile CUfunction current_func = nullptr;
   std::vector<struct RegionHistogram> last_kernel_histograms;
   pthread_mutex_t histogram_mutex;
+  std::unordered_map<CUfunction, std::map<int, std::string>> id_to_sass_map;
+  std::unordered_map<CUfunction, std::unordered_set<int>> clock_opcode_ids;
 };
 
 /* Receiver thread function */

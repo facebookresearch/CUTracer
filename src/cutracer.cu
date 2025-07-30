@@ -51,7 +51,6 @@ std::unordered_map<CUcontext, CTXstate *> ctx_state_map;
  * flush_channel kernel call */
 bool skip_callback_flag = false;
 
-std::map<int, std::string> id_to_sass_map;
 /* grid launch id, incremented at every launch */
 uint64_t global_kernel_launch_id = 0;
 
@@ -144,7 +143,14 @@ bool instrument_function_if_needed(CUcontext ctx, CUfunction func) {
       std::vector<int> ureg_num_list;
       int mref_idx = 0;
       int opcode_id = instr->getIdx();
-      id_to_sass_map[opcode_id] = std::string(instr->getSass());
+      std::string sass = instr->getSass();
+      ctx_state->id_to_sass_map[f][opcode_id] = sass;
+
+      // Skip instrumentation for the clock instruction itself
+      if (sass.find("CS2R") != std::string::npos && sass.find("SR_CLOCKLO") != std::string::npos) {
+        continue;
+      }
+
       /* iterate on the operands */
       for (int i = 0; i < instr->getNumOperands(); i++) {
         /* get the operand "i" */
@@ -210,6 +216,17 @@ bool instrument_function_if_needed(CUcontext ctx, CUfunction func) {
         nvbit_add_call_arg_ureg_val(instr, num, true);
       }
     }
+
+    /* ===== New feature: Instruction Histogram ===== */
+    // Now that the SASS map for this function is complete, find the clock opcodes.
+    if (should_instrument) {
+      for (const auto &pair : ctx_state->id_to_sass_map[f]) {
+        if (strstr(pair.second.c_str(), "CS2R") && strstr(pair.second.c_str(), "SR_CLOCKLO")) {
+          ctx_state->clock_opcode_ids[f].insert(pair.first);
+        }
+      }
+    }
+    /* ============================================ */
   }
   return any_related_function_matched;
 }
@@ -254,6 +271,7 @@ void init_context_state(CUcontext ctx) {
  */
 static bool enter_kernel_launch(CUcontext ctx, CUfunction func, uint64_t &grid_launch_id, nvbit_api_cuda_t cbid,
                                 void *params, bool stream_capture = false, bool build_graph = false) {
+  CTXstate *ctx_state = ctx_state_map[ctx];
   // no need to sync during stream capture or manual graph build, since no
   // kernel is actually launched.
   if (!stream_capture && !build_graph) {
@@ -323,6 +341,7 @@ static bool enter_kernel_launch(CUcontext ctx, CUfunction func, uint64_t &grid_l
   }
 
   /* enable instrumented code to run */
+  ctx_state->current_func = func;
   nvbit_enable_instrumented(ctx, func, should_instrument);
   return should_instrument;
 }

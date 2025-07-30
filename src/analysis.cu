@@ -23,7 +23,7 @@
 #include "env_config.h"
 #include "log.h"
 #include "utils/channel.hpp"
-extern std::map<int, std::string> id_to_sass_map;
+
 extern pthread_mutex_t mutex;
 extern std::unordered_map<CUcontext, CTXstate *> ctx_state_map;
 
@@ -55,9 +55,10 @@ void dump_region_histograms_to_csv(CUcontext ctx, CUfunction func, uint32_t iter
     for (const auto &pair : region_result.histogram) {
       int opcode_id = pair.first;
       int count = pair.second;
+      const auto &sass_map_for_func = ctx_state->id_to_sass_map[func];
       fprintf(fp, "%d,%d,%d,%d,%d,%d,\"%s\",%d\n", region_result.warp_key.cta_id_x, region_result.warp_key.cta_id_y,
               region_result.warp_key.cta_id_z, region_result.warp_key.warp_id, region_result.region_id, opcode_id,
-              id_to_sass_map.count(opcode_id) ? id_to_sass_map[opcode_id].c_str() : "N/A", count);
+              sass_map_for_func.count(opcode_id) ? sass_map_for_func.at(opcode_id).c_str() : "N/A", count);
     }
   }
   fclose(fp);
@@ -78,13 +79,6 @@ void *recv_thread_fun(void *args) {
   char *recv_buffer = (char *)malloc(CHANNEL_SIZE);
 
   /* ===== New feature: Instruction Histogram ===== */
-  std::unordered_set<int> clock_opcode_ids;
-  for (const auto &pair : id_to_sass_map) {
-    if (strstr(pair.second.c_str(), "CS2R") && strstr(pair.second.c_str(), "SR_CLOCKLO")) {
-      clock_opcode_ids.insert(pair.first);
-    }
-  }
-
   struct WarpState {
     bool is_collecting = false;
     std::map<int, int> histogram;
@@ -99,16 +93,38 @@ void *recv_thread_fun(void *args) {
     uint32_t num_recv_bytes = ch_host->recv(recv_buffer, CHANNEL_SIZE);
 
     if (num_recv_bytes > 0) {
+      // It's possible for the recv thread to run slightly behind the main
+      // thread. The main thread sets `current_func` just before launch. We read
+      // it here. A mutex isn't strictly necessary because `cudaDeviceSynchronize`
+      // in the main thread ensures we won't process data from kernel A while
+      // `current_func` is already set to kernel B.
+      CUfunction current_func = ctx_state->current_func;
+      const std::unordered_set<int> *clock_opcode_ids = nullptr;
+      const std::map<int, std::string> *sass_map_for_func = nullptr;
+
+      if (current_func) {
+        if (ctx_state->clock_opcode_ids.count(current_func)) {
+          clock_opcode_ids = &ctx_state->clock_opcode_ids.at(current_func);
+        }
+        if (ctx_state->id_to_sass_map.count(current_func)) {
+          sass_map_for_func = &ctx_state->id_to_sass_map.at(current_func);
+        }
+      }
+
       uint32_t num_processed_bytes = 0;
       while (num_processed_bytes < num_recv_bytes) {
         message_header_t *header = (message_header_t *)&recv_buffer[num_processed_bytes];
 
         int cta_id_x = -1, cta_id_y = -1, cta_id_z = -1, warp_id = -1, opcode_id = -1;
+        const char *sass_str = "N/A";
 
         if (header->type == MSG_TYPE_REG_INFO) {
           reg_info_t *ri = (reg_info_t *)&recv_buffer[num_processed_bytes];
+          if (sass_map_for_func && sass_map_for_func->count(ri->opcode_id)) {
+            sass_str = sass_map_for_func->at(ri->opcode_id).c_str();
+          }
           trace_lprintf("CTX %p - CTA %d,%d,%d - warp %d - %s:\n", ctx, ri->cta_id_x, ri->cta_id_y, ri->cta_id_z,
-                        ri->warp_id, (id_to_sass_map)[ri->opcode_id].c_str());
+                        ri->warp_id, sass_str);
 
           for (int reg_idx = 0; reg_idx < ri->num_regs; reg_idx++) {
             trace_lprintf("  * ");
@@ -128,11 +144,13 @@ void *recv_thread_fun(void *args) {
 
         } else if (header->type == MSG_TYPE_MEM_ACCESS) {
           mem_access_t *mem = (mem_access_t *)&recv_buffer[num_processed_bytes];
+          if (sass_map_for_func && sass_map_for_func->count(mem->opcode_id)) {
+            sass_str = sass_map_for_func->at(mem->opcode_id).c_str();
+          }
           trace_lprintf(
               "CTX %p - grid_launch_id %ld - CTA %d,%d,%d - warp %d - PC %ld - "
               "%s:\n",
-              ctx, mem->kernel_launch_id, mem->cta_id_x, mem->cta_id_y, mem->cta_id_z, mem->warp_id, mem->pc,
-              id_to_sass_map[mem->opcode_id].c_str());
+              ctx, mem->kernel_launch_id, mem->cta_id_x, mem->cta_id_y, mem->cta_id_z, mem->warp_id, mem->pc, sass_str);
           trace_lprintf("  Memory Addresses:\n  * ");
           int printed = 0;
           for (int i = 0; i < 32; i++) {
@@ -162,21 +180,23 @@ void *recv_thread_fun(void *args) {
         }
 
         /* ===== New feature: Instruction Histogram ===== */
-        WarpKey warp_key = {cta_id_x, cta_id_y, cta_id_z, warp_id};
-        WarpState &current_state = warp_states[warp_key];
-        bool is_clock_instruction = clock_opcode_ids.count(opcode_id) > 0;
+        if (clock_opcode_ids) {
+          WarpKey warp_key = {cta_id_x, cta_id_y, cta_id_z, warp_id};
+          WarpState &current_state = warp_states[warp_key];
+          bool is_clock_instruction = clock_opcode_ids->count(opcode_id) > 0;
 
-        if (is_clock_instruction) {
-          if (current_state.is_collecting && !current_state.histogram.empty()) {
-            local_completed_histograms.push_back({warp_key, current_state.region_counter, current_state.histogram});
-            current_state.histogram.clear();
-            current_state.region_counter++;
+          if (is_clock_instruction) {
+            if (current_state.is_collecting && !current_state.histogram.empty()) {
+              local_completed_histograms.push_back({warp_key, current_state.region_counter, current_state.histogram});
+              current_state.histogram.clear();
+              current_state.region_counter++;
+            }
+            current_state.is_collecting = true;
           }
-          current_state.is_collecting = true;
-        }
 
-        if (current_state.is_collecting) {
-          current_state.histogram[opcode_id]++;
+          if (current_state.is_collecting) {
+            current_state.histogram[opcode_id]++;
+          }
         }
         /* ============================================ */
       }
