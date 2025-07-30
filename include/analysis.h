@@ -17,6 +17,7 @@
 #include <map>
 #include <vector>
 
+#include "cuda.h"
 /* for channel */
 #include "utils/channel.hpp"
 

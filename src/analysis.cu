@@ -103,8 +103,7 @@ void *recv_thread_fun(void *args) {
       while (num_processed_bytes < num_recv_bytes) {
         message_header_t *header = (message_header_t *)&recv_buffer[num_processed_bytes];
 
-        int cta_id_x, cta_id_y, cta_id_z, warp_id, opcode_id;
-        uint64_t pc, kernel_launch_id;
+        int cta_id_x = -1, cta_id_y = -1, cta_id_z = -1, warp_id = -1, opcode_id = -1;
 
         if (header->type == MSG_TYPE_REG_INFO) {
           reg_info_t *ri = (reg_info_t *)&recv_buffer[num_processed_bytes];
@@ -126,8 +125,6 @@ void *recv_thread_fun(void *args) {
           cta_id_z = ri->cta_id_z;
           warp_id = ri->warp_id;
           opcode_id = ri->opcode_id;
-          pc = ri->pc;
-          kernel_launch_id = ri->kernel_launch_id;
 
         } else if (header->type == MSG_TYPE_MEM_ACCESS) {
           mem_access_t *mem = (mem_access_t *)&recv_buffer[num_processed_bytes];
@@ -155,8 +152,13 @@ void *recv_thread_fun(void *args) {
           cta_id_z = mem->cta_id_z;
           warp_id = mem->warp_id;
           opcode_id = mem->opcode_id;
-          pc = mem->pc;
-          kernel_launch_id = mem->kernel_launch_id;
+        } else {
+          // Unknown message type, print error and break loop
+          fprintf(stderr,
+                  "ERROR: Unknown message type %d received in recv_thread_fun. "
+                  "Stopping processing of this chunk.\n",
+                  header->type);
+          continue;
         }
 
         /* ===== New feature: Instruction Histogram ===== */
