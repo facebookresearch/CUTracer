@@ -1,10 +1,10 @@
-
 import torch
 
 import triton
 import triton.language as tl
 import triton.profiler as proton
 import triton.profiler.language as pl
+from typing import NamedTuple
 
 DEVICE = triton.runtime.driver.active.get_active_torch_device()
 

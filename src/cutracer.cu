@@ -31,6 +31,9 @@
 /* analysis functionality */
 #include "analysis.h"
 
+/* instrumentation functionality */
+#include "instrument.h"
+
 /* env config */
 #include "env_config.h"
 
@@ -145,11 +148,6 @@ bool instrument_function_if_needed(CUcontext ctx, CUfunction func) {
       std::string sass = instr->getSass();
       ctx_state->id_to_sass_map[f][opcode_id] = sass;
 
-      // // Skip instrumentation for the clock instruction itself
-      // if (sass.find("CS2R") != std::string::npos && sass.find("SR_CLOCKLO") != std::string::npos) {
-      //   continue;
-      // }
-
       /* iterate on the operands */
       for (int i = 0; i < instr->getNumOperands(); i++) {
         /* get the operand "i" */
@@ -168,51 +166,22 @@ bool instrument_function_if_needed(CUcontext ctx, CUfunction func) {
             ureg_num_list.push_back(op->u.mref.desc_ureg_num);
             ureg_num_list.push_back(op->u.mref.desc_ureg_num + 1);
           }
-          /* insert call to the instrumentation function with its
-           * arguments */
-          nvbit_insert_call(instr, "instrument_mem", IPOINT_BEFORE);
-          /* predicate value */
-          nvbit_add_call_arg_guard_pred_val(instr);
-          /* opcode id */
-          nvbit_add_call_arg_const_val32(instr, opcode_id);
-          /* memory reference 64 bit address */
-          nvbit_add_call_arg_mref_addr64(instr, mref_idx);
-          /* add "space" for kernel function pointer that will be set
-           * at launch time (64 bit value at offset 0 of the dynamic
-           * arguments). it is used to pass global kernel launch id*/
-          nvbit_add_call_arg_launch_val64(instr, 0);
-          /* add instruction offset */
-          nvbit_add_call_arg_const_val64(instr, instr->getOffset());
-          /* add pointer to channel_dev*/
-          nvbit_add_call_arg_const_val64(instr, (uint64_t)ctx_state->channel_dev);
+
+          // Use new instrumentation interface for memory tracing
+          if (is_instrument_type_enabled(InstrumentType::MEM_TRACE)) {
+            instrument_memory_trace(instr, opcode_id, ctx_state, mref_idx);
+          }
           mref_idx++;
         }
       }
 
-      /* insert call to the instrumentation function with its arguments */
-      nvbit_insert_call(instr, "record_reg_val", IPOINT_BEFORE);
-      /* guard predicate value */
-      nvbit_add_call_arg_guard_pred_val(instr);
-      /* opcode id */
-      nvbit_add_call_arg_const_val32(instr, opcode_id);
-      /* add pointer to channel_dev*/
-      nvbit_add_call_arg_const_val64(instr, (uint64_t)ctx_state->channel_dev);
-      /* add "space" for kernel function pointer that will be set
-       * at launch time (64 bit value at offset 0 of the dynamic
-       * arguments). it is used to pass global kernel launch id*/
-      nvbit_add_call_arg_launch_val64(instr, 0);
-      /* add instruction offset */
-      nvbit_add_call_arg_const_val64(instr, instr->getOffset());
-      /* how many register values are passed next */
-      nvbit_add_call_arg_const_val32(instr, reg_num_list.size());
-      nvbit_add_call_arg_const_val32(instr, ureg_num_list.size());
-      for (int num : reg_num_list) {
-        /* last parameter tells it is a variadic parameter passed to
-         * the instrument function record_reg_val() */
-        nvbit_add_call_arg_reg_val(instr, num, true);
-      }
-      for (int num : ureg_num_list) {
-        nvbit_add_call_arg_ureg_val(instr, num, true);
+      // Use new instrumentation interface - choose based on enabled types
+      if (is_instrument_type_enabled(InstrumentType::OPCODE_ONLY)) {
+        // Lightweight instrumentation for instruction histogram analysis
+        instrument_opcode_only(instr, opcode_id, ctx_state);
+      } else if (is_instrument_type_enabled(InstrumentType::REG_TRACE)) {
+        // Full register tracing instrumentation
+        instrument_register_trace(instr, opcode_id, ctx_state, reg_num_list, ureg_num_list);
       }
     }
 

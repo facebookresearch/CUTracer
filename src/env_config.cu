@@ -9,6 +9,7 @@
 #include <stdlib.h>
 
 #include "env_config.h"
+#include "instrument.h"
 #include "log.h"
 
 // Define configuration variables
@@ -18,6 +19,8 @@ uint32_t instr_end_interval;
 int verbose;
 // kernel name filters
 std::vector<std::string> kernel_filters;
+// enabled instrumentation types
+std::unordered_set<InstrumentType> enabled_instrument_types;
 
 /**
  * @brief Parses a comma-separated string of kernel name filters for substring matching.
@@ -90,6 +93,67 @@ static void get_var_uint32(uint32_t &var, const char *env_name, uint32_t default
   loprintf("%s = %u (%s)\n", env_name, var, description);
 }
 
+static void get_var_str(std::string &var, const char *env_name, const std::string &default_val, const char *description) {
+  const char *env_val = getenv(env_name);
+  if (env_val) {
+    var = std::string(env_val);
+  } else {
+    var = default_val;
+  }
+  loprintf("%s = %s (%s)\n", env_name, var.c_str(), description);
+}
+
+/**
+ * @brief Initialize instrumentation system based on environment variables
+ * 
+ * Parses CUTRACER_INSTRUMENT environment variable and sets up enabled types.
+ * This function is called within init_config_from_env().
+ */
+void init_instrumentation() {
+  enabled_instrument_types.clear();
+  
+  std::string instrument_str;
+  get_var_str(instrument_str, "CUTRACER_INSTRUMENT", "", "Instrumentation types to enable (opcode_only,reg_trace,mem_trace)");
+  
+  if (instrument_str.empty()) {
+    // Default: enable all instrumentation types for backward compatibility
+    enabled_instrument_types.insert(InstrumentType::REG_TRACE);
+    enabled_instrument_types.insert(InstrumentType::MEM_TRACE);
+    loprintf("Using default instrumentation: reg_trace,mem_trace\n");
+    return;
+  }
+  
+  // Parse comma-separated values
+  if (instrument_str.find("opcode_only") != std::string::npos) {
+    enabled_instrument_types.insert(InstrumentType::OPCODE_ONLY);
+    loprintf("  - Enabled: opcode_only (lightweight instruction histogram)\n");
+  }
+  if (instrument_str.find("reg_trace") != std::string::npos) {
+    enabled_instrument_types.insert(InstrumentType::REG_TRACE);
+    loprintf("  - Enabled: reg_trace (register value tracing)\n");
+  }
+  if (instrument_str.find("mem_trace") != std::string::npos) {
+    enabled_instrument_types.insert(InstrumentType::MEM_TRACE);
+    loprintf("  - Enabled: mem_trace (memory access tracing)\n");
+  }
+  
+  if (enabled_instrument_types.empty()) {
+    loprintf("Warning: No valid instrumentation types specified, falling back to defaults\n");
+    enabled_instrument_types.insert(InstrumentType::REG_TRACE);
+    enabled_instrument_types.insert(InstrumentType::MEM_TRACE);
+  }
+}
+
+/**
+ * @brief Check if a specific instrumentation type is enabled
+ * 
+ * @param type The instrumentation type to check
+ * @return true if the instrumentation type is enabled
+ */
+bool is_instrument_type_enabled(InstrumentType type) {
+  return enabled_instrument_types.count(type) > 0;
+}
+
 // Initialize all configuration variables
 void init_config_from_env() {
   // Enable device memory allocation
@@ -108,6 +172,8 @@ void init_config_from_env() {
   if (kernel_filters_env) {
     parse_kernel_filters(kernel_filters_env);
   }
+  // Initialize instrumentation configuration
+  init_instrumentation();
   std::string pad(100, '-');
   loprintf("%s\n", pad.c_str());
 }
