@@ -31,15 +31,10 @@ extern std::map<uint64_t, uint32_t> kernel_launch_to_iter_map;
 
 std::string extract_instruction_name(const std::string &sass_line) {
   // SASS format examples:
-  // /*0240*/                   CS2R.32 R7, SR_CLOCKLO ;
-  // /*0250*/              @!P0 IMAD.MOV.U32 R6, RZ, RZ, 0x800000 ;
+  // CS2R.32 R7, SR_CLOCKLO ;
+  // @!P0 IMAD.MOV.U32 R6, RZ, RZ, 0x800000 ;
 
-  // Find the start of the instruction part (after the address)
-  size_t start_pos = sass_line.find("*/");
-  if (start_pos == std::string::npos) {
-    return "UNKNOWN";
-  }
-  start_pos += 2;  // Skip "*/"
+  size_t start_pos = 0;
 
   // Skip whitespace
   while (start_pos < sass_line.length() && isspace(sass_line[start_pos])) {
@@ -180,13 +175,11 @@ void *recv_thread_fun(void *args) {
   pthread_mutex_unlock(&mutex);
   char *recv_buffer = (char *)malloc(CHANNEL_SIZE);
 
-  /* ===== New feature: Instruction Histogram ===== */
   std::unordered_map<WarpKey, WarpState, WarpKey::Hash> warp_states;
   std::vector<RegionHistogram> local_completed_histograms;
 
   // Kernel boundary detection
   uint64_t last_seen_kernel_launch_id = UINT64_MAX;  // Initial invalid value
-  /* ============================================ */
 
   while (ctx_state->recv_thread_done == RecvThreadState::WORKING) {
     uint32_t num_recv_bytes = ch_host->recv(recv_buffer, CHANNEL_SIZE);
@@ -245,9 +238,7 @@ void *recv_thread_fun(void *args) {
           trace_lprintf("\n");
           num_processed_bytes += sizeof(reg_info_t);
 
-          /* ===== New feature: Instruction Histogram ===== */
           process_instruction_histogram(ri, ctx_state, warp_states, local_completed_histograms);
-          /* ============================================ */
 
         } else if (header->type == MSG_TYPE_MEM_ACCESS) {
           mem_access_t *mem = (mem_access_t *)&recv_buffer[num_processed_bytes];
