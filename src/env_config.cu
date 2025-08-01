@@ -21,6 +21,8 @@ int verbose;
 std::vector<std::string> kernel_filters;
 // enabled instrumentation types
 std::unordered_set<InstrumentType> enabled_instrument_types;
+// enabled analysis types
+std::unordered_set<AnalysisType> enabled_analysis_types;
 
 /**
  * @brief Parses a comma-separated string of kernel name filters for substring matching.
@@ -111,13 +113,7 @@ static void get_var_str(std::string &var, const char *env_name, const std::strin
  * This function is called within init_config_from_env().
  */
 void init_instrumentation(const std::string &instrument_str) {
-  enabled_instrument_types.clear();
-
   if (instrument_str.empty()) {
-    // Default: enable all instrumentation types for backward compatibility
-    enabled_instrument_types.insert(InstrumentType::REG_TRACE);
-    enabled_instrument_types.insert(InstrumentType::MEM_TRACE);
-    loprintf("Using default instrumentation: reg_trace,mem_trace\n");
     return;
   }
   loprintf("Using instrumentation types: %s\n", instrument_str.c_str());
@@ -135,11 +131,29 @@ void init_instrumentation(const std::string &instrument_str) {
     enabled_instrument_types.insert(InstrumentType::MEM_TRACE);
     loprintf("  - Enabled: mem_trace (memory access tracing)\n");
   }
+}
 
-  if (enabled_instrument_types.empty()) {
-    loprintf("Warning: No valid instrumentation types specified, falling back to defaults\n");
-    enabled_instrument_types.insert(InstrumentType::REG_TRACE);
-    enabled_instrument_types.insert(InstrumentType::MEM_TRACE);
+void init_analysis(const std::string &analysis_str) {
+  enabled_analysis_types.clear();
+
+  if (analysis_str.empty()) {
+    loprintf("No analysis types specified.\n");
+    return;
+  }
+  loprintf("Using analysis types: %s\n", analysis_str.c_str());
+
+  // Parse comma-separated values
+  if (analysis_str.find("proton_instr_histogram") != std::string::npos) {
+    enabled_analysis_types.insert(AnalysisType::PROTON_INSTR_HISTOGRAM);
+    loprintf("  - Enabled: proton_instr_histogram\n");
+
+    // If proton_instr_histogram is enabled, force opcode_only instrumentation
+    if (!is_instrument_type_enabled(InstrumentType::OPCODE_ONLY)) {
+      enabled_instrument_types.insert(InstrumentType::OPCODE_ONLY);
+      loprintf(
+          "`proton_instr_histogram` analysis is enabled, forcing `opcode_only` "
+          "instrumentation.\n");
+    }
   }
 }
 
@@ -151,6 +165,16 @@ void init_instrumentation(const std::string &instrument_str) {
  */
 bool is_instrument_type_enabled(InstrumentType type) {
   return enabled_instrument_types.count(type) > 0;
+}
+
+/**
+ * @brief Check if a specific analysis type is enabled
+ *
+ * @param type The analysis type to check
+ * @return true if the analysis type is enabled
+ */
+bool is_analysis_type_enabled(AnalysisType type) {
+  return enabled_analysis_types.count(type) > 0;
 }
 
 // Initialize all configuration variables
@@ -171,9 +195,19 @@ void init_config_from_env() {
               "Instrumentation types to enable (opcode_only,reg_trace,mem_trace)");
   std::string kernel_filters_env;
   get_var_str(kernel_filters_env, "KERNEL_FILTERS", "", "Kernel name filters");
+  std::string analysis_str;
+  get_var_str(analysis_str, "CUTRACER_ANALYSIS", "",
+              "Analysis types to enable (proton_instr_histogram)");
   //===== Initializations ==========
   // Get kernel name filters
   parse_kernel_filters(kernel_filters_env);
+
+  // Clear enabled types at the beginning
+  enabled_instrument_types.clear();
+
+  // Initialize analysis first, as it may enable instrumentation types
+  init_analysis(analysis_str);
+  // Initialize instrumentation from user settings
   init_instrumentation(instrument_str);
 
   std::string pad(100, '-');

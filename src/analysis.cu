@@ -217,29 +217,32 @@ void *recv_thread_fun(void *args) {
           num_processed_bytes += sizeof(reg_info_t);
 
         } else if (header->type == MSG_TYPE_OPCODE_ONLY) {
-          opcode_only_t *oi = (opcode_only_t *)&recv_buffer[num_processed_bytes];
+          if (is_analysis_type_enabled(AnalysisType::PROTON_INSTR_HISTOGRAM)) {
+            opcode_only_t *oi = (opcode_only_t *)&recv_buffer[num_processed_bytes];
 
-          // Kernel boundary detection - check for launch ID change
-          if (oi->kernel_launch_id != last_seen_kernel_launch_id) {
-            if (last_seen_kernel_launch_id != UINT64_MAX) {
-              // Dump any remaining histograms for warps that were collecting
-              for (auto &pair : warp_states) {
-                if (pair.second.is_collecting && !pair.second.histogram.empty()) {
-                  local_completed_histograms.push_back({pair.first, pair.second.region_counter, pair.second.histogram});
+            // Kernel boundary detection - check for launch ID change
+            if (oi->kernel_launch_id != last_seen_kernel_launch_id) {
+              if (last_seen_kernel_launch_id != UINT64_MAX) {
+                // Dump any remaining histograms for warps that were collecting
+                for (auto &pair : warp_states) {
+                  if (pair.second.is_collecting && !pair.second.histogram.empty()) {
+                    local_completed_histograms.push_back(
+                        {pair.first, pair.second.region_counter, pair.second.histogram});
+                  }
                 }
+
+                // Dump the previous kernel's data
+                dump_previous_kernel_data(last_seen_kernel_launch_id, local_completed_histograms);
+
+                // Clear state for new kernel
+                local_completed_histograms.clear();
+                warp_states.clear();
               }
-
-              // Dump the previous kernel's data
-              dump_previous_kernel_data(last_seen_kernel_launch_id, local_completed_histograms);
-
-              // Clear state for new kernel
-              local_completed_histograms.clear();
-              warp_states.clear();
+              last_seen_kernel_launch_id = oi->kernel_launch_id;
             }
-            last_seen_kernel_launch_id = oi->kernel_launch_id;
-          }
 
-          process_instruction_histogram(oi, ctx_state, warp_states, local_completed_histograms);
+            process_instruction_histogram(oi, ctx_state, warp_states, local_completed_histograms);
+          }
           num_processed_bytes += sizeof(opcode_only_t);
 
         } else if (header->type == MSG_TYPE_MEM_ACCESS) {
