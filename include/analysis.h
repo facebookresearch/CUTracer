@@ -99,7 +99,7 @@ struct WarpState {
 };
 
 struct RegionHistogram {
-  struct WarpKey warp_key;
+  int warp_id;
   int region_id;
   std::map<std::string, int> histogram;
 };

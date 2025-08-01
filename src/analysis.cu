@@ -67,7 +67,7 @@ std::string extract_instruction_name(const std::string &sass_line) {
 }
 
 void process_instruction_histogram(const reg_info_t *ri, CTXstate *ctx_state,
-                                   std::unordered_map<WarpKey, WarpState, WarpKey::Hash> &warp_states,
+                                   std::unordered_map<int, WarpState> &warp_states,
                                    std::vector<RegionHistogram> &completed_histograms) {
   // Get current function from kernel launch ID
   auto func_iter = kernel_launch_to_func_map.find(ri->kernel_launch_id);
@@ -93,13 +93,13 @@ void process_instruction_histogram(const reg_info_t *ri, CTXstate *ctx_state,
     return;  // No mapping available for this function
   }
 
-  WarpKey warp_key = {ri->cta_id_x, ri->cta_id_y, ri->cta_id_z, ri->warp_id};
-  WarpState &current_state = warp_states[warp_key];
+  int warp_id = ri->warp_id;
+  WarpState &current_state = warp_states[warp_id];
   bool is_clock_instruction = clock_opcode_ids->count(ri->opcode_id) > 0;
 
   if (is_clock_instruction) {
     if (current_state.is_collecting && !current_state.histogram.empty()) {
-      completed_histograms.push_back({warp_key, current_state.region_counter, current_state.histogram});
+      completed_histograms.push_back({warp_id, current_state.region_counter, current_state.histogram});
       current_state.histogram.clear();
       current_state.region_counter++;
     }
@@ -148,14 +148,12 @@ void dump_histograms_to_csv(CUcontext ctx, CUfunction func, uint32_t iteration,
     return;
   }
 
-  fprintf(fp, "cta_x,cta_y,cta_z,warp_id,region_id,instruction,count\n");
+  fprintf(fp, "warp_id,region_id,instruction,count\n");
   for (const auto &region_result : histograms) {
     for (const auto &pair : region_result.histogram) {
       const std::string &instruction_name = pair.first;
       int count = pair.second;
-      fprintf(fp, "%d,%d,%d,%d,%d,\"%s\",%d\n", region_result.warp_key.cta_id_x, region_result.warp_key.cta_id_y,
-              region_result.warp_key.cta_id_z, region_result.warp_key.warp_id, region_result.region_id,
-              instruction_name.c_str(), count);
+      fprintf(fp, "%d,%d,\"%s\",%d\n", region_result.warp_id, region_result.region_id, instruction_name.c_str(), count);
     }
   }
   fclose(fp);
@@ -175,7 +173,7 @@ void *recv_thread_fun(void *args) {
   pthread_mutex_unlock(&mutex);
   char *recv_buffer = (char *)malloc(CHANNEL_SIZE);
 
-  std::unordered_map<WarpKey, WarpState, WarpKey::Hash> warp_states;
+  std::unordered_map<int, WarpState> warp_states;
   std::vector<RegionHistogram> local_completed_histograms;
 
   // Kernel boundary detection
