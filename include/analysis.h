@@ -47,14 +47,11 @@ struct CTXstate {
   // recv thread sets it to FINISHED when it cleans up.
   // parent thread should wait until the state becomes FINISHED to clean up.
   volatile RecvThreadState recv_thread_done = RecvThreadState::STOP;
-  
+
   // Per-function SASS mappings for instruction histogram feature
   std::unordered_map<CUfunction, std::map<int, std::string>> id_to_sass_map;
   std::unordered_map<CUfunction, std::unordered_set<int>> clock_opcode_ids;
 };
-
-/* Receiver thread function */
-void *recv_thread_fun(void *);
 
 /* ===== Data Structures ===== */
 struct TraceRecord {
@@ -106,5 +103,12 @@ struct RegionHistogram {
   int region_id;
   std::map<std::string, int> histogram;
 };
+
+/* Receiver thread function */
+void *recv_thread_fun(void *);
+
+/* Histogram dumping function */
+void dump_histograms_to_csv(CUcontext ctx, CUfunction func, uint32_t iteration,
+                            const std::vector<RegionHistogram> &histograms);
 
 #endif /* ANALYSIS_H */

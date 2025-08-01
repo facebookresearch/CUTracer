@@ -272,8 +272,6 @@ void init_context_state(CUcontext ctx) {
  */
 static bool enter_kernel_launch(CUcontext ctx, CUfunction func, uint64_t &grid_launch_id, nvbit_api_cuda_t cbid,
                                 void *params, bool stream_capture = false, bool build_graph = false) {
-
-
   CTXstate *ctx_state = ctx_state_map[ctx];
   // no need to sync during stream capture or manual graph build, since no
   // kernel is actually launched.
@@ -333,26 +331,16 @@ static bool enter_kernel_launch(CUcontext ctx, CUfunction func, uint64_t &grid_l
     // its value above.
     grid_launch_id++;
 
-    
-
-
-
-  // This open should be done before enabling instrumented code to run,
-  // otherwise the log file will not be created.
-  if (should_instrument) {
-    log_open_kernel_file(ctx, func, kernel_iter_map[func]++);
-  }
-
+    // This open should be done before enabling instrumented code to run,
+    // otherwise the log file will not be created.
+    if (should_instrument) {
+      log_open_kernel_file(ctx, func, kernel_iter_map[func]++);
+    }
   }
 
   /* enable instrumented code to run */
   nvbit_enable_instrumented(ctx, func, should_instrument);
   return should_instrument;
-}
-
-void dump_last_kernel_data() {
-  // Note: The last kernel's data will be handled in nvbit_at_ctx_term
-  // when the recv_thread processes any remaining data
 }
 
 // the function is only called for non cuda graph launch cases.
@@ -527,7 +515,6 @@ void nvbit_at_ctx_init(CUcontext ctx) {
 
 // Reference code from NVIDIA nvbit mem_trace tool
 void nvbit_at_ctx_term(CUcontext ctx) {
-  dump_last_kernel_data();
   pthread_mutex_lock(&mutex);
   skip_callback_flag = true;
   if (verbose) {
