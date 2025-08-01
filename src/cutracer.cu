@@ -54,10 +54,9 @@ bool skip_callback_flag = false;
 /* grid launch id, incremented at every launch */
 uint64_t global_kernel_launch_id = 0;
 
-// For dumping histogram data
-CUcontext g_last_ctx = nullptr;
-CUfunction g_last_func = nullptr;
-uint32_t g_last_iter = 0;
+// Global mapping tables for kernel launch tracking
+std::map<uint64_t, std::pair<CUcontext, CUfunction>> kernel_launch_to_func_map;
+std::map<uint64_t, uint32_t> kernel_launch_to_iter_map;
 
 // map to store the iteration count for each kernel
 static std::map<CUfunction, uint32_t> kernel_iter_map;
@@ -146,10 +145,10 @@ bool instrument_function_if_needed(CUcontext ctx, CUfunction func) {
       std::string sass = instr->getSass();
       ctx_state->id_to_sass_map[f][opcode_id] = sass;
 
-      // Skip instrumentation for the clock instruction itself
-      if (sass.find("CS2R") != std::string::npos && sass.find("SR_CLOCKLO") != std::string::npos) {
-        continue;
-      }
+      // // Skip instrumentation for the clock instruction itself
+      // if (sass.find("CS2R") != std::string::npos && sass.find("SR_CLOCKLO") != std::string::npos) {
+      //   continue;
+      // }
 
       /* iterate on the operands */
       for (int i = 0; i < instr->getNumOperands(); i++) {
@@ -223,6 +222,8 @@ bool instrument_function_if_needed(CUcontext ctx, CUfunction func) {
       for (const auto &pair : ctx_state->id_to_sass_map[f]) {
         if (strstr(pair.second.c_str(), "CS2R") && strstr(pair.second.c_str(), "SR_CLOCKLO")) {
           ctx_state->clock_opcode_ids[f].insert(pair.first);
+          loprintf("Found clock opcode %d: %s for kernel %s\n", pair.first, pair.second.c_str(),
+                   nvbit_get_func_name(ctx, f));
         }
       }
     }
@@ -271,6 +272,8 @@ void init_context_state(CUcontext ctx) {
  */
 static bool enter_kernel_launch(CUcontext ctx, CUfunction func, uint64_t &grid_launch_id, nvbit_api_cuda_t cbid,
                                 void *params, bool stream_capture = false, bool build_graph = false) {
+
+
   CTXstate *ctx_state = ctx_state_map[ctx];
   // no need to sync during stream capture or manual graph build, since no
   // kernel is actually launched.
@@ -320,36 +323,36 @@ static bool enter_kernel_launch(CUcontext ctx, CUfunction func, uint64_t &grid_l
           p->blockDimY, p->blockDimZ, nregs, shmem_static_nbytes + p->sharedMemBytes, (uint64_t)p->hStream);
     }
 
+    // Record current kernel info in mapping tables before incrementing ID
+    uint32_t current_iter = kernel_iter_map[func];
+    kernel_launch_to_func_map[grid_launch_id] = {ctx, func};
+    kernel_launch_to_iter_map[grid_launch_id] = current_iter;
+
     // increment grid launch id for next launch
     // grid id can be changed here, since nvbit_set_at_launch() has copied
     // its value above.
     grid_launch_id++;
-  }
+
+    
+
+
 
   // This open should be done before enabling instrumented code to run,
   // otherwise the log file will not be created.
   if (should_instrument) {
-    // Dump histogram data for the previous kernel launch
-    if (g_last_func != nullptr) {
-      dump_region_histograms_to_csv(g_last_ctx, g_last_func, g_last_iter);
-    }
     log_open_kernel_file(ctx, func, kernel_iter_map[func]++);
-    // Remember the current kernel's info for the next launch
-    g_last_ctx = ctx;
-    g_last_func = func;
-    g_last_iter = kernel_iter_map[func] - 1;
+  }
+
   }
 
   /* enable instrumented code to run */
-  ctx_state->current_func = func;
   nvbit_enable_instrumented(ctx, func, should_instrument);
   return should_instrument;
 }
 
 void dump_last_kernel_data() {
-  if (g_last_func != nullptr) {
-    dump_region_histograms_to_csv(g_last_ctx, g_last_func, g_last_iter);
-  }
+  // Note: The last kernel's data will be handled in nvbit_at_ctx_term
+  // when the recv_thread processes any remaining data
 }
 
 // the function is only called for non cuda graph launch cases.
@@ -519,12 +522,12 @@ void nvbit_at_ctx_init(CUcontext ctx) {
   assert(ctx_state_map.find(ctx) == ctx_state_map.end());
   CTXstate *ctx_state = new CTXstate;
   ctx_state_map[ctx] = ctx_state;
-  pthread_mutex_init(&ctx_state->histogram_mutex, NULL);
   pthread_mutex_unlock(&mutex);
 }
 
 // Reference code from NVIDIA nvbit mem_trace tool
 void nvbit_at_ctx_term(CUcontext ctx) {
+  dump_last_kernel_data();
   pthread_mutex_lock(&mutex);
   skip_callback_flag = true;
   if (verbose) {
@@ -539,14 +542,19 @@ void nvbit_at_ctx_term(CUcontext ctx) {
   ctx_state->recv_thread_done = RecvThreadState::STOP;
   while (ctx_state->recv_thread_done != RecvThreadState::FINISHED);
 
+  // Clean up any remaining kernel mapping entries
+  // (in case there were kernels launched but no data received)
+  kernel_launch_to_func_map.clear();
+  kernel_launch_to_iter_map.clear();
+
   ctx_state->channel_host.destroy(false);
   cudaFree(ctx_state->channel_dev);
   skip_callback_flag = false;
   delete ctx_state;
   pthread_mutex_unlock(&mutex);
   // Cleanup log handle system
+
   cleanup_log_handle();
-  dump_last_kernel_data();
 }
 
 // Reference code from NVIDIA nvbit mem_trace tool
