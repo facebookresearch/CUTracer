@@ -15,7 +15,7 @@
 #include <stdint.h>
 
 /* Message type enum to identify different message types */
-typedef enum { MSG_TYPE_REG_INFO = 0, MSG_TYPE_MEM_ACCESS = 1 } message_type_t;
+typedef enum { MSG_TYPE_REG_INFO = 0, MSG_TYPE_MEM_ACCESS = 1, MSG_TYPE_OPCODE_ONLY = 2 } message_type_t;
 
 /* Common header for all message types */
 typedef struct {
@@ -54,5 +54,16 @@ typedef struct {
   int opcode_id;
   uint64_t addrs[32];
 } mem_access_t;
+
+typedef struct {
+  message_header_t header;  // Common header with type=MSG_TYPE_OPCODE_ONLY
+  uint64_t kernel_launch_id;
+  int cta_id_x;
+  int cta_id_y;
+  int cta_id_z;
+  uint64_t pc;
+  int warp_id;
+  int opcode_id;
+} opcode_only_t;
 
 #endif /* COMMON_H */

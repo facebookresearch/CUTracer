@@ -19,8 +19,8 @@
 #include <unordered_map>
 #include <unordered_set>
 #include <vector>
-
-#include "cuda.h"
+// This header file should be here
+#include "nvbit.h"
 /* for channel */
 #include "utils/channel.hpp"
 

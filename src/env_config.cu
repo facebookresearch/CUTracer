@@ -45,10 +45,10 @@ std::unordered_set<InstrumentType> enabled_instrument_types;
  * After calling this function with the example string, the `kernel_filters`
  * vector will contain: `{"add", "_Z2_gemm", "reduce"}`
  */
-static void parse_kernel_filters(const char *filters_env) {
-  if (!filters_env) return;
+static void parse_kernel_filters(const std::string &filters_env) {
+  if (filters_env.empty()) return;
 
-  std::string filters_str(filters_env);
+  std::string filters_str = filters_env;
   size_t pos = 0;
   std::string token;
 
@@ -93,7 +93,8 @@ static void get_var_uint32(uint32_t &var, const char *env_name, uint32_t default
   loprintf("%s = %u (%s)\n", env_name, var, description);
 }
 
-static void get_var_str(std::string &var, const char *env_name, const std::string &default_val, const char *description) {
+static void get_var_str(std::string &var, const char *env_name, const std::string &default_val,
+                        const char *description) {
   const char *env_val = getenv(env_name);
   if (env_val) {
     var = std::string(env_val);
@@ -105,16 +106,13 @@ static void get_var_str(std::string &var, const char *env_name, const std::strin
 
 /**
  * @brief Initialize instrumentation system based on environment variables
- * 
+ *
  * Parses CUTRACER_INSTRUMENT environment variable and sets up enabled types.
  * This function is called within init_config_from_env().
  */
-void init_instrumentation() {
+void init_instrumentation(const std::string &instrument_str) {
   enabled_instrument_types.clear();
-  
-  std::string instrument_str;
-  get_var_str(instrument_str, "CUTRACER_INSTRUMENT", "", "Instrumentation types to enable (opcode_only,reg_trace,mem_trace)");
-  
+
   if (instrument_str.empty()) {
     // Default: enable all instrumentation types for backward compatibility
     enabled_instrument_types.insert(InstrumentType::REG_TRACE);
@@ -122,7 +120,8 @@ void init_instrumentation() {
     loprintf("Using default instrumentation: reg_trace,mem_trace\n");
     return;
   }
-  
+  loprintf("Using instrumentation types: %s\n", instrument_str.c_str());
+
   // Parse comma-separated values
   if (instrument_str.find("opcode_only") != std::string::npos) {
     enabled_instrument_types.insert(InstrumentType::OPCODE_ONLY);
@@ -136,7 +135,7 @@ void init_instrumentation() {
     enabled_instrument_types.insert(InstrumentType::MEM_TRACE);
     loprintf("  - Enabled: mem_trace (memory access tracing)\n");
   }
-  
+
   if (enabled_instrument_types.empty()) {
     loprintf("Warning: No valid instrumentation types specified, falling back to defaults\n");
     enabled_instrument_types.insert(InstrumentType::REG_TRACE);
@@ -146,7 +145,7 @@ void init_instrumentation() {
 
 /**
  * @brief Check if a specific instrumentation type is enabled
- * 
+ *
  * @param type The instrumentation type to check
  * @return true if the instrumentation type is enabled
  */
@@ -167,13 +166,16 @@ void init_config_from_env() {
                  "Beginning of the instruction interval where to apply instrumentation");
   get_var_uint32(instr_end_interval, "INSTR_END", UINT32_MAX,
                  "End of the instruction interval where to apply instrumentation");
+  std::string instrument_str;
+  get_var_str(instrument_str, "CUTRACER_INSTRUMENT", "",
+              "Instrumentation types to enable (opcode_only,reg_trace,mem_trace)");
+  std::string kernel_filters_env;
+  get_var_str(kernel_filters_env, "KERNEL_FILTERS", "", "Kernel name filters");
+  //===== Initializations ==========
   // Get kernel name filters
-  const char *kernel_filters_env = getenv("KERNEL_FILTERS");
-  if (kernel_filters_env) {
-    parse_kernel_filters(kernel_filters_env);
-  }
-  // Initialize instrumentation configuration
-  init_instrumentation();
+  parse_kernel_filters(kernel_filters_env);
+  init_instrumentation(instrument_str);
+
   std::string pad(100, '-');
   loprintf("%s\n", pad.c_str());
 }

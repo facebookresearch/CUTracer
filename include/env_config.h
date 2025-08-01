@@ -10,8 +10,8 @@
 #include <stdint.h>
 
 #include <string>
-#include <vector>
 #include <unordered_set>
+#include <vector>
 
 // Forward declaration to avoid circular dependency
 enum class InstrumentType;

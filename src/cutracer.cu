@@ -191,8 +191,6 @@ bool instrument_function_if_needed(CUcontext ctx, CUfunction func) {
       for (const auto &pair : ctx_state->id_to_sass_map[f]) {
         if (strstr(pair.second.c_str(), "CS2R") && strstr(pair.second.c_str(), "SR_CLOCKLO")) {
           ctx_state->clock_opcode_ids[f].insert(pair.first);
-          loprintf("Found clock opcode %d: %s for kernel %s\n", pair.first, pair.second.c_str(),
-                   nvbit_get_func_name(ctx, f));
         }
       }
     }

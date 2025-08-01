@@ -66,7 +66,7 @@ std::string extract_instruction_name(const std::string &sass_line) {
   return sass_line.substr(start_pos, end_pos - start_pos);
 }
 
-void process_instruction_histogram(const reg_info_t *ri, CTXstate *ctx_state,
+void process_instruction_histogram(const opcode_only_t *ri, CTXstate *ctx_state,
                                    std::unordered_map<int, WarpState> &warp_states,
                                    std::vector<RegionHistogram> &completed_histograms) {
   // Get current function from kernel launch ID
@@ -194,26 +194,6 @@ void *recv_thread_fun(void *args) {
         if (header->type == MSG_TYPE_REG_INFO) {
           reg_info_t *ri = (reg_info_t *)&recv_buffer[num_processed_bytes];
 
-          // Kernel boundary detection - check for launch ID change
-          if (ri->kernel_launch_id != last_seen_kernel_launch_id) {
-            if (last_seen_kernel_launch_id != UINT64_MAX) {
-              // Dump any remaining histograms for warps that were collecting
-              for (auto &pair : warp_states) {
-                if (pair.second.is_collecting && !pair.second.histogram.empty()) {
-                  local_completed_histograms.push_back({pair.first, pair.second.region_counter, pair.second.histogram});
-                }
-              }
-
-              // Dump the previous kernel's data
-              dump_previous_kernel_data(last_seen_kernel_launch_id, local_completed_histograms);
-
-              // Clear state for new kernel
-              local_completed_histograms.clear();
-              warp_states.clear();
-            }
-            last_seen_kernel_launch_id = ri->kernel_launch_id;
-          }
-
           // Get SASS string for trace output
           auto func_iter = kernel_launch_to_func_map.find(ri->kernel_launch_id);
           if (func_iter != kernel_launch_to_func_map.end()) {
@@ -236,7 +216,31 @@ void *recv_thread_fun(void *args) {
           trace_lprintf("\n");
           num_processed_bytes += sizeof(reg_info_t);
 
-          process_instruction_histogram(ri, ctx_state, warp_states, local_completed_histograms);
+        } else if (header->type == MSG_TYPE_OPCODE_ONLY) {
+          opcode_only_t *oi = (opcode_only_t *)&recv_buffer[num_processed_bytes];
+
+          // Kernel boundary detection - check for launch ID change
+          if (oi->kernel_launch_id != last_seen_kernel_launch_id) {
+            if (last_seen_kernel_launch_id != UINT64_MAX) {
+              // Dump any remaining histograms for warps that were collecting
+              for (auto &pair : warp_states) {
+                if (pair.second.is_collecting && !pair.second.histogram.empty()) {
+                  local_completed_histograms.push_back({pair.first, pair.second.region_counter, pair.second.histogram});
+                }
+              }
+
+              // Dump the previous kernel's data
+              dump_previous_kernel_data(last_seen_kernel_launch_id, local_completed_histograms);
+
+              // Clear state for new kernel
+              local_completed_histograms.clear();
+              warp_states.clear();
+            }
+            last_seen_kernel_launch_id = oi->kernel_launch_id;
+          }
+
+          process_instruction_histogram(oi, ctx_state, warp_states, local_completed_histograms);
+          num_processed_bytes += sizeof(opcode_only_t);
 
         } else if (header->type == MSG_TYPE_MEM_ACCESS) {
           mem_access_t *mem = (mem_access_t *)&recv_buffer[num_processed_bytes];
