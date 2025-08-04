@@ -37,6 +37,9 @@
 /* logging functionality */
 #include "log.h"
 
+/* instrumentation functionality */
+#include "instrument.h"
+
 /* Channel used to communicate from GPU to CPU receiving thread */
 #define CHANNEL_SIZE (1l << 20)
 
@@ -60,20 +63,26 @@ static std::map<CUfunction, uint32_t> kernel_iter_map;
 
 /* ===== Main Functionality ===== */
 /**
- * @brief Conditionally instruments a CUDA function based on active filters.
+ * @brief Conditionally instruments a CUDA function by delegating to specialized
+ * instrumentation functions.
  *
- * This function synthesizes logic from NVIDIA's `mem_trace` and
- * `record_reg_vals` examples. It inspects a function and its device calls, and
- * if they match the `kernel_filters`, it instruments SASS instructions.
+ * This function is based on the `instrument_kernel` function from NVIDIA's
+ * `mem_trace` example. It inspects a function and, if it matches the filters,
+ * iterates through its SASS instructions, delegating the actual instrumentation
+ * to functions in `instrument.cu`.
  *
  * Meta's enhancements include:
  *  - Combining memory (MREF) and register (REG) tracing.
  *  - Adding support for Unified Registers (UREG).
- *  - A filter system to selectively instrument kernels via environment variables.
+ *  - Kernel Filtering: A system (`kernel_filters`) to selectively
+ *    instrument kernels based on environment variables, avoiding unnecessary
+ *    overhead.
+ *  - Modular Instrumentation API: The core instrumentation logic is refactored
+ *    into `instrument.cu`, providing a clear API for different tracing types.
  *
  * @param ctx The CUDA context of the function.
  * @param func The `CUfunction` to inspect and potentially instrument.
- * @return `true` if any instrumentation was added, `false` otherwise.
+ * @return `true` if any related function was matched by the filters, `false` otherwise.
  */
 bool instrument_function_if_needed(CUcontext ctx, CUfunction func) {
   assert(ctx_state_map.find(ctx) != ctx_state_map.end());
@@ -158,47 +167,22 @@ bool instrument_function_if_needed(CUcontext ctx, CUfunction func) {
             ureg_num_list.push_back(op->u.mref.desc_ureg_num);
             ureg_num_list.push_back(op->u.mref.desc_ureg_num + 1);
           }
-          /* insert call to the instrumentation function with its
-           * arguments */
-          nvbit_insert_call(instr, "instrument_mem", IPOINT_BEFORE);
-          /* predicate value */
-          nvbit_add_call_arg_guard_pred_val(instr);
-          /* opcode id */
-          nvbit_add_call_arg_const_val32(instr, opcode_id);
-          /* memory reference 64 bit address */
-          nvbit_add_call_arg_mref_addr64(instr, mref_idx);
-          /* add "space" for kernel function pointer that will be set
-           * at launch time (64 bit value at offset 0 of the dynamic
-           * arguments)*/
-          nvbit_add_call_arg_launch_val64(instr, 0);
-          /* add instruction PC */
-          nvbit_add_call_arg_const_val64(instr, instr->getOffset());
-          /* add pointer to channel_dev*/
-          nvbit_add_call_arg_const_val64(instr, (uint64_t)ctx_state->channel_dev);
+
+          // Use new instrumentation interface for memory tracing
+          if (is_instrument_type_enabled(InstrumentType::MEM_TRACE)) {
+            instrument_memory_trace(instr, opcode_id, ctx_state, mref_idx);
+          }
           mref_idx++;
         }
       }
 
-      /* insert call to the instrumentation function with its arguments */
-      nvbit_insert_call(instr, "record_reg_val", IPOINT_BEFORE);
-      /* guard predicate value */
-      nvbit_add_call_arg_guard_pred_val(instr);
-      /* opcode id */
-      nvbit_add_call_arg_const_val32(instr, opcode_id);
-      /* add pointer to channel_dev*/
-      nvbit_add_call_arg_const_val64(instr, (uint64_t)ctx_state->channel_dev);
-      /* add instruction PC */
-      nvbit_add_call_arg_const_val64(instr, instr->getOffset());
-      /* how many register values are passed next */
-      nvbit_add_call_arg_const_val32(instr, reg_num_list.size());
-      nvbit_add_call_arg_const_val32(instr, ureg_num_list.size());
-      for (int num : reg_num_list) {
-        /* last parameter tells it is a variadic parameter passed to
-         * the instrument function record_reg_val() */
-        nvbit_add_call_arg_reg_val(instr, num, true);
-      }
-      for (int num : ureg_num_list) {
-        nvbit_add_call_arg_ureg_val(instr, num, true);
+      // Choose based on enabled types
+      if (is_instrument_type_enabled(InstrumentType::OPCODE_ONLY)) {
+        // Lightweight instrumentation for instruction histogram analysis
+        instrument_opcode_only(instr, opcode_id, ctx_state);
+      } else if (is_instrument_type_enabled(InstrumentType::REG_TRACE)) {
+        // Full register tracing instrumentation
+        instrument_register_trace(instr, opcode_id, ctx_state, reg_num_list, ureg_num_list);
       }
     }
   }

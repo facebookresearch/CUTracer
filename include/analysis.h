@@ -16,6 +16,8 @@
 
 #include <map>
 #include <string>
+
+#include "nvbit.h"
 /* for channel */
 #include "utils/channel.hpp"
 

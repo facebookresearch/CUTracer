@@ -15,13 +15,14 @@
 #include "utils/utils.h"
 
 /* for channel */
+#include "common.h"
 #include "utils/channel.hpp"
 
-/* Based on NVIDIA NVBit reg_trace example with Meta modifications for message type and unified register support */
-#include "common.h"
-
-extern "C" __device__ __noinline__ void record_reg_val(int pred, int opcode_id, uint64_t pchannel_dev, uint64_t pc,
-                                                       int32_t num_regs, int32_t num_uregs, ...) {
+/* Based on NVIDIA NVBit reg_trace example with Meta modifications for
+message type, unified register, and kernel launch id support*/
+extern "C" __device__ __noinline__ void instrument_reg_val(int pred, int opcode_id, uint64_t pchannel_dev,
+                                                           uint64_t kernel_launch_id, uint64_t pc, int32_t num_regs,
+                                                           int32_t num_uregs, ...) {
   if (!pred) {
     return;
   }
@@ -42,6 +43,7 @@ extern "C" __device__ __noinline__ void record_reg_val(int pred, int opcode_id, 
   ri.opcode_id = opcode_id;
   ri.num_regs = num_regs;
   ri.num_uregs = num_uregs;
+  ri.kernel_launch_id = kernel_launch_id;
   ri.pc = pc;
 
   if (num_regs || num_uregs) {
