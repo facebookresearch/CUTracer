@@ -171,7 +171,7 @@ test_vectoradd_with_cutracer() {
   echo "CUDA_INJECTION64_PATH=$CUDA_INJECTION64_PATH"
 
   # Run with timeout and capture output
-  if timeout ${TIMEOUT}s ./vectoradd >cutracer_output.log 2>&1; then
+  if timeout ${TIMEOUT}s CUTRACER_INSTRUMENT=reg_trace ./vectoradd >cutracer_output.log 2>&1; then
     echo "✅ vectoradd with CUTracer completed successfully"
   else
     exit_code=$?
