@@ -167,6 +167,7 @@ test_vectoradd_with_cutracer() {
   export CUDA_INJECTION64_PATH="$PROJECT_ROOT/lib/cutracer.so"
   export DEADLOCK_TIMEOUT=30
   export LOG_TO_STDOUT=1
+  export CUTRACER_INSTRUMENT=reg_trace
 
   echo "CUDA_INJECTION64_PATH=$CUDA_INJECTION64_PATH"
 
@@ -180,6 +181,11 @@ test_vectoradd_with_cutracer() {
     cat cutracer_output.log
     return 1
   fi
+
+  # unset env flags
+  unset DEADLOCK_TIMEOUT
+  unset LOG_TO_STDOUT
+  unset CUTRACER_INSTRUMENT
 
   echo "=== CUTracer Output ==="
   cat cutracer_output.log

@@ -36,9 +36,10 @@ typedef struct {
   uint32_t reg_vals[32][8];
 
   // CUTracer extensions
-  uint64_t pc;            // Program counter for the instruction
-  int32_t num_uregs;      // Number of unified registers
-  uint32_t ureg_vals[8];  // Unified registers shared by all threads in the same warp
+  uint64_t kernel_launch_id;  // Global kernel launch id
+  uint64_t pc;                // Program counter for the instruction
+  int32_t num_uregs;          // Number of unified registers
+  uint32_t ureg_vals[8];      // Unified registers shared by all threads in the same warp
 } reg_info_t;
 
 /* Based on NVIDIA mem_trace example with Meta modifications for message type support */
