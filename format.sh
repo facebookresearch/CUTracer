@@ -32,6 +32,21 @@ FILE_PATTERNS=(-name "*.h" -o -name "*.hpp" -o -name "*.cpp" -o -name "*.cu" -o 
 
 # --- Helper Functions ---
 
+# Function to process a single file.
+# It checks if a file needs formatting, formats it if necessary,
+# and prints the filename to stdout if it was changed.
+format_and_report_changes() {
+  file="$1"
+  # Use diff to compare the original file with clang-format's output.
+  # If they differ, format the file in-place and print its name.
+  if ! diff -q "${file}" <(clang-format "${file}") >/dev/null; then
+    clang-format -i "${file}"
+    echo "${file}"
+  fi
+}
+# Export the function so it's available to the subshells created by xargs.
+export -f format_and_report_changes
+
 # Function to print usage instructions
 usage() {
   echo "Usage: $0 {check|format}"
@@ -89,8 +104,21 @@ check)
 
 format)
   echo "🎨  Applying code formatting to: ${EXISTING_DIRS[*]}..."
-  # The -i flag formats the files in-place.
-  find "${EXISTING_DIRS[@]}" -type f \( "${FILE_PATTERNS[@]}" \) -print0 | xargs -0 -r clang-format -i
+
+  # Use xargs to run the formatting function in parallel.
+  # -P 0 tells xargs to use as many processes as available CPU cores.
+  # The output will be a list of files that were actually changed.
+  CHANGED_FILES=$(find "${EXISTING_DIRS[@]}" -type f \( "${FILE_PATTERNS[@]}" \) -print0 | \
+    xargs -0 -P 0 -I {} bash -c 'format_and_report_changes "{}"')
+
+  if [ -n "$CHANGED_FILES" ]; then
+    echo "✨ Changed files:"
+    # Use printf to format the list of changed files neatly.
+    printf "  - %s\n" $CHANGED_FILES
+  else
+    echo "No files needed formatting."
+  fi
+
   echo "✅  Formatting complete."
   ;;
 
