@@ -19,9 +19,11 @@
 #include "cuda.h"
 #include "log.h"
 #include "utils/channel.hpp"
-extern std::map<int, std::string> id_to_sass_map;
+
 extern pthread_mutex_t mutex;
 extern std::unordered_map<CUcontext, CTXstate*> ctx_state_map;
+extern std::map<uint64_t, std::pair<CUcontext, CUfunction>> kernel_launch_to_func_map;
+extern std::map<uint64_t, uint32_t> kernel_launch_to_iter_map;
 
 // Based on NVIDIA NVBit record_reg_vals example.
 void* recv_thread_fun(void* args) {
@@ -44,10 +46,20 @@ void* recv_thread_fun(void* args) {
       while (num_processed_bytes < num_recv_bytes) {
         // First read the message header to determine the message type
         message_header_t* header = (message_header_t*)&recv_buffer[num_processed_bytes];
+        const char* sass_str = "N/A";
         if (header->type == MSG_TYPE_REG_INFO) {
           reg_info_t* ri = (reg_info_t*)&recv_buffer[num_processed_bytes];
+          // Get SASS string for trace output
+          auto func_iter = kernel_launch_to_func_map.find(ri->kernel_launch_id);
+          if (func_iter != kernel_launch_to_func_map.end()) {
+            CUfunction current_func = func_iter->second.second;
+            if (ctx_state->id_to_sass_map.count(current_func) &&
+                ctx_state->id_to_sass_map[current_func].count(ri->opcode_id)) {
+              sass_str = ctx_state->id_to_sass_map[current_func][ri->opcode_id].c_str();
+            }
+          }
           trace_lprintf("CTX %p - CTA %d,%d,%d - warp %d - %s:\n", ctx, ri->cta_id_x, ri->cta_id_y, ri->cta_id_z,
-                        ri->warp_id, (id_to_sass_map)[ri->opcode_id].c_str());
+                        ri->warp_id, sass_str);
 
           // Print register values
           for (int reg_idx = 0; reg_idx < ri->num_regs; reg_idx++) {
@@ -60,11 +72,21 @@ void* recv_thread_fun(void* args) {
           trace_lprintf("\n");
           num_processed_bytes += sizeof(reg_info_t);
         } else if (header->type == MSG_TYPE_MEM_ACCESS) {
-          // Process memory access message
           mem_access_t* mem = (mem_access_t*)&recv_buffer[num_processed_bytes];
-          trace_lprintf("CTX %p - grid_launch_id %ld - CTA %d,%d,%d - warp %d - PC %ld - %s:\n", ctx,
-                        mem->kernel_launch_id, mem->cta_id_x, mem->cta_id_y, mem->cta_id_z, mem->warp_id, mem->pc,
-                        id_to_sass_map[mem->opcode_id].c_str());
+
+          // Get SASS string for trace output
+          auto func_iter = kernel_launch_to_func_map.find(mem->kernel_launch_id);
+          if (func_iter != kernel_launch_to_func_map.end()) {
+            CUfunction current_func = func_iter->second.second;
+            if (ctx_state->id_to_sass_map.count(current_func) &&
+                ctx_state->id_to_sass_map[current_func].count(mem->opcode_id)) {
+              sass_str = ctx_state->id_to_sass_map[current_func][mem->opcode_id].c_str();
+            }
+          }
+          trace_lprintf(
+              "CTX %p - grid_launch_id %ld - CTA %d,%d,%d - warp %d - PC %ld - "
+              "%s:\n",
+              ctx, mem->kernel_launch_id, mem->cta_id_x, mem->cta_id_y, mem->cta_id_z, mem->warp_id, mem->pc, sass_str);
           trace_lprintf("  Memory Addresses:\n  * ");
           int printed = 0;
           for (int i = 0; i < 32; i++) {
@@ -78,6 +100,14 @@ void* recv_thread_fun(void* args) {
           }
           trace_lprintf("\n\n");
           num_processed_bytes += sizeof(mem_access_t);
+        } else {
+          // Unknown message type, print error and break loop
+          // TODO: handle error message in our current log mechanism
+          fprintf(stderr,
+                  "ERROR: Unknown message type %d received in recv_thread_fun. "
+                  "Stopping processing of this chunk.\n",
+                  header->type);
+          continue;
         }
       }
     }
