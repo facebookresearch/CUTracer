@@ -34,6 +34,7 @@ if [ -f "/opt/miniconda3/etc/profile.d/conda.sh" ]; then
   echo "🐍 Activating conda environment..."
   source /opt/miniconda3/etc/profile.d/conda.sh
   conda activate $CONDA_ENV
+  conda install -y -c conda-forge libstdcxx-ng=15.1.0
 else
   echo "⚠️ Conda activation script not found, skipping."
 fi
@@ -133,89 +134,54 @@ build_vectoradd() {
   return 0
 }
 
-# Function to test vectoradd without CUTracer
-test_vectoradd_baseline() {
-  echo "🧪 Testing vectoradd without CUTracer..."
-
+# Function to run the complete vectoradd test suite
+test_vectoradd() {
+  echo "🧪 Testing vectoradd (baseline, with CUTracer, and validation)..."
   cd "$PROJECT_ROOT/tests/vectoradd"
 
-  # Run with timeout
-  if timeout ${TIMEOUT}s ./vectoradd; then
-    echo "✅ vectoradd runs successfully without CUTracer"
-    return 0
-  else
+  # 1. Baseline test
+  echo "  -> Running baseline test (without CUTracer)..."
+  if ! ./vectoradd; then
     exit_code=$?
-    if [ $exit_code -eq 124 ]; then
-      echo "❌ vectoradd test timed out"
-    else
-      echo "❌ vectoradd test failed with exit code $exit_code"
-    fi
+    echo "❌ vectoradd baseline test failed with exit code $exit_code"
     return 1
   fi
-}
+  echo "  ✅ vectoradd runs successfully without CUTracer"
 
-# Function to test vectoradd with CUTracer
-test_vectoradd_with_cutracer() {
-  echo "🧪 Testing vectoradd with CUTracer..."
-
-  cd "$PROJECT_ROOT/tests/vectoradd"
-
+  # 2. Test with CUTracer
+  echo "  -> Running test with CUTracer..."
   # Clean up old logs to ensure a fresh run
   rm -f *.log
 
-  # Set up CUTracer environment
-  export CUDA_INJECTION64_PATH="$PROJECT_ROOT/lib/cutracer.so"
-  export DEADLOCK_TIMEOUT=30
-  export LOG_TO_STDOUT=1
-  export CUTRACER_INSTRUMENT=reg_trace
-
-  echo "CUDA_INJECTION64_PATH=$CUDA_INJECTION64_PATH"
-
-  # Run with timeout and capture output
-  if timeout ${TIMEOUT}s ./vectoradd >cutracer_output.log 2>&1; then
-    echo "✅ vectoradd with CUTracer completed successfully"
-  else
+  if ! CUDA_INJECTION64_PATH="$PROJECT_ROOT/lib/cutracer.so" CUTRACER_INSTRUMENT=reg_trace ./vectoradd >cutracer_output.log 2>&1; then
     exit_code=$?
-    echo "❌ CUTracer test failed or timed out (exit code: $exit_code)"
-    echo "=== CUTracer Output ==="
+    echo "❌ CUTracer test failed with exit code: $exit_code"
+    echo "     === CUTracer Output ==="
     cat cutracer_output.log
     return 1
   fi
-
-  # unset env flags
-  unset DEADLOCK_TIMEOUT
-  unset LOG_TO_STDOUT
-  unset CUTRACER_INSTRUMENT
-
-  echo "=== CUTracer Output ==="
+  echo "  ✅ vectoradd with CUTracer completed successfully"
+  echo "     === CUTracer Output ==="
   cat cutracer_output.log
 
-  return 0
-}
-
-# Function to validate CUTracer output
-validate_cutracer_output() {
-  echo "🔍 Validating CUTracer output..."
-
-  cd "$PROJECT_ROOT/tests/vectoradd"
-
-  # Find the kernel trace log file dynamically
+  # 3. Validate output
+  echo "  -> Validating CUTracer output..."
   kernel_log_file=$(ls -1 kernel_*vecAdd*.log 2>/dev/null | head -n 1)
 
   if [ -z "$kernel_log_file" ] || [ ! -f "$kernel_log_file" ]; then
     echo "❌ Kernel trace log file (kernel_*vecAdd*.log) not found!"
-    echo "Listing current directory contents:"
+    echo "     Listing current directory contents:"
     ls -la
     return 1
   fi
-  echo "✅ Found kernel trace log: $kernel_log_file"
+  echo "  ✅ Found kernel trace log: $kernel_log_file"
 
   # Check for register trace output in the kernel log
   if grep -q "Reg0_T00: 0x00000000" "$kernel_log_file"; then
-    echo "✅ Found expected register trace: Reg0_T00: 0x00000000"
+    echo "  ✅ Found expected register trace: Reg0_T00: 0x00000000"
   else
     echo "❌ Missing expected register trace: Reg0_T00: 0x00000000"
-    echo "=== Searching for similar patterns in $kernel_log_file ==="
+    echo "     === Searching for similar patterns in $kernel_log_file ==="
     grep -i "reg.*t0" "$kernel_log_file" || echo "No register patterns found"
     return 1
   fi
@@ -223,12 +189,12 @@ validate_cutracer_output() {
   # Check for CTA exit pattern in the kernel log
   new_exit_pattern="CTX 0x[0-9a-f]+ - CTA [0-9]+,[0-9]+,[0-9]+ - warp [0-9]+ - EXIT ;:"
   if grep -qE "$new_exit_pattern" "$kernel_log_file"; then
-    echo "✅ Found expected CTA exit pattern"
-    echo "Matching line:"
+    echo "  ✅ Found expected CTA exit pattern"
+    echo "     Matching line:"
     grep -m 1 -E "$new_exit_pattern" "$kernel_log_file"
   else
     echo "❌ Missing expected CTA exit pattern"
-    echo "=== Searching for similar patterns in $kernel_log_file ==="
+    echo "     === Searching for similar patterns in $kernel_log_file ==="
     grep -i "cta.*warp.*exit" "$kernel_log_file" || echo "No CTA exit patterns found"
     return 1
   fi
@@ -242,20 +208,25 @@ test_py_add_with_kernel_filters() {
   cd "$PROJECT_ROOT/tests/py_add"
 
   # Clean up old logs to ensure a fresh run
-  rm -f kernel*.log
+  rm -f *.log
 
   # Run the test with KERNEL_FILTERS enabled
-  CUDA_INJECTION64_PATH=$PROJECT_ROOT/lib/cutracer.so KERNEL_FILTERS=vectorized_elementwise_kernel python ./test_add.py
-  if [ $? -ne 0 ]; then
+  if ! CUDA_INJECTION64_PATH=$PROJECT_ROOT/lib/cutracer.so CUTRACER_INSTRUMENT=reg_trace KERNEL_FILTERS=vectorized_elementwise_kernel python ./test_add.py >py_add_output.log 2>&1; then
     echo "❌ Python script test_add.py failed to execute."
+    echo "     === Python script output ==="
+    cat py_add_output.log
     cd "$PROJECT_ROOT"
     return 1
   fi
+  echo "     === Python script output ==="
+  cat py_add_output.log
 
   # Find logs that match the kernel filter
   matching_logs=$(ls kernel*vectorized_elementwise_kernel*.log 2>/dev/null)
   if [ -z "$matching_logs" ]; then
     echo "❌ Test failed: No log file generated for kernel containing 'vectorized_elementwise_kernel'."
+    echo "     Listing current directory contents:"
+    ls -la
     cd "$PROJECT_ROOT"
     return 1
   fi
@@ -304,18 +275,8 @@ run_all_tests() {
   fi
 
   # Test phase
-  if ! test_vectoradd_baseline; then
-    echo "❌ Baseline vectoradd test failed"
-    return 1
-  fi
-
-  if ! test_vectoradd_with_cutracer; then
-    echo "❌ CUTracer vectoradd test failed"
-    return 1
-  fi
-
-  if ! validate_cutracer_output; then
-    echo "❌ CUTracer output validation failed"
+  if ! test_vectoradd; then
+    echo "❌ vectoradd test failed"
     return 1
   fi
 
@@ -334,7 +295,7 @@ case "$TEST_TYPE" in
   build_cutracer && build_vectoradd
   ;;
 "vectoradd")
-  test_vectoradd_baseline && test_vectoradd_with_cutracer && validate_cutracer_output && test_py_add_with_kernel_filters
+  test_vectoradd && test_py_add_with_kernel_filters
   ;;
 "all" | *)
   run_all_tests
