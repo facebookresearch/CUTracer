@@ -12,6 +12,10 @@
 #include <stdio.h>
 #include <time.h>
 
+#include <string>
+
+#include "cuda.h"
+
 // Forward declarations - use void* to avoid conflicts with CUDA types
 typedef void *CUcontext_ptr;
 typedef void *CUfunction_ptr;
@@ -64,5 +68,7 @@ void init_log_handle();
  * Cleans up the log handle system. Closes the main process log file.
  */
 void cleanup_log_handle();
+
+std::string generate_kernel_log_basename(CUcontext ctx, CUfunction func, uint32_t iteration);
 
 #endif /* LOG_HANDLE_H */
