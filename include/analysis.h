@@ -44,6 +44,9 @@ struct CTXstate {
   // recv thread sets it to FINISHED when it cleans up.
   // parent thread should wait until the state becomes FINISHED to clean up.
   volatile RecvThreadState recv_thread_done = RecvThreadState::STOP;
+
+  // map from function to map from offset to SASS string
+  std::map<CUfunction, std::map<int, std::string>> id_to_sass_map;
 };
 
 /* Receiver thread function */
