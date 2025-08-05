@@ -10,9 +10,8 @@
  */
 
 #include <cstdlib>
-#include <cstring>
 
-#include "env_config.h"
+#include "analysis.h"
 #include "instrument.h"
 #include "nvbit.h"
 
@@ -33,7 +32,7 @@ void instrument_opcode_only(Instr* instr, int opcode_id, CTXstate* ctx_state) {
   nvbit_add_call_arg_guard_pred_val(instr);
   /* opcode id */
   nvbit_add_call_arg_const_val32(instr, opcode_id);
-  /* add pointer to channel_dev*/
+  /* pass the pointer to the channel on the device */
   nvbit_add_call_arg_const_val64(instr, (uint64_t)ctx_state->channel_dev);
   /* add "space" for kernel function pointer that will be set
    * at launch time (64 bit value at offset 0 of the dynamic

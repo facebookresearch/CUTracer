@@ -259,6 +259,29 @@ test_py_add_with_kernel_filters() {
   cd "$PROJECT_ROOT"
 }
 
+# Function to run proton tests
+test_proton() {
+  echo "🧪 Testing proton..."
+  cd "$PROJECT_ROOT/tests/proton_tests"
+
+  # Clean up old logs to ensure a fresh run
+  rm -f *.log
+
+  if ! CUDA_INJECTION64_PATH=$PROJECT_ROOT/lib/cutracer.so CUTRACER_ANALYSIS=proton_instr_histogram python ./vector-add-instrumented.py > proton_output.log 2>&1; then
+    echo "❌ Proton test failed to execute."
+    echo "     === Proton test output ==="
+    cat proton_output.log
+    cd "$PROJECT_ROOT"
+    return 1
+  fi
+
+  echo "     === Proton test output ==="
+  cat proton_output.log
+  echo "✅ Proton test completed successfully."
+  cd "$PROJECT_ROOT"
+  return 0
+}
+
 # Function to run all tests
 run_all_tests() {
   echo "🚀 Running all CUTracer tests..."
@@ -296,6 +319,9 @@ case "$TEST_TYPE" in
   ;;
 "vectoradd")
   test_vectoradd && test_py_add_with_kernel_filters
+  ;;
+"proton")
+  build_cutracer && test_proton
   ;;
 "all" | *)
   run_all_tests
