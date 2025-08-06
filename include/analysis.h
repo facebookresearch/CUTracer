@@ -79,22 +79,76 @@ struct WarpKey {
   }
 };
 
+/**
+ * @brief Represents the state of a single warp during instruction histogram
+ * analysis.
+ *
+ * This structure tracks whether a warp is currently in a region of interest
+ * for collection and stores the histogram data for that region.
+ */
 struct WarpState {
+  /**
+   * @brief A flag indicating whether instruction collection is active for this
+   * warp.
+   *
+   * This acts as a switch, turned on by a "start" clock instruction and off
+   * by an "end" clock instruction.
+   */
   bool is_collecting = false;
-  std::map<std::string, int> histogram;
+  /**
+   * @brief A counter for the number of regions analyzed for this warp.
+   *
+   * This helps in uniquely identifying each region within a warp's execution.
+   */
   int region_counter = 0;
-};
-
-struct RegionHistogram {
-  int warp_id;
-  int region_id;
+  /**
+   * @brief The histogram of instructions collected for the current region.
+   *
+   * Maps an instruction name (string) to its execution count (int).
+   */
   std::map<std::string, int> histogram;
 };
 
-/* Receiver thread function */
-void *recv_thread_fun(void *);
+/**
+ * @brief Stores the completed instruction histogram for a specific region of a
+ * warp.
+ */
+struct RegionHistogram {
+  /**
+   * @brief The ID of the warp.
+   */
+  int warp_id;
+  /**
+   * @brief The ID of the region within the warp.
+   */
+  int region_id;
+  /**
+   * @brief The completed histogram for this region.
+   */
+  std::map<std::string, int> histogram;
+};
 
-/* Histogram dumping function */
+/**
+ * @brief The main thread function for receiving and processing data from the
+ * GPU.
+ *
+ * This function runs in a separate CPU thread, continuously receiving data
+ * packets (like `reg_info_t`, `mem_access_t`, `opcode_only_t`) from the GPU
+ * channel and dispatching them for analysis.
+ *
+ * @param args A pointer to the `CUcontext` for which this thread is launched.
+ * @return void*
+ */
+void *recv_thread_fun(void *args);
+
+/**
+ * @brief Writes a set of histograms to a formatted CSV file.
+ *
+ * @param ctx The CUDA context.
+ * @param func The kernel function.
+ * @param iteration The iteration number of the kernel launch.
+ * @param histograms The histogram data to be written.
+ */
 void dump_histograms_to_csv(CUcontext ctx, CUfunction func, uint32_t iteration,
                             const std::vector<RegionHistogram> &histograms);
 

@@ -159,17 +159,11 @@ void init_analysis(const std::string &analysis_str) {
  * @return true if the instrumentation type is enabled
  */
 bool is_instrument_type_enabled(InstrumentType type) {
-  return enabled_instrument_types.count(type) > 0;
+  return enabled_instrument_types.count(type);
 }
 
-/**
- * @brief Check if a specific analysis type is enabled
- *
- * @param type The analysis type to check
- * @return true if the analysis type is enabled
- */
 bool is_analysis_type_enabled(AnalysisType type) {
-  return enabled_analysis_types.count(type) > 0;
+  return enabled_analysis_types.count(type);
 }
 
 // Initialize all configuration variables

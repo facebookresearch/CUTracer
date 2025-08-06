@@ -179,22 +179,27 @@ bool instrument_function_if_needed(CUcontext ctx, CUfunction func) {
         }
       }
 
-      // Choose based on enabled types
+      // Choose instrumentation based on enabled types.
       if (is_instrument_type_enabled(InstrumentType::OPCODE_ONLY)) {
-        // Lightweight instrumentation for instruction histogram analysis
+        // Lightweight instrumentation for instruction histogram analysis.
+        // This sends minimal data (opcode_id, warp_id) to the CPU, reducing
+        // overhead.
         instrument_opcode_only(instr, opcode_id, ctx_state);
       } else if (is_instrument_type_enabled(InstrumentType::REG_TRACE)) {
+        // Full register tracing.
         instrument_register_trace(instr, opcode_id, ctx_state, reg_num_list, ureg_num_list);
       }
     }
 
     /* ===== New feature: Instruction Histogram ===== */
-    // Now that the SASS map for this function is complete, find the clock
-    // opcodes.
+    // Statically identify all "clock" instructions (CS2R SR_CLOCKLO) for this
+    // function. Their opcode IDs will be used at runtime to detect region
+    // boundaries.
     if (should_instrument) {
-      for (const auto &pair : ctx_state->id_to_sass_map[f]) {
-        if (strstr(pair.second.c_str(), "CS2R") && strstr(pair.second.c_str(), "SR_CLOCKLO")) {
-          ctx_state->clock_opcode_ids[f].insert(pair.first);
+      for (std::map<int, std::string>::const_iterator it_sass = ctx_state->id_to_sass_map[f].begin();
+           it_sass != ctx_state->id_to_sass_map[f].end(); ++it_sass) {
+        if (strstr(it_sass->second.c_str(), "CS2R") && strstr(it_sass->second.c_str(), "SR_CLOCKLO")) {
+          ctx_state->clock_opcode_ids[f].insert(it_sass->first);
         }
       }
     }
@@ -292,7 +297,9 @@ static bool enter_kernel_launch(CUcontext ctx, CUfunction func, uint64_t &kernel
           p->blockDimY, p->blockDimZ, nregs, shmem_static_nbytes + p->sharedMemBytes, (uint64_t)p->hStream);
     }
 
-    // Record current kernel info in mapping tables before incrementing ID
+    // For histogram analysis, we need to map the kernel launch ID back to its
+    // function and context to access the correct SASS and clock opcode maps.
+    // We also track the iteration count for unique file naming.
     uint32_t current_iter = kernel_iter_map[func];
     kernel_launch_to_func_map[kernel_launch_id] = {ctx, func};
     kernel_launch_to_iter_map[kernel_launch_id] = current_iter;

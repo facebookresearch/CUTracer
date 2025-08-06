@@ -15,8 +15,22 @@
 // Forward declaration to avoid circular dependency
 enum class InstrumentType;
 
+/**
+ * @brief Defines the type of analysis to be performed on the collected trace
+ * data.
+ */
 enum class AnalysisType {
-  PROTON_INSTR_HISTOGRAM,
+  /**
+   * @brief No analysis is performed.
+   */
+  ANALYSIS_NONE = 0,
+  /**
+   * @brief Enables instruction histogram analysis.
+   *
+   * This corresponds to the `proton_instr_histogram` setting and requires
+   * `OPCODE_ONLY` instrumentation.
+   */
+  PROTON_INSTR_HISTOGRAM = 1,
 };
 
 // Configuration variables

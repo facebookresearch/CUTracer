@@ -55,6 +55,14 @@ typedef struct {
   uint64_t addrs[32];
 } mem_access_t;
 
+/**
+ * @brief A lightweight data packet for instruction histogram analysis.
+ *
+ * This structure is sent from the GPU to the CPU when `OPCODE_ONLY`
+ * instrumentation is enabled. It contains the minimal information required
+ * to identify an instruction and its execution context without the overhead
+ * of register or memory data.
+ */
 typedef struct {
   message_header_t header;  // Common header with type=MSG_TYPE_OPCODE_ONLY
   uint64_t kernel_launch_id;

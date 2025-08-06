@@ -31,6 +31,16 @@ extern std::unordered_map<CUcontext, CTXstate *> ctx_state_map;
 extern std::map<uint64_t, std::pair<CUcontext, CUfunction>> kernel_launch_to_func_map;
 extern std::map<uint64_t, uint32_t> kernel_launch_to_iter_map;
 
+/**
+ * @brief Extracts the base instruction name from a full SASS line.
+ *
+ * This function parses a SASS instruction string to remove predicates (e.g.,
+ * "@!P0") and modifiers (e.g., ".MOV.U32") to isolate the core instruction
+ * mnemonic (e.g., "IMAD").
+ *
+ * @param sass_line The full SASS instruction line.
+ * @return The extracted base instruction name as a string.
+ */
 std::string extract_instruction_name(const std::string &sass_line) {
   // SASS format examples:
   // CS2R.32 R7, SR_CLOCKLO ;
@@ -71,15 +81,16 @@ std::string extract_instruction_name(const std::string &sass_line) {
 void process_instruction_histogram(const opcode_only_t *ri, CTXstate *ctx_state,
                                    std::unordered_map<int, WarpState> &warp_states,
                                    std::vector<RegionHistogram> &completed_histograms) {
-  // Get current function from kernel launch ID
-  auto func_iter = kernel_launch_to_func_map.find(ri->kernel_launch_id);
+  // Get current function from kernel launch ID to find the correct SASS maps.
+  std::map<uint64_t, std::pair<CUcontext, CUfunction>>::iterator func_iter =
+      kernel_launch_to_func_map.find(ri->kernel_launch_id);
   if (func_iter == kernel_launch_to_func_map.end()) {
     return;  // Unknown kernel, skip histogram processing
   }
 
   CUfunction current_func = func_iter->second.second;
 
-  // Get clock opcode IDs for this function
+  // Get clock opcode IDs for this function, which mark region boundaries.
   const std::unordered_set<int> *clock_opcode_ids = nullptr;
   if (ctx_state->clock_opcode_ids.count(current_func)) {
     clock_opcode_ids = &ctx_state->clock_opcode_ids.at(current_func);
@@ -92,31 +103,34 @@ void process_instruction_histogram(const opcode_only_t *ri, CTXstate *ctx_state,
   }
 
   if (!clock_opcode_ids || !sass_map_for_func) {
-    return;  // No mapping available for this function
+    return;  // No SASS or clock instruction mapping available for this function.
   }
 
   int warp_id = ri->warp_id;
   WarpState &current_state = warp_states[warp_id];
   bool is_clock_instruction = clock_opcode_ids->count(ri->opcode_id) > 0;
 
+  // This block implements the start/stop logic for regions.
   if (is_clock_instruction) {
     if (current_state.is_collecting) {
-      // End of a region. Dump the collected histogram.
+      // This is an "end" clock: the region is complete.
       if (!current_state.histogram.empty()) {
+        // Save the completed histogram.
         completed_histograms.push_back({warp_id, current_state.region_counter, current_state.histogram});
         current_state.histogram.clear();
         current_state.region_counter++;
       }
-      // Stop collecting until the next start clock.
+      // Stop collecting until the next "start" clock is found.
       current_state.is_collecting = false;
     } else {
-      // Start of a new region.
+      // This is a "start" clock: begin collecting instructions.
       current_state.is_collecting = true;
     }
   }
 
+  // If collection is active, record the current instruction.
   if (current_state.is_collecting && sass_map_for_func->count(ri->opcode_id)) {
-    // Extract instruction name from SASS string
+    // Extract the base instruction name from the full SASS string.
     const std::string &sass_line = sass_map_for_func->at(ri->opcode_id);
     std::string instruction_name = extract_instruction_name(sass_line);
     current_state.histogram[instruction_name]++;
@@ -125,7 +139,7 @@ void process_instruction_histogram(const opcode_only_t *ri, CTXstate *ctx_state,
 
 void dump_previous_kernel_data(uint64_t kernel_launch_id, const std::vector<RegionHistogram> &histograms) {
   if (histograms.empty()) {
-    return;  // Nothing to dump
+    return;  // Nothing to dump.
   }
 
   // Find kernel info from global mapping
@@ -133,10 +147,10 @@ void dump_previous_kernel_data(uint64_t kernel_launch_id, const std::vector<Regi
     auto [ctx, func] = kernel_launch_to_func_map[kernel_launch_id];
     uint32_t iteration = kernel_launch_to_iter_map[kernel_launch_id];
 
-    // Use existing CSV generation logic
+    // Use existing CSV generation logic.
     dump_histograms_to_csv(ctx, func, iteration, histograms);
 
-    // Clean up mapping tables to free memory
+    // Clean up mapping tables to free memory for subsequent kernels.
     kernel_launch_to_func_map.erase(kernel_launch_id);
     kernel_launch_to_iter_map.erase(kernel_launch_id);
   }
@@ -145,7 +159,7 @@ void dump_previous_kernel_data(uint64_t kernel_launch_id, const std::vector<Regi
 void dump_histograms_to_csv(CUcontext ctx, CUfunction func, uint32_t iteration,
                             const std::vector<RegionHistogram> &histograms) {
   if (histograms.empty()) {
-    return;  // Nothing to dump
+    return;  // Nothing to dump.
   }
 
   std::string basename = generate_kernel_log_basename(ctx, func, iteration);
@@ -157,9 +171,11 @@ void dump_histograms_to_csv(CUcontext ctx, CUfunction func, uint32_t iteration,
     return;
   }
 
+  // Header for the CSV file.
   fprintf(fp, "warp_id,region_id,instruction,count\n");
-  for (const auto &region_result : histograms) {
-    for (const auto &pair : region_result.histogram) {
+  // Iterate through each completed region and write its histogram data.
+  for (const RegionHistogram &region_result : histograms) {
+    for (const std::pair<const std::string, int> &pair : region_result.histogram) {
       const std::string &instruction_name = pair.first;
       int count = pair.second;
       fprintf(fp, "%d,%d,\"%s\",%d\n", region_result.warp_id, region_result.region_id, instruction_name.c_str(), count);
@@ -181,11 +197,12 @@ void *recv_thread_fun(void *args) {
   ChannelHost *ch_host = &ctx_state->channel_host;
   pthread_mutex_unlock(&mutex);
   char *recv_buffer = (char *)malloc(CHANNEL_SIZE);
-  //
+
+  // Per-thread, per-context state for histogram analysis.
   std::unordered_map<int, WarpState> warp_states;
   std::vector<RegionHistogram> local_completed_histograms;
 
-  // Kernel boundary detection
+  // Used to detect when a new kernel begins.
   uint64_t last_seen_kernel_launch_id = UINT64_MAX;  // Initial invalid value
 
   while (ctx_state->recv_thread_done == RecvThreadState::WORKING) {
@@ -228,24 +245,27 @@ void *recv_thread_fun(void *args) {
           if (is_analysis_type_enabled(AnalysisType::PROTON_INSTR_HISTOGRAM)) {
             opcode_only_t *oi = (opcode_only_t *)&recv_buffer[num_processed_bytes];
 
-            // Kernel boundary detection - check for launch ID change
+            // Kernel boundary detection: check if the launch ID has changed.
             if (oi->kernel_launch_id != last_seen_kernel_launch_id) {
+              // If this is a new kernel, dump all data from the previous one.
               if (last_seen_kernel_launch_id != UINT64_MAX) {
-                // Dump any remaining histograms for warps that were collecting
-                for (auto &pair : warp_states) {
+                // Dump any remaining histograms for warps that were still
+                // collecting at the end of the kernel.
+                for (const std::pair<const int, WarpState> &pair : warp_states) {
                   if (pair.second.is_collecting && !pair.second.histogram.empty()) {
                     local_completed_histograms.push_back(
                         {pair.first, pair.second.region_counter, pair.second.histogram});
                   }
                 }
 
-                // Dump the previous kernel's data
+                // Dump the previous kernel's data to a file.
                 dump_previous_kernel_data(last_seen_kernel_launch_id, local_completed_histograms);
 
-                // Clear state for new kernel
+                // Clear state for the new kernel.
                 local_completed_histograms.clear();
                 warp_states.clear();
               }
+              // Update the launch ID to the new kernel's ID.
               last_seen_kernel_launch_id = oi->kernel_launch_id;
             }
 
@@ -256,10 +276,12 @@ void *recv_thread_fun(void *args) {
         } else if (header->type == MSG_TYPE_MEM_ACCESS) {
           mem_access_t *mem = (mem_access_t *)&recv_buffer[num_processed_bytes];
 
-          // Get SASS string for trace output
-          auto func_iter = kernel_launch_to_func_map.find(mem->kernel_launch_id);
+          // Get SASS string for trace output.
+          std::map<uint64_t, std::pair<CUcontext, CUfunction>>::iterator func_iter =
+              kernel_launch_to_func_map.find(mem->kernel_launch_id);
           if (func_iter != kernel_launch_to_func_map.end()) {
-            auto [f_ctx, f_func] = func_iter->second;
+            std::pair<CUcontext, CUfunction> kernel_info = func_iter->second;
+            CUfunction f_func = kernel_info.second;
             if (ctx_state->id_to_sass_map.count(f_func) && ctx_state->id_to_sass_map[f_func].count(mem->opcode_id)) {
               sass_str = ctx_state->id_to_sass_map[f_func][mem->opcode_id].c_str();
             }
@@ -295,11 +317,18 @@ void *recv_thread_fun(void *args) {
     }
   }
 
-  // Dump the last kernel's data if any
-  if (last_seen_kernel_launch_id != UINT64_MAX && !local_completed_histograms.empty()) {
-    dump_previous_kernel_data(last_seen_kernel_launch_id, local_completed_histograms);
+  // Dump data for the very last kernel if it exists.
+  if (last_seen_kernel_launch_id != UINT64_MAX) {
+    // Dump any remaining histograms for warps that were still collecting.
+    for (const std::pair<const int, WarpState> &pair : warp_states) {
+      if (pair.second.is_collecting && !pair.second.histogram.empty()) {
+        local_completed_histograms.push_back({pair.first, pair.second.region_counter, pair.second.histogram});
+      }
+    }
+    if (!local_completed_histograms.empty()) {
+      dump_previous_kernel_data(last_seen_kernel_launch_id, local_completed_histograms);
+    }
   }
-  /* ========================================== */
 
   free(recv_buffer);
   ctx_state->recv_thread_done = RecvThreadState::FINISHED;
