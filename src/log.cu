@@ -10,9 +10,12 @@
 #include <stdint.h>
 #include <stdio.h>
 #include <string.h>
+#include <sys/stat.h>
 #include <time.h>
+#include <unistd.h>
 
 #include <functional>
+#include <sstream>
 #include <string>
 
 /* nvbit interface file */
@@ -23,6 +26,27 @@
 
 /* include log handle header */
 #include "log.h"
+
+std::string generate_kernel_log_basename(CUcontext ctx, CUfunction func, uint32_t iteration) {
+  const char *mangled_name_raw = nvbit_get_func_name(ctx, func, true);
+  if (!mangled_name_raw) {
+    mangled_name_raw = "unknown_kernel";
+  }
+
+  std::string mangled_name(mangled_name_raw);
+
+  std::hash<std::string> hasher;
+  // Hash the full name to ensure uniqueness
+  size_t name_hash = hasher(mangled_name);
+  // Truncate the name for the filename string part
+  std::string truncated_name = mangled_name.substr(0, 150);
+
+  std::stringstream ss;
+  // Format to hex for the hash
+  ss << "kernel_" << std::hex << name_hash << "_iter" << std::dec << iteration << "_" << truncated_name;
+
+  return ss.str();
+}
 
 /* ===== Global Variables ===== */
 
@@ -99,25 +123,17 @@ void trace_lprintf(const char *format, ...) {
 /* ===== File Management Functions ===== */
 
 void log_open_kernel_file(CUcontext_ptr ctx, CUfunction_ptr func, uint32_t iteration) {
-  // First, ensure any previous kernel log is closed.
+  // close previous log file if it's open
   log_close_kernel_file();
 
-  const char *mangled_name = nvbit_get_func_name((CUcontext)ctx, (CUfunction)func, true);
-  if (!mangled_name) {
-    mangled_name = "unknown_kernel";
-  }
+  std::string basename = generate_kernel_log_basename((CUcontext)ctx, (CUfunction)func, iteration);
+  std::string log_filename = basename + ".log";
 
-  std::hash<std::string> hasher;
-  size_t name_hash = hasher(mangled_name);
-
-  char filename[256];
-  snprintf(filename, sizeof(filename), "kernel_%zx_iter%u_%.150s.log", name_hash, iteration, mangled_name);
-
-  g_kernel_log_file = fopen(filename, "w");
+  g_kernel_log_file = fopen(log_filename.c_str(), "w");
   if (g_kernel_log_file) {
-    loprintf("Opened kernel trace log: %s\n", filename);
+    loprintf("Opened kernel trace log: %s\n", log_filename.c_str());
   } else {
-    oprintf("ERROR: Failed to open kernel trace log file: %s\n", filename);
+    oprintf("ERROR: Failed to open kernel trace log file: %s\n", log_filename.c_str());
   }
 }
 
