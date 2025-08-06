@@ -191,7 +191,6 @@ bool instrument_function_if_needed(CUcontext ctx, CUfunction func) {
       }
     }
 
-    /* ===== New feature: Instruction Histogram ===== */
     // Statically identify all "clock" instructions (CS2R SR_CLOCKLO) for this
     // function. Their opcode IDs will be used at runtime to detect region
     // boundaries.

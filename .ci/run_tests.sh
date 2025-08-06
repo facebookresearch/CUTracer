@@ -278,6 +278,48 @@ test_proton() {
   echo "     === Proton test output ==="
   cat proton_output.log
   echo "✅ Proton test completed successfully."
+
+  # --- CSV Validation ---
+  echo "  -> Validating histogram CSV output..."
+  hist_csv_file=$(ls -1 kernel_*_hist.csv 2>/dev/null | head -n 1)
+
+  if [ -z "$hist_csv_file" ] || [ ! -f "$hist_csv_file" ]; then
+    echo "❌ Histogram CSV file (kernel_*_hist.csv) not found!"
+    echo "     Listing current directory contents:"
+    ls -la
+    cd "$PROJECT_ROOT"
+    return 1
+  fi
+
+  echo "  ✅ Found histogram CSV file: $hist_csv_file"
+  echo "     --- CSV Header and First 10 Lines ---"
+  head -n 10 "$hist_csv_file"
+  echo "     -------------------------------------"
+
+  # Validate header
+  expected_header="warp_id,region_id,instruction,count"
+  actual_header=$(head -n 1 "$hist_csv_file")
+  if [ "$actual_header" != "$expected_header" ]; then
+    echo "❌ CSV header does not match expected header."
+    echo "     Expected: $expected_header"
+    echo "     Actual:   $actual_header"
+    cd "$PROJECT_ROOT"
+    return 1
+  fi
+  echo "  ✅ CSV header is correct."
+
+  # Validate content (check for at least one expected instruction)
+  if grep -q "CS2R" "$hist_csv_file"; then
+    echo "  ✅ Found expected instruction 'CS2R' in CSV."
+  else
+    echo "❌ Did not find expected instruction 'CS2R' in CSV."
+    cd "$PROJECT_ROOT"
+    return 1
+  fi
+
+  echo "✅ All histogram CSV validation passed!"
+  # --- End CSV Validation ---
+
   cd "$PROJECT_ROOT"
   return 0
 }
