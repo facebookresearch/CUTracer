@@ -17,7 +17,7 @@ echo "CONDA_ENV: $CONDA_ENV"
 
 # Setup CUDA, conda, and pytorch
 echo "⬇️ Setting up dependencies using tritonparse setup script..."
-if curl -sL https://raw.githubusercontent.com/pytorch-labs/tritonparse/main/.ci/setup.sh | bash; then
+if curl -sL https://raw.githubusercontent.com/meta-pytorch/tritonparse/main/.ci/setup.sh | bash; then
     echo "✅ Dependencies setup complete."
 else
     echo "❌ Dependencies setup failed."
