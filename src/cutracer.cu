@@ -43,6 +43,15 @@
 /* Channel used to communicate from GPU to CPU receiving thread */
 #define CHANNEL_SIZE (1l << 20)
 
+#define CUDA_CHECK_LAST_ERROR()                                                                       \
+  do {                                                                                                \
+    cudaError_t err = cudaGetLastError();                                                             \
+    if (err != cudaSuccess) {                                                                         \
+      loprintf("FATAL: CUDA Last Error: %s at %s:%d\n", cudaGetErrorString(err), __FILE__, __LINE__); \
+      assert(err == cudaSuccess);                                                                     \
+    }                                                                                                 \
+  } while (0)
+
 /* lock */
 pthread_mutex_t mutex;
 pthread_mutex_t cuda_event_mutex;
@@ -253,7 +262,7 @@ static bool enter_kernel_launch(CUcontext ctx, CUfunction func, uint64_t &kernel
   if (!stream_capture && !build_graph) {
     /* Make sure GPU is idle */
     cudaDeviceSynchronize();
-    assert(cudaGetLastError() == cudaSuccess);
+    CUDA_CHECK_LAST_ERROR();
   }
 
   bool should_instrument = instrument_function_if_needed(ctx, func);
@@ -328,7 +337,7 @@ static void leave_kernel_launch(CTXstate *ctx_state, uint64_t &grid_launch_id) {
 
   /* Make sure GPU is idle */
   cudaDeviceSynchronize();
-  assert(cudaGetLastError() == cudaSuccess);
+  CUDA_CHECK_LAST_ERROR();
 }
 
 // Reference code from NVIDIA nvbit mem_trace tool
@@ -453,11 +462,11 @@ void nvbit_at_cuda_event(CUcontext ctx, int is_exit, nvbit_api_cuda_t cbid, cons
         cuGraphLaunch_params *p = (cuGraphLaunch_params *)params;
 
         CUDA_SAFECALL(cudaStreamSynchronize(p->hStream));
-        assert(cudaGetLastError() == cudaSuccess);
+        CUDA_CHECK_LAST_ERROR();
         /* push a flush channel kernel */
         flush_channel<<<1, 1, 0, p->hStream>>>(ctx_state->channel_dev);
         CUDA_SAFECALL(cudaStreamSynchronize(p->hStream));
-        assert(cudaGetLastError() == cudaSuccess);
+        CUDA_CHECK_LAST_ERROR();
       }
 
     } break;
