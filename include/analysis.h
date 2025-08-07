@@ -15,6 +15,7 @@
 #include <vector>
 #include <ctime>
 #include <set>
+#include <deque>
 
 #include "common.h"
 #include "nvbit.h" 
@@ -65,30 +66,34 @@ struct WarpKey {
 };
 
 
+// Merged trace record containing mandatory reg trace and optional mem trace
+struct TraceRecordMerged {
+  reg_info_t reg;
+  bool has_mem = false;
+  uint64_t mem_addrs[32] = {0};
+};
+
 // Structure to track the loop state of a warp
 struct WarpLoopState {
-  std::vector<uint64_t> pcs;  // Circular buffer of PCs
-  uint8_t head;
+  // Circular buffer of recent merged trace records
+  std::vector<TraceRecordMerged> history;
+  uint8_t head;    // Next write position in circular buffer
+  uint8_t filled;  // Number of valid entries written, capped at buffer size
   uint64_t last_sig;
   uint8_t last_period;
   uint32_t repeat_cnt;
   bool loop_flag;
   time_t first_loop_time;
 
-  // Structure to store detailed information for each instruction in the loop
-  struct LoopInstruction {
-    uint64_t pc;
-    int opcode_id;
-  };
-
   // Structure to hold complete loop information
   struct LoopInfo {
-    std::vector<LoopInstruction> instructions;
+    std::vector<TraceRecordMerged> instructions; // Copy of one canonical period
     uint8_t period;
   };
   LoopInfo current_loop;
 
-  WarpLoopState() : head(0), last_sig(0), last_period(0), repeat_cnt(0), loop_flag(false), first_loop_time(0) {}
+  WarpLoopState()
+      : head(0), filled(0), last_sig(0), last_period(0), repeat_cnt(0), loop_flag(false), first_loop_time(0) {}
 };
 
 /**
@@ -166,6 +171,9 @@ struct CTXstate {
   std::map<WarpKey, WarpLoopState> loop_states;
   std::set<WarpKey> active_warps;
   time_t last_hang_check_time;
+
+  // Pending mem traces per warp for out-of-order arrival (mem before reg)
+  std::unordered_map<WarpKey, std::deque<mem_access_t>, WarpKey::Hash> pending_mem_by_warp;
 };
 
 /* ===== Functions ===== */

@@ -262,62 +262,106 @@ static uint64_t compute_sig_for_sequence(const uint64_t* pcs, int len) {
     return sig;
 }
 
+// Compute canonical signature of a loop from a ring buffer of merged records.
+// Returns 0 if no period is detected. Sets out_period to detected period when >0.
+static uint64_t compute_canonical_signature(const std::vector<TraceRecordMerged>& history,
+                                            int ring_size,
+                                            uint8_t head,
+                                            uint8_t& out_period) {
+    // Reconstruct linear PC sequence in chronological order (oldest -> newest).
+    uint64_t pcs[PC_HISTORY_LEN];
+    for (int i = 0; i < ring_size; ++i) {
+        int idx = (head + i) % ring_size; // head points to oldest element position
+        pcs[i] = history[idx].reg.pc;
+    }
+
+    // Detect the shortest repeating period p (1..N-1) such that pcs[i] == pcs[i-p]
+    uint8_t period = 0;
+    for (uint8_t p = 1; p < ring_size; ++p) {
+        bool match = true;
+        for (uint8_t i = p; i < ring_size; ++i) {
+            if (pcs[i] != pcs[i - p]) { match = false; break; }
+        }
+        if (match) { period = p; break; }
+    }
+    if (period == 0) { out_period = 0; return 0; }
+
+    // Find minimal rotation of the period segment to get canonical representation
+    // Build candidate of length period from the first period entries
+    uint64_t seg[PC_HISTORY_LEN];
+    for (uint8_t i = 0; i < period; ++i) seg[i] = pcs[i];
+    uint8_t min_rot = 0;
+    for (uint8_t r = 1; r < period; ++r) {
+        // Compare rotation r with current min_rot lexicographically
+        bool smaller = false;
+        for (uint8_t i = 0; i < period; ++i) {
+            uint64_t a = seg[(i + r) % period];
+            uint64_t b = seg[(i + min_rot) % period];
+            if (a == b) continue;
+            if (a < b) smaller = true;
+            break;
+        }
+        if (smaller) min_rot = r;
+    }
+
+    // FNV-1a style hash seeded by period for better distribution
+    const uint64_t FNV_OFFSET = 14695981039346656037ULL;
+    const uint64_t FNV_PRIME  = 1099511628211ULL;
+    uint64_t h = FNV_OFFSET ^ period;
+    for (uint8_t i = 0; i < period; ++i) {
+        uint64_t pcv = seg[(i + min_rot) % period];
+        h = (h ^ pcv) * FNV_PRIME;
+    }
+    out_period = period;
+    return h;
+}
+
 static void update_loop_state(CTXstate* ctx_state, const WarpKey& key, const reg_info_t* ri) {
     WarpLoopState& state = ctx_state->loop_states[key];
-    if (state.pcs.size() < PC_HISTORY_LEN) {
-        state.pcs.resize(PC_HISTORY_LEN, 0);
+    // One-time buffer allocation per warp
+    if (state.history.size() != PC_HISTORY_LEN) {
+        state.history.assign(PC_HISTORY_LEN, TraceRecordMerged());
+        state.head = 0;
+        state.filled = 0;
     }
 
-    state.pcs[state.head] = ri->pc;
-    state.head = (state.head + 1) % PC_HISTORY_LEN;
+    // Write the incoming reg record into ring buffer
+    TraceRecordMerged& slot = state.history[state.head];
+    slot.reg = *ri;
+    slot.has_mem = false; // will be flipped if we find a matching pending mem
+    memset(slot.mem_addrs, 0, sizeof(slot.mem_addrs));
 
-    // Only check for loops once the history buffer is full
-    if (state.head != 0) {
-        return;
-    }
-
-    // Find the shortest repeating period in the PC history
-    uint8_t period = 0;
-    for (uint8_t p = 1; p < PC_HISTORY_LEN; ++p) {
-        bool match = true;
-        for (uint8_t i = p; i < PC_HISTORY_LEN; ++i) {
-            if (state.pcs[i] != state.pcs[i - p]) {
-                match = false;
+    // Try to match any pending mem for this warp (mem may arrive before reg)
+    auto& pending = ctx_state->pending_mem_by_warp[key];
+    if (!pending.empty()) {
+        // Find first matching mem by pc/opcode
+        for (auto it = pending.begin(); it != pending.end(); ++it) {
+            if (it->pc == ri->pc && it->opcode_id == ri->opcode_id) {
+                slot.has_mem = true;
+                memcpy(slot.mem_addrs, it->addrs, sizeof(slot.mem_addrs));
+                pending.erase(it);
                 break;
             }
         }
-        if (match) {
-            period = p;
-            break;
-        }
     }
 
-    if (period == 0) { // No loop detected
-        state.repeat_cnt = 0;
-        state.loop_flag = false;
+    // Advance ring pointers
+    state.head = (uint8_t)((state.head + 1) % PC_HISTORY_LEN);
+    if (state.filled < PC_HISTORY_LEN) state.filled++;
+
+    // Only check for loops once the history buffer is full
+    if (state.filled < PC_HISTORY_LEN) {
         return;
     }
 
-    // To handle loop rotations, find the canonical representation of the loop
-    std::vector<uint64_t> loop_sequence(period);
-    for (int i = 0; i < period; ++i) {
-        loop_sequence[i] = state.pcs[i];
-    }
-    std::vector<uint64_t> canonical_sequence = loop_sequence;
-
-    for (int i = 1; i < period; ++i) {
-        std::rotate(loop_sequence.begin(), loop_sequence.begin() + 1, loop_sequence.end());
-        if (loop_sequence < canonical_sequence) {
-            canonical_sequence = loop_sequence;
-        }
-    }
-
-    uint64_t current_sig = compute_sig_for_sequence(canonical_sequence.data(), period);
+    // Compute canonical signature and period from the ring buffer
+    uint8_t period = 0;
+    uint64_t current_sig = compute_canonical_signature(state.history, PC_HISTORY_LEN, state.head, period);
 
     if (current_sig != 0 && current_sig == state.last_sig && period == state.last_period) {
         state.repeat_cnt++;
     } else {
-        state.repeat_cnt = 0;
+        state.repeat_cnt = 1; // current observed once
         state.loop_flag = false;
     }
 
@@ -325,14 +369,14 @@ static void update_loop_state(CTXstate* ctx_state, const WarpKey& key, const reg
         if (!state.loop_flag) {
             state.loop_flag = true;
             state.first_loop_time = time(nullptr);
-            // Store detailed loop information
+            // Capture the loop body records (one period) from the ring buffer in chronological order
             state.current_loop.period = period;
             state.current_loop.instructions.clear();
+            state.current_loop.instructions.reserve(period);
+            // head points to oldest, so sequence starts from head index
             for (uint8_t i = 0; i < period; ++i) {
-                WarpLoopState::LoopInstruction instr;
-                instr.pc = state.pcs[i];
-                instr.opcode_id = ri->opcode_id; // Note: This is a simplification
-                state.current_loop.instructions.push_back(instr);
+                int idx = (state.head + i) % PC_HISTORY_LEN;
+                state.current_loop.instructions.push_back(state.history[idx]);
             }
         }
     }
@@ -343,6 +387,7 @@ static void update_loop_state(CTXstate* ctx_state, const WarpKey& key, const reg
 static void clear_deadlock_state(CTXstate* ctx_state) {
     ctx_state->loop_states.clear();
     ctx_state->active_warps.clear();
+    ctx_state->pending_mem_by_warp.clear();
 }
 
 static void check_kernel_hang(CTXstate* ctx_state, uint64_t current_kernel_launch_id) {
@@ -556,6 +601,42 @@ void *recv_thread_fun(void *args) {
             }
           }
           trace_lprintf("\n\n");
+
+          // Attach mem trace to most recent unmatched reg record for deadlock_detection
+          if (is_analysis_type_enabled(AnalysisType::DEADLOCK_DETECTION)) {
+            WarpKey key = {mem->cta_id_x, mem->cta_id_y, mem->cta_id_z, mem->warp_id};
+            WarpLoopState& state = ctx_state->loop_states[key];
+            if (state.history.size() == PC_HISTORY_LEN && state.filled > 0) {
+              // Search backwards from most recent written position
+              bool attached = false;
+              int max_scan = (int)state.filled;
+              for (int i = 0; i < max_scan && i < PC_HISTORY_LEN; ++i) {
+                int idx = (int)state.head - 1 - i;
+                if (idx < 0) idx += PC_HISTORY_LEN;
+                TraceRecordMerged& rec = state.history[(uint8_t)idx];
+                if (!rec.has_mem && rec.reg.pc == mem->pc && rec.reg.opcode_id == mem->opcode_id) {
+                  rec.has_mem = true;
+                  memcpy(rec.mem_addrs, mem->addrs, sizeof(rec.mem_addrs));
+                  attached = true;
+                  break;
+                }
+              }
+              if (!attached) {
+                // Store for later matching when corresponding reg arrives
+                auto& dq = ctx_state->pending_mem_by_warp[key];
+                dq.push_back(*mem);
+                // Cap the queue to avoid unbounded growth
+                const size_t MAX_PENDING = 2 * PC_HISTORY_LEN;
+                if (dq.size() > MAX_PENDING) dq.pop_front();
+              }
+            } else {
+              // No history yet for this warp, queue it
+              auto& dq = ctx_state->pending_mem_by_warp[key];
+              dq.push_back(*mem);
+              const size_t MAX_PENDING = 2 * PC_HISTORY_LEN;
+              if (dq.size() > MAX_PENDING) dq.pop_front();
+            }
+          }
           num_processed_bytes += sizeof(mem_access_t);
         } else {
           // Unknown message type, print error and break loop
