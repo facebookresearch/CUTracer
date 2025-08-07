@@ -236,11 +236,25 @@ void dump_histograms_to_csv(CUcontext ctx, CUfunction func, uint32_t iteration,
  * @brief The main thread function for receiving and processing data from the
  * GPU.
  *
- * This function runs in a separate CPU thread for each CUDA context. It
- * continuously receives data packets (e.g., `reg_info_t`, `opcode_only_t`) from
- * the GPU channel, identifies the message type, and dispatches it to the
- * appropriate analysis function. It also manages state across kernel launches,
- * such as detecting kernel boundaries to finalize and dump analysis data.
+ * This function is based on the `recv_thread_fun` from NVIDIA's `mem_trace`
+ * example. It runs in a separate CPU thread for each CUDA context, continuously
+ * receiving data packets from the GPU channel and processing them.
+ *
+ * Meta's enhancements transform this from a simple single-purpose function to a
+ * versatile multi-analysis pipeline:
+ *  - **Generic Message-Passing System**: The original function only handled one
+ *    data type (`mem_access_t`). This version uses a `message_header_t` to
+ *    identify different packet types (`reg_info_t`, `opcode_only_t`, etc.) and
+ *    dispatch them to the appropriate analysis logic.
+ *  - **Instruction Histogram Analysis**: It contains the complete host-side logic
+ *    for the `PROTON_INSTR_HISTOGRAM` feature, including state management for
+ *    each warp (`warp_states`) and tracking completed regions.
+ *  - **Kernel Boundary Detection**: It introduces robust state management across
+ *    kernel launches by tracking `kernel_launch_id`. This allows it to detect
+ *    when a kernel has finished, ensuring that all pending data for that kernel
+ *    is finalized and dumped before processing the next one.
+ *  - **SASS String Enrichment**: For richer logging, it looks up the SASS string
+ *    for a given `opcode_id` to provide more context in the trace output.
  *
  * @param args A void pointer to the `CUcontext` for which this thread is
  * launched.
