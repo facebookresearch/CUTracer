@@ -13,8 +13,11 @@
 #include <unordered_map>
 #include <unordered_set>
 #include <vector>
+#include <ctime>
+#include <set>
 
-#include "nvbit.h"
+#include "common.h"
+#include "nvbit.h" 
 /* for channel */
 #include "utils/channel.hpp"
 
@@ -28,24 +31,6 @@ enum class RecvThreadState {
   FINISHED,
 };
 
-struct CTXstate {
-  /* context id */
-  int id;
-
-  /* Channel used to communicate from GPU to CPU receiving thread */
-  ChannelDev *channel_dev;
-  ChannelHost channel_host;
-
-  // After initialization, set it to WORKING to make recv thread get data,
-  // parent thread sets it to STOP to make recv thread stop working.
-  // recv thread sets it to FINISHED when it cleans up.
-  // parent thread should wait until the state becomes FINISHED to clean up.
-  volatile RecvThreadState recv_thread_done = RecvThreadState::STOP;
-
-  // Per-function SASS mappings for instruction histogram feature
-  std::unordered_map<CUfunction, std::map<int, std::string>> id_to_sass_map;
-  std::unordered_map<CUfunction, std::unordered_set<int>> clock_opcode_ids;
-};
 
 /* ===== Data Structures ===== */
 
@@ -79,6 +64,33 @@ struct WarpKey {
   }
 };
 
+
+// Structure to track the loop state of a warp
+struct WarpLoopState {
+  std::vector<uint64_t> pcs;  // Circular buffer of PCs
+  uint8_t head;
+  uint64_t last_sig;
+  uint8_t last_period;
+  uint32_t repeat_cnt;
+  bool loop_flag;
+  time_t first_loop_time;
+
+  // Structure to store detailed information for each instruction in the loop
+  struct LoopInstruction {
+    uint64_t pc;
+    int opcode_id;
+  };
+
+  // Structure to hold complete loop information
+  struct LoopInfo {
+    std::vector<LoopInstruction> instructions;
+    uint8_t period;
+  };
+  LoopInfo current_loop;
+
+  WarpLoopState() : head(0), last_sig(0), last_period(0), repeat_cnt(0), loop_flag(false), first_loop_time(0) {}
+};
+
 /**
  * @brief Represents the state of a single warp during instruction histogram
  * analysis.
@@ -109,10 +121,7 @@ struct WarpState {
   std::map<std::string, int> histogram;
 };
 
-/**
- * @brief Stores the completed instruction histogram for a specific region of a
- * warp.
- */
+
 struct RegionHistogram {
   /**
    * @brief The ID of the warp.
@@ -127,6 +136,39 @@ struct RegionHistogram {
    */
   std::map<std::string, int> histogram;
 };
+
+/**
+ * @brief Stores the completed instruction histogram for a specific region of a
+ * warp.
+ */
+struct CTXstate {
+  /* context id */
+  int id;
+
+  /* Channel used to communicate from GPU to CPU receiving thread */
+  ChannelDev *channel_dev;
+  ChannelHost channel_host;
+
+  // After initialization, set it to WORKING to make recv thread get data,
+  // parent thread sets it to STOP to make recv thread stop working.
+  // recv thread sets it to FINISHED when it cleans up.
+  // parent thread should wait until the state becomes FINISHED to clean up.
+  volatile RecvThreadState recv_thread_done = RecvThreadState::STOP;
+
+  // Per-function SASS mappings for instruction histogram feature
+  std::unordered_map<CUfunction, std::map<int, std::string>> id_to_sass_map;
+  std::unordered_map<CUfunction, std::unordered_set<int>> clock_opcode_ids;
+
+  /* State for Deadlock/Hang Detection */
+  std::map<WarpKey, WarpLoopState> loop_states;
+  std::set<WarpKey> active_warps;
+  time_t last_hang_check_time;
+};
+
+/* ===== Functions ===== */
+
+/* Receiver thread function */
+void *recv_thread_fun(void *);
 
 /**
  * @brief The main thread function for receiving and processing data from the

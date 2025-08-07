@@ -26,6 +26,10 @@
 #include "log.h"
 #include "utils/channel.hpp"
 
+#define PC_HISTORY_LEN 32
+#define LOOP_SIG_LEN 8
+#define LOOP_REPEAT_THRESH 3
+
 extern pthread_mutex_t mutex;
 extern std::unordered_map<CUcontext, CTXstate *> ctx_state_map;
 extern std::map<uint64_t, std::pair<CUcontext, CUfunction>> kernel_launch_to_func_map;
@@ -232,6 +236,143 @@ void dump_histograms_to_csv(CUcontext ctx, CUfunction func, uint32_t iteration,
   loprintf("Histogram data dumped to %s\n", csv_filename.c_str());
 }
 
+// =================================================================================
+// Deadlock / Kernel Hang Detection Logic
+// =================================================================================
+
+static uint64_t get_kernel_launch_id(const message_header_t* header) {
+    switch (header->type) {
+        case MSG_TYPE_REG_INFO:
+            return ((const reg_info_t*)header)->kernel_launch_id;
+        case MSG_TYPE_OPCODE_ONLY:
+            return ((const opcode_only_t*)header)->kernel_launch_id;
+        case MSG_TYPE_MEM_ACCESS:
+            return ((const mem_access_t*)header)->kernel_launch_id;
+        default:
+            return 0; // Or some other invalid value
+    }
+}
+
+// Simple hash for a sequence of PCs
+static uint64_t compute_sig_for_sequence(const uint64_t* pcs, int len) {
+    uint64_t sig = 0;
+    for (int i = 0; i < len; ++i) {
+        sig = (sig << 5) ^ pcs[i];
+    }
+    return sig;
+}
+
+static void update_loop_state(CTXstate* ctx_state, const WarpKey& key, const reg_info_t* ri) {
+    WarpLoopState& state = ctx_state->loop_states[key];
+    if (state.pcs.size() < PC_HISTORY_LEN) {
+        state.pcs.resize(PC_HISTORY_LEN, 0);
+    }
+
+    state.pcs[state.head] = ri->pc;
+    state.head = (state.head + 1) % PC_HISTORY_LEN;
+
+    // Only check for loops once the history buffer is full
+    if (state.head != 0) {
+        return;
+    }
+
+    // Find the shortest repeating period in the PC history
+    uint8_t period = 0;
+    for (uint8_t p = 1; p < PC_HISTORY_LEN; ++p) {
+        bool match = true;
+        for (uint8_t i = p; i < PC_HISTORY_LEN; ++i) {
+            if (state.pcs[i] != state.pcs[i - p]) {
+                match = false;
+                break;
+            }
+        }
+        if (match) {
+            period = p;
+            break;
+        }
+    }
+
+    if (period == 0) { // No loop detected
+        state.repeat_cnt = 0;
+        state.loop_flag = false;
+        return;
+    }
+
+    // To handle loop rotations, find the canonical representation of the loop
+    std::vector<uint64_t> loop_sequence(period);
+    for (int i = 0; i < period; ++i) {
+        loop_sequence[i] = state.pcs[i];
+    }
+    std::vector<uint64_t> canonical_sequence = loop_sequence;
+
+    for (int i = 1; i < period; ++i) {
+        std::rotate(loop_sequence.begin(), loop_sequence.begin() + 1, loop_sequence.end());
+        if (loop_sequence < canonical_sequence) {
+            canonical_sequence = loop_sequence;
+        }
+    }
+
+    uint64_t current_sig = compute_sig_for_sequence(canonical_sequence.data(), period);
+
+    if (current_sig != 0 && current_sig == state.last_sig && period == state.last_period) {
+        state.repeat_cnt++;
+    } else {
+        state.repeat_cnt = 0;
+        state.loop_flag = false;
+    }
+
+    if (state.repeat_cnt > LOOP_REPEAT_THRESH) {
+        if (!state.loop_flag) {
+            state.loop_flag = true;
+            state.first_loop_time = time(nullptr);
+            // Store detailed loop information
+            state.current_loop.period = period;
+            state.current_loop.instructions.clear();
+            for (uint8_t i = 0; i < period; ++i) {
+                WarpLoopState::LoopInstruction instr;
+                instr.pc = state.pcs[i];
+                instr.opcode_id = ri->opcode_id; // Note: This is a simplification
+                state.current_loop.instructions.push_back(instr);
+            }
+        }
+    }
+    state.last_sig = current_sig;
+    state.last_period = period;
+}
+
+static void clear_deadlock_state(CTXstate* ctx_state) {
+    ctx_state->loop_states.clear();
+    ctx_state->active_warps.clear();
+}
+
+static void check_kernel_hang(CTXstate* ctx_state, uint64_t current_kernel_launch_id) {
+    time_t now = time(nullptr);
+    if (now - ctx_state->last_hang_check_time < 1) { // Throttle to 1 second
+        return;
+    }
+    ctx_state->last_hang_check_time = now;
+
+    if (ctx_state->active_warps.empty()) {
+        return;
+    }
+
+    bool all_warps_in_loop = true;
+    for (const auto& warp_key : ctx_state->active_warps) {
+        if (ctx_state->loop_states.find(warp_key) == ctx_state->loop_states.end() || !ctx_state->loop_states.at(warp_key).loop_flag) {
+            all_warps_in_loop = false;
+            break;
+        }
+    }
+
+    if (all_warps_in_loop) {
+        time_t hang_time = now - ctx_state->loop_states.begin()->second.first_loop_time;
+        oprintf("POTENTIAL KERNEL HANG DETECTED: Kernel launch ID %lu has all active warps in a loop for %ld seconds.\n", current_kernel_launch_id, hang_time);
+        // Optional: Add detailed printout of loop info here
+    }
+}
+
+
+
 /**
  * @brief The main thread function for receiving and processing data from the
  * GPU.
@@ -290,8 +431,46 @@ void *recv_thread_fun(void *args) {
         // First read the message header to determine the message type
         message_header_t *header = (message_header_t *)&recv_buffer[num_processed_bytes];
         const char *sass_str = "N/A";
+
+        uint64_t current_launch_id = get_kernel_launch_id(header);
+        bool is_new_kernel = false;
+
+        if (current_launch_id != 0 && current_launch_id != last_seen_kernel_launch_id) {
+            is_new_kernel = true;
+            if (last_seen_kernel_launch_id != UINT64_MAX) {
+                // Cleanup for the previous kernel
+                if (is_analysis_type_enabled(AnalysisType::PROTON_INSTR_HISTOGRAM)) {
+                    // Dump any remaining histograms for warps that were collecting
+                    for (auto &pair : warp_states) {
+                      if (pair.second.is_collecting && !pair.second.histogram.empty()) {
+                        local_completed_histograms.push_back(
+                            {pair.first, pair.second.region_counter, pair.second.histogram});
+                      }
+                    }
+                    dump_previous_kernel_data(last_seen_kernel_launch_id, local_completed_histograms);
+                    local_completed_histograms.clear();
+                    warp_states.clear();
+                }
+                if (is_analysis_type_enabled(AnalysisType::DEADLOCK_DETECTION)) {
+                    clear_deadlock_state(ctx_state);
+                }
+            }
+            last_seen_kernel_launch_id = current_launch_id;
+        }
+
+
         if (header->type == MSG_TYPE_REG_INFO) {
           reg_info_t *ri = (reg_info_t *)&recv_buffer[num_processed_bytes];
+
+          if (is_analysis_type_enabled(AnalysisType::DEADLOCK_DETECTION)) {
+              WarpKey key = {ri->cta_id_x, ri->cta_id_y, ri->cta_id_z, ri->warp_id};
+              if (is_new_kernel) {
+                  ctx_state->last_hang_check_time = time(nullptr);
+              }
+              ctx_state->active_warps.insert(key);
+              update_loop_state(ctx_state, key, ri);
+          }
+          
           // Get SASS string for trace output
           auto func_iter = kernel_launch_to_func_map.find(ri->kernel_launch_id);
           if (func_iter != kernel_launch_to_func_map.end()) {
@@ -388,6 +567,10 @@ void *recv_thread_fun(void *args) {
           continue;
         }
       }
+    }
+
+    if (is_analysis_type_enabled(AnalysisType::DEADLOCK_DETECTION) && last_seen_kernel_launch_id != UINT64_MAX) {
+        check_kernel_hang(ctx_state, last_seen_kernel_launch_id);
     }
   }
 
