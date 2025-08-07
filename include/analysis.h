@@ -121,7 +121,10 @@ struct WarpState {
   std::map<std::string, int> histogram;
 };
 
-
+/**
+ * @brief Stores the completed instruction histogram for a specific region of a
+ * warp.
+ */
 struct RegionHistogram {
   /**
    * @brief The ID of the warp.
