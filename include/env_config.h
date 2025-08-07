@@ -15,6 +15,24 @@
 // Forward declaration to avoid circular dependency
 enum class InstrumentType;
 
+/**
+ * @brief Defines the type of analysis to be performed on the collected trace
+ * data.
+ */
+enum class AnalysisType {
+  /**
+   * @brief No analysis is performed.
+   */
+  ANALYSIS_NONE = 0,
+  /**
+   * @brief Enables instruction histogram analysis.
+   *
+   * This corresponds to the `proton_instr_histogram` setting and requires
+   * `OPCODE_ONLY` instrumentation.
+   */
+  PROTON_INSTR_HISTOGRAM = 1,
+};
+
 // Configuration variables
 extern uint32_t instr_begin_interval;
 extern uint32_t instr_end_interval;
@@ -25,11 +43,20 @@ extern std::vector<std::string> kernel_filters;
 // Instrumentation configuration
 extern std::unordered_set<InstrumentType> enabled_instrument_types;
 
+// Analysis configuration
+extern std::unordered_set<AnalysisType> enabled_analysis_types;
+
 // Initialize configuration from environment variables
 void init_config_from_env();
 
 // Check if a specific instrumentation type is enabled
 bool is_instrument_type_enabled(InstrumentType type);
 
+// Check if a specific analysis type is enabled
+bool is_analysis_type_enabled(AnalysisType type);
+
 // Initialize instrumentation configuration
 void init_instrumentation(const std::string &instrument_str);
+
+// Initialize analysis configuration
+void init_analysis(const std::string &analysis_str);

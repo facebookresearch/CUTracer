@@ -10,14 +10,14 @@
  */
 
 #include <assert.h>
-#include <stdint.h>
+#include <pthread.h>
 #include <stdio.h>
 #include <unistd.h>
 
-#include <cstdint>
 #include <map>
 #include <string>
 #include <unordered_map>
+#include <unordered_set>
 
 /* every tool needs to include this once */
 #include "nvbit_tool.h"
@@ -31,17 +31,26 @@
 /* analysis functionality */
 #include "analysis.h"
 
+/* instrumentation functionality */
+#include "instrument.h"
+
 /* env config */
 #include "env_config.h"
 
 /* logging functionality */
 #include "log.h"
 
-/* instrumentation functionality */
-#include "instrument.h"
-
 /* Channel used to communicate from GPU to CPU receiving thread */
 #define CHANNEL_SIZE (1l << 20)
+
+#define CUDA_CHECK_LAST_ERROR()                                                                       \
+  do {                                                                                                \
+    cudaError_t err = cudaGetLastError();                                                             \
+    if (err != cudaSuccess) {                                                                         \
+      loprintf("FATAL: CUDA Last Error: %s at %s:%d\n", cudaGetErrorString(err), __FILE__, __LINE__); \
+      assert(err == cudaSuccess);                                                                     \
+    }                                                                                                 \
+  } while (0)
 
 /* lock */
 pthread_mutex_t mutex;
@@ -179,15 +188,30 @@ bool instrument_function_if_needed(CUcontext ctx, CUfunction func) {
         }
       }
 
-      // Choose based on enabled types
+      // Choose instrumentation based on enabled types.
       if (is_instrument_type_enabled(InstrumentType::OPCODE_ONLY)) {
-        // Lightweight instrumentation for instruction histogram analysis
+        // Lightweight instrumentation for instruction histogram analysis.
+        // This sends minimal data (opcode_id, warp_id) to the CPU, reducing
+        // overhead.
         instrument_opcode_only(instr, opcode_id, ctx_state);
       } else if (is_instrument_type_enabled(InstrumentType::REG_TRACE)) {
-        // Full register tracing instrumentation
+        // Full register tracing.
         instrument_register_trace(instr, opcode_id, ctx_state, reg_num_list, ureg_num_list);
       }
     }
+
+    // Statically identify all "clock" instructions (CS2R SR_CLOCKLO) for this
+    // function. Their opcode IDs will be used at runtime to detect region
+    // boundaries.
+    if (should_instrument) {
+      for (std::map<int, std::string>::const_iterator it_sass = ctx_state->id_to_sass_map[f].begin();
+           it_sass != ctx_state->id_to_sass_map[f].end(); ++it_sass) {
+        if (strstr(it_sass->second.c_str(), "CS2R") && strstr(it_sass->second.c_str(), "SR_CLOCKLO")) {
+          ctx_state->clock_opcode_ids[f].insert(it_sass->first);
+        }
+      }
+    }
+    /* ============================================ */
   }
   return any_related_function_matched;
 }
@@ -223,21 +247,22 @@ void init_context_state(CUcontext ctx) {
  *
  * @param ctx The current CUDA context.
  * @param func The kernel function being launched.
- * @param grid_launch_id A reference to the global grid launch counter.
+ * @param kernel_launch_id A reference to the global kernel launch counter.
  * @param cbid The NVBit callback ID for the CUDA API call.
  * @param params A pointer to the parameters of the CUDA launch call.
  * @param stream_capture True if the launch is part of a CUDA stream capture.
  * @param build_graph True if the launch is part of a manual graph build.
  * @return `true` if the kernel was instrumented, `false` otherwise.
  */
-static bool enter_kernel_launch(CUcontext ctx, CUfunction func, uint64_t &grid_launch_id, nvbit_api_cuda_t cbid,
+static bool enter_kernel_launch(CUcontext ctx, CUfunction func, uint64_t &kernel_launch_id, nvbit_api_cuda_t cbid,
                                 void *params, bool stream_capture = false, bool build_graph = false) {
+  CTXstate *ctx_state = ctx_state_map[ctx];
   // no need to sync during stream capture or manual graph build, since no
   // kernel is actually launched.
   if (!stream_capture && !build_graph) {
     /* Make sure GPU is idle */
     cudaDeviceSynchronize();
-    assert(cudaGetLastError() == cudaSuccess);
+    CUDA_CHECK_LAST_ERROR();
   }
 
   bool should_instrument = instrument_function_if_needed(ctx, func);
@@ -256,37 +281,41 @@ static bool enter_kernel_launch(CUcontext ctx, CUfunction func, uint64_t &grid_l
   // do not set launch argument, do not print kernel info, do not increase
   // grid_launch_id. All these should be done at graph node launch time.
   if (!stream_capture && !build_graph) {
-    /* set grid launch id at launch time */
-    nvbit_set_at_launch(ctx, func, (uint64_t)grid_launch_id);
+    /* set kernel launch id at launch time */
+    nvbit_set_at_launch(ctx, func, (uint64_t)kernel_launch_id);
 
     if (cbid == API_CUDA_cuLaunchKernelEx_ptsz || cbid == API_CUDA_cuLaunchKernelEx) {
       cuLaunchKernelEx_params *p = (cuLaunchKernelEx_params *)params;
       loprintf(
           "CUTracer: CTX 0x%016lx - LAUNCH - Kernel pc 0x%016lx - "
-          "Kernel name %s - grid launch id %ld - grid size %d,%d,%d "
+          "Kernel name %s - kernel launch id %ld - grid size %d,%d,%d "
           "- block size %d,%d,%d - nregs %d - shmem %d - cuda stream "
           "id %ld\n",
-          (uint64_t)ctx, pc, func_name, grid_launch_id, p->config->gridDimX, p->config->gridDimY, p->config->gridDimZ,
+          (uint64_t)ctx, pc, func_name, kernel_launch_id, p->config->gridDimX, p->config->gridDimY, p->config->gridDimZ,
           p->config->blockDimX, p->config->blockDimY, p->config->blockDimZ, nregs,
           shmem_static_nbytes + p->config->sharedMemBytes, (uint64_t)p->config->hStream);
     } else {
       cuLaunchKernel_params *p = (cuLaunchKernel_params *)params;
       loprintf(
           "CUTracer: CTX 0x%016lx - LAUNCH - Kernel pc 0x%016lx - "
-          "Kernel name %s - grid launch id %ld - grid size %d,%d,%d "
+          "Kernel name %s - kernel launch id %ld - grid size %d,%d,%d "
           "- block size %d,%d,%d - nregs %d - shmem %d - cuda stream "
           "id %ld\n",
-          (uint64_t)ctx, pc, func_name, grid_launch_id, p->gridDimX, p->gridDimY, p->gridDimZ, p->blockDimX,
+          (uint64_t)ctx, pc, func_name, kernel_launch_id, p->gridDimX, p->gridDimY, p->gridDimZ, p->blockDimX,
           p->blockDimY, p->blockDimZ, nregs, shmem_static_nbytes + p->sharedMemBytes, (uint64_t)p->hStream);
     }
-    // Record current kernel info in mapping tables before incrementing ID
+
+    // For histogram analysis, we need to map the kernel launch ID back to its
+    // function and context to access the correct SASS and clock opcode maps.
+    // We also track the iteration count for unique file naming.
     uint32_t current_iter = kernel_iter_map[func];
-    kernel_launch_to_func_map[grid_launch_id] = {ctx, func};
-    kernel_launch_to_iter_map[grid_launch_id] = current_iter;
-    // increment grid launch id for next launch
-    // grid id can be changed here, since nvbit_set_at_launch() has copied
+    kernel_launch_to_func_map[kernel_launch_id] = {ctx, func};
+    kernel_launch_to_iter_map[kernel_launch_id] = current_iter;
+
+    // increment kernel launch id for next launch
+    // kernel id can be changed here, since nvbit_set_at_launch() has copied
     // its value above.
-    grid_launch_id++;
+    kernel_launch_id++;
   }
 
   // This open should be done before enabling instrumented code to run,
@@ -308,7 +337,7 @@ static void leave_kernel_launch(CTXstate *ctx_state, uint64_t &grid_launch_id) {
 
   /* Make sure GPU is idle */
   cudaDeviceSynchronize();
-  assert(cudaGetLastError() == cudaSuccess);
+  CUDA_CHECK_LAST_ERROR();
 }
 
 // Reference code from NVIDIA nvbit mem_trace tool
@@ -433,11 +462,11 @@ void nvbit_at_cuda_event(CUcontext ctx, int is_exit, nvbit_api_cuda_t cbid, cons
         cuGraphLaunch_params *p = (cuGraphLaunch_params *)params;
 
         CUDA_SAFECALL(cudaStreamSynchronize(p->hStream));
-        assert(cudaGetLastError() == cudaSuccess);
+        CUDA_CHECK_LAST_ERROR();
         /* push a flush channel kernel */
         flush_channel<<<1, 1, 0, p->hStream>>>(ctx_state->channel_dev);
         CUDA_SAFECALL(cudaStreamSynchronize(p->hStream));
-        assert(cudaGetLastError() == cudaSuccess);
+        CUDA_CHECK_LAST_ERROR();
       }
 
     } break;
@@ -474,7 +503,7 @@ void nvbit_at_ctx_term(CUcontext ctx) {
   pthread_mutex_lock(&mutex);
   skip_callback_flag = true;
   if (verbose) {
-    loprintf("MEMTRACE: TERMINATING CONTEXT %p\n", ctx);
+    loprintf("CUTracer: TERMINATING CONTEXT %p\n", ctx);
   }
   /* get context state from map */
   assert(ctx_state_map.find(ctx) != ctx_state_map.end());
@@ -488,6 +517,11 @@ void nvbit_at_ctx_term(CUcontext ctx) {
   // Clean up any remaining kernel mapping entries
   // (in case there were kernels launched but no data received)
   kernel_launch_to_func_map.clear();
+  kernel_launch_to_iter_map.clear();
+
+  // Clean up any remaining kernel mapping entries
+  // (in case there were kernels launched but no data received)
+  kernel_launch_to_func_map.clear();
 
   ctx_state->channel_host.destroy(false);
   cudaFree(ctx_state->channel_dev);
@@ -495,6 +529,7 @@ void nvbit_at_ctx_term(CUcontext ctx) {
   delete ctx_state;
   pthread_mutex_unlock(&mutex);
   // Cleanup log handle system
+
   cleanup_log_handle();
 }
 

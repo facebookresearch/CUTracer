@@ -109,3 +109,31 @@ extern "C" __device__ __noinline__ void instrument_mem(int pred, int opcode_id, 
     channel_dev->push(&ma, sizeof(mem_access_t));
   }
 }
+
+extern "C" __device__ __noinline__ void instrument_opcode(int pred, int opcode_id, uint64_t pchannel_dev,
+                                                          uint64_t kernel_launch_id, uint64_t pc) {
+  if (!pred) {
+    return;
+  }
+
+  int active_mask = __ballot_sync(__activemask(), 1);
+  const int laneid = get_laneid();
+  const int first_laneid = __ffs(active_mask) - 1;
+
+  opcode_only_t oi;
+  oi.header.type = MSG_TYPE_OPCODE_ONLY;
+
+  int4 cta = get_ctaid();
+  oi.cta_id_x = cta.x;
+  oi.cta_id_y = cta.y;
+  oi.cta_id_z = cta.z;
+  oi.warp_id = get_global_warp_id();
+  oi.opcode_id = opcode_id;
+  oi.kernel_launch_id = kernel_launch_id;
+  oi.pc = pc;
+
+  if (first_laneid == laneid) {
+    ChannelDev *channel_dev = (ChannelDev *)pchannel_dev;
+    channel_dev->push(&oi, sizeof(opcode_only_t));
+  }
+}
