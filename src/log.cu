@@ -28,28 +28,22 @@
 #include "log.h"
 
 /**
- * Computes a stable per-kernel hash value derived from the kernel's mangled name.
+ * Computes a stable per-kernel hash (lowercase hex string without "0x") from the mangled name.
  *
- * The function uses the full mangled name (nvbit_get_func_name(ctx, func, true))
- * and applies std::hash<std::string>. This matches the hashing used for kernel
- * log filenames to keep identifiers consistent between console logs and files.
- *
- * Args:
- *   ctx: CUDA context associated with the kernel function.
- *   func: The CUfunction handle of the kernel.
- *
- * Returns:
- *   A size_t hash of the mangled function name. When the name is unavailable,
- *   the string literal "unknown_kernel" is hashed instead.
+ * The function uses the full mangled name (nvbit_get_func_name(ctx, func, true)) and applies
+ * std::hash<std::string>, then formats the numeric value in hexadecimal for display/storage.
  */
-size_t compute_kernel_name_hash(CUcontext ctx, CUfunction func) {
+std::string compute_kernel_name_hash_hex(CUcontext ctx, CUfunction func) {
   const char *mangled_name_raw = nvbit_get_func_name(ctx, func, true);
   if (!mangled_name_raw) {
     mangled_name_raw = "unknown_kernel";
   }
   std::string mangled_name(mangled_name_raw);
   std::hash<std::string> hasher;
-  return hasher(mangled_name);
+  size_t value = hasher(mangled_name);
+  std::ostringstream oss;
+  oss << std::hex << std::nouppercase << value;
+  return oss.str();
 }
 
 /**
@@ -71,13 +65,13 @@ std::string generate_kernel_log_basename(CUcontext ctx, CUfunction func, uint32_
   std::string mangled_name(mangled_name_raw);
 
   // Hash the full name to ensure uniqueness (shared with cutracer)
-  size_t name_hash = compute_kernel_name_hash(ctx, func);
+  std::string name_hash_hex = compute_kernel_name_hash_hex(ctx, func);
   // Truncate the name for the filename string part
   std::string truncated_name = mangled_name.substr(0, 150);
 
   std::stringstream ss;
   // Format to hex for the hash
-  ss << "kernel_" << std::hex << name_hash << "_iter" << std::dec << iteration << "_" << truncated_name;
+  ss << "kernel_" << name_hash_hex << "_iter" << std::dec << iteration << "_" << truncated_name;
 
   return ss.str();
 }

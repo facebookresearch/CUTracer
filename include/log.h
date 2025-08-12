@@ -70,21 +70,20 @@ void init_log_handle();
 void cleanup_log_handle();
 
 /**
- * Computes a per-kernel numeric hash based on the mangled function name.
+ * Computes a per-kernel hash as a lowercase hexadecimal string (without the "0x" prefix).
  *
  * Implementation details:
  * - Retrieves the mangled kernel name via nvbit_get_func_name(ctx, func, true).
  * - Falls back to the literal string "unknown_kernel" when the name is not available.
- * - Applies std::hash<std::string> to the full mangled name and returns the result.
+ * - Applies std::hash<std::string> to the full mangled name and formats the result in hex.
  *
  * Notes:
- * - The concrete numeric value of std::hash is implementation-dependent, but this
- *   function is the single source of truth used by both cutracer.cu and log.cu, so
- *   the value will be consistent across those modules in the same build.
- * - When printing, prefer the "%zx" printf specifier to format the returned size_t
- *   as hexadecimal (e.g., "0x%zx").
+ * - The exact numeric value of std::hash is implementation-dependent, but this function
+ *   is the single source of truth used by both cutracer.cu and log.cu, ensuring consistency
+ *   across modules in the same build.
+ * - When printing, prepend "0x" yourself if a prefixed form is desired (e.g., "0x%" + str).
  */
-size_t compute_kernel_name_hash(CUcontext ctx, CUfunction func);
+std::string compute_kernel_name_hash_hex(CUcontext ctx, CUfunction func);
 /**
  * Builds a deterministic base filename for a kernel's trace log.
  *
@@ -92,7 +91,7 @@ size_t compute_kernel_name_hash(CUcontext ctx, CUfunction func);
  *   "kernel_<hash_hex>_iter<iteration>_<truncated_mangled_name>"
  *
  * Details:
- * - Uses the mangled kernel name and compute_kernel_name_hash(ctx, func) to
+ * - Uses the mangled kernel name and compute_kernel_name_hash_hex(ctx, func) to
  *   derive a hex hash for uniqueness and name stability across modules.
  * - Appends the kernel iteration number to distinguish repeated launches.
  * - Includes a truncated (up to 150 chars) copy of the mangled name to aid

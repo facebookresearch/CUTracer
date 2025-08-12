@@ -276,7 +276,7 @@ static bool enter_kernel_launch(CUcontext ctx, CUfunction func, uint64_t &kernel
   /* get function name and pc */
   const char *func_name = nvbit_get_func_name(ctx, func);
   uint64_t pc = nvbit_get_func_addr(ctx, func);
-  size_t kernel_hash = compute_kernel_name_hash(ctx, func);
+  std::string kernel_hash_hex = compute_kernel_name_hash_hex(ctx, func);
 
   // during stream capture or manual graph build, no kernel is launched, so
   // do not set launch argument, do not print kernel info, do not increase
@@ -289,20 +289,20 @@ static bool enter_kernel_launch(CUcontext ctx, CUfunction func, uint64_t &kernel
       cuLaunchKernelEx_params *p = (cuLaunchKernelEx_params *)params;
       loprintf(
           "CUTracer: CTX 0x%016lx - LAUNCH - Kernel pc 0x%016lx - "
-          "Kernel name %s - kernel hash 0x%zx - kernel launch id %ld - grid size %d,%d,%d "
+          "Kernel name %s - kernel hash 0x%s - kernel launch id %ld - grid size %d,%d,%d "
           "- block size %d,%d,%d - nregs %d - shmem %d - cuda stream "
           "id %ld\n",
-          (uint64_t)ctx, pc, func_name, kernel_hash, kernel_launch_id, p->config->gridDimX, p->config->gridDimY,
+          (uint64_t)ctx, pc, func_name, kernel_hash_hex.c_str(), kernel_launch_id, p->config->gridDimX, p->config->gridDimY,
           p->config->gridDimZ, p->config->blockDimX, p->config->blockDimY, p->config->blockDimZ, nregs,
           shmem_static_nbytes + p->config->sharedMemBytes, (uint64_t)p->config->hStream);
     } else {
       cuLaunchKernel_params *p = (cuLaunchKernel_params *)params;
       loprintf(
           "CUTracer: CTX 0x%016lx - LAUNCH - Kernel pc 0x%016lx - "
-          "Kernel name %s - kernel hash 0x%zx - kernel launch id %ld - grid size %d,%d,%d "
+          "Kernel name %s - kernel hash 0x%s - kernel launch id %ld - grid size %d,%d,%d "
           "- block size %d,%d,%d - nregs %d - shmem %d - cuda stream "
           "id %ld\n",
-          (uint64_t)ctx, pc, func_name, kernel_hash, kernel_launch_id, p->gridDimX, p->gridDimY, p->gridDimZ,
+          (uint64_t)ctx, pc, func_name, kernel_hash_hex.c_str(), kernel_launch_id, p->gridDimX, p->gridDimY, p->gridDimZ,
           p->blockDimX, p->blockDimY, p->blockDimZ, nregs, shmem_static_nbytes + p->sharedMemBytes,
           (uint64_t)p->hStream);
     }

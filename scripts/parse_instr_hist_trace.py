@@ -96,20 +96,73 @@ def get_cutracer_hist_df(input_file_path):
     return summary
 
 
-def parse_cutracer_log(log_file_path):
+def parse_cutracer_log(log_file_path, kernel_hash_hex=None):
     """
     Parses a CUTRICER log file to find kernel launch parameters.
 
+    By default, returns the last seen (grid_size, block_size) from a LAUNCH line.
+    If kernel_hash_hex is provided, filters for the line whose "kernel hash 0x..."
+    matches the given hash (case-insensitive, with or without '0x' prefix).
+
     Args:
         log_file_path (str): Path to the CUTRICER log file.
+        kernel_hash_hex (str, optional): Target kernel hash (e.g., "0x7fa21c3" or "7fa21c3").
 
     Returns:
-        dict: A dictionary with 'grid_size' and 'block_size' tuples.
+        dict: { 'grid_size': (gx, gy, gz), 'block_size': (bx, by, bz) } or None if not found.
     """
     grid_pattern = re.compile(r"grid size\s+([0-9]+),([0-9]+),([0-9]+)")
     block_pattern = re.compile(r"block size\s+([0-9]+),([0-9]+),([0-9]+)")
+    hash_pattern = re.compile(r"kernel hash\s+0x([0-9a-fA-F]+)")
+
+    expected_hash = None
+    if kernel_hash_hex:
+        expected_hash = kernel_hash_hex.lower().lstrip("0x")
 
     last_launch_info = {}
+    found_exact = False
+
+    try:
+        with open(log_file_path, "r") as f:
+            for line in f:
+                if "LAUNCH" not in line:
+                    continue
+
+                # Prefer lines that explicitly contain a kernel hash
+                hash_match = hash_pattern.search(line)
+                grid_match = grid_pattern.search(line)
+                block_match = block_pattern.search(line)
+
+                if not (grid_match and block_match):
+                    continue
+
+                # If caller specified a hash, only accept matching line
+                if expected_hash:
+                    if hash_match and hash_match.group(1).lower() == expected_hash:
+                        last_launch_info = {
+                            "grid_size": tuple(map(int, grid_match.groups())),
+                            "block_size": tuple(map(int, block_match.groups())),
+                        }
+                        found_exact = True
+                        break  # Exact match found; stop scanning
+                    else:
+                        continue
+                else:
+                    # No specific hash requested: prefer lines with a hash if present,
+                    # but also accept legacy lines without it (take the last one seen)
+                    last_launch_info = {
+                        "grid_size": tuple(map(int, grid_match.groups())),
+                        "block_size": tuple(map(int, block_match.groups())),
+                    }
+
+    except FileNotFoundError:
+        print(f"Error: Log file not found at {log_file_path}")
+        return None
+
+    if last_launch_info:
+        return last_launch_info
+
+    # Fallback: legacy behavior scanning any LAUNCH line (without requiring hash)
     try:
         with open(log_file_path, "r") as f:
             for line in f:
@@ -262,14 +315,17 @@ def validate_warp_coverage(chrome_df, hist_df):
         return False
 
 
-def merge_traces(chrome_trace_path, cutracer_hist_path, cutracer_log_path, output_path, gpu_clock_mhz=None):
+def merge_traces(chrome_trace_path, cutracer_hist_path, cutracer_log_path, output_path, gpu_clock_mhz=None, kernel_hash_hex=None):
     """
     Merges data from Chrome trace, CUTRICER histogram, and CUTRICER log.
     """
     print("Parsing log file to get metadata...")
-    launch_info = parse_cutracer_log(cutracer_log_path)
+    launch_info = parse_cutracer_log(cutracer_log_path, kernel_hash_hex)
     if not launch_info:
-        print("Could not parse launch info from log file. Aborting merge.")
+        if kernel_hash_hex:
+            print(f"Could not find launch info for kernel hash {kernel_hash_hex} in log file. Aborting merge.")
+        else:
+            print("Could not parse launch info from log file. Aborting merge.")
         return
 
     grid_size = launch_info["grid_size"]  # (x, y, z)
@@ -280,9 +336,14 @@ def merge_traces(chrome_trace_path, cutracer_hist_path, cutracer_log_path, outpu
     warp_size = 32  # Standard for NVIDIA GPUs
     warps_per_block = (threads_per_block + warp_size - 1) // warp_size
     
-    print(
-        f"Launch info parsed: Grid size = {grid_size}, Block size = {block_size}, Warps per block = {warps_per_block}"
-    )
+    if kernel_hash_hex:
+        print(
+            f"Launch info parsed for kernel hash {kernel_hash_hex}: Grid size = {grid_size}, Block size = {block_size}, Warps per block = {warps_per_block}"
+        )
+    else:
+        print(
+            f"Launch info parsed: Grid size = {grid_size}, Block size = {block_size}, Warps per block = {warps_per_block}"
+        )
 
     print("Parsing Chrome trace file...")
     chrome_df = get_chrome_trace_df(chrome_trace_path)
@@ -393,6 +454,11 @@ if __name__ == "__main__":
         help="Path to the CUTRICER log file to enable merge mode.",
     )
     parser.add_argument(
+        "--kernel-hash",
+        dest="kernel_hash_hex",
+        help="Optional kernel hash (e.g., 0x7fa21c3) to select a specific launch from the log.",
+    )
+    parser.add_argument(
         "--gpu-clock-mhz",
         type=float,
         help="GPU SM clock frequency in MHz for IPC calculation. If not specified, will attempt to extract from Chrome trace.",
@@ -413,6 +479,7 @@ if __name__ == "__main__":
             args.cutracer_log_input,
             args.output,
             args.gpu_clock_mhz,
+            args.kernel_hash_hex,
         )
     elif args.chrome_trace_input:
         # Standalone Chrome trace parsing
