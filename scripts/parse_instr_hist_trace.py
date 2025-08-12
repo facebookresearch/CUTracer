@@ -2,6 +2,7 @@ import json
 import re
 import argparse
 import pandas as pd
+import os
 
 
 def get_chrome_trace_df(input_file_path):
@@ -127,7 +128,141 @@ def parse_cutracer_log(log_file_path):
     return last_launch_info if last_launch_info else None
 
 
-def merge_traces(chrome_trace_path, cutracer_hist_path, cutracer_log_path, output_path):
+def extract_clock_from_chrome_trace(trace_file_path):
+    """
+    Extracts GPU clock frequency from Chrome trace file metadata or comments.
+    
+    Args:
+        trace_file_path (str): Path to the Chrome trace JSON file.
+        
+    Returns:
+        float: Clock frequency in Hz, or None if not found.
+    """
+    patterns = [
+        # [measure in clock cycle (assume 1GHz)]
+        r'\[.*measure.*clock.*cycle.*assume\s+(\d+(?:\.\d+)?)\s*(GHz|MHz).*\]',
+        # (assume 1500MHz)
+        r'\(assume\s+(\d+(?:\.\d+)?)\s*(GHz|MHz)\)',
+        # assume 1.5 GHz clock
+        r'assume\s+(\d+(?:\.\d+)?)\s*(GHz|MHz)',
+        # [1500 MHz assumed]
+        r'\[.*(\d+(?:\.\d+)?)\s*(GHz|MHz).*assum.*\]',
+    ]
+    
+    try:
+        with open(trace_file_path, 'r') as f:
+            # Read first few KB to look for metadata
+            content = f.read(8192)  # Read first 8KB
+            
+            for pattern in patterns:
+                match = re.search(pattern, content, re.IGNORECASE)
+                if match:
+                    frequency = float(match.group(1))
+                    unit = match.group(2).upper()
+                    
+                    if unit == 'GHZ':
+                        return frequency * 1e9
+                    elif unit == 'MHZ':
+                        return frequency * 1e6
+                        
+    except (FileNotFoundError, json.JSONDecodeError, Exception) as e:
+        print(f"Warning: Could not extract clock frequency from trace file: {e}")
+        
+    return None
+
+
+def determine_gpu_clock_hz(chrome_trace_path, user_specified_mhz=None):
+    """
+    Determines GPU clock frequency using priority: user_specified > chrome_trace > None.
+    
+    Args:
+        chrome_trace_path (str): Path to Chrome trace file.
+        user_specified_mhz (float): User-specified frequency in MHz.
+        
+    Returns:
+        tuple: (clock_hz, source_description) or (None, error_message)
+    """
+    if user_specified_mhz:
+        clock_hz = user_specified_mhz * 1e6
+        return clock_hz, f"user-specified {user_specified_mhz} MHz"
+    
+    # Try to extract from Chrome trace
+    extracted_hz = extract_clock_from_chrome_trace(chrome_trace_path)
+    if extracted_hz:
+        return extracted_hz, f"extracted from trace ({extracted_hz/1e6:.1f} MHz)"
+    
+    # Could not determine clock frequency
+    return None, "Cannot determine GPU clock frequency"
+
+
+def calculate_ipc(duration_ns, instruction_count, gpu_clock_hz):
+    """
+    Calculates Instructions Per Cycle (IPC).
+    
+    Args:
+        duration_ns (float): Duration in nanoseconds.
+        instruction_count (float): Number of instructions.
+        gpu_clock_hz (float): GPU clock frequency in Hz.
+        
+    Returns:
+        float: IPC value, or None if calculation not possible.
+    """
+    if pd.isna(duration_ns) or pd.isna(instruction_count) or duration_ns <= 0 or instruction_count <= 0:
+        return None
+    
+    # Convert duration to seconds and calculate cycles
+    duration_seconds = duration_ns / 1e9
+    cycles = duration_seconds * gpu_clock_hz
+    
+    # Calculate IPC
+    ipc = instruction_count / cycles
+    return ipc
+
+
+def validate_warp_coverage(chrome_df, hist_df):
+    """
+    Validates that Chrome trace and CUTRICER histogram have matching warp IDs.
+    
+    Args:
+        chrome_df (pandas.DataFrame): Chrome trace data with global_warp_id
+        hist_df (pandas.DataFrame): CUTRICER histogram data with global_warp_id
+    
+    Returns:
+        bool: True if all warp IDs match, False otherwise
+    """
+    chrome_warp_ids = set(chrome_df['global_warp_id'].unique())
+    hist_warp_ids = set(hist_df['global_warp_id'].unique())
+    
+    chrome_only = chrome_warp_ids - hist_warp_ids
+    hist_only = hist_warp_ids - chrome_warp_ids
+    
+    if chrome_only:
+        print(f"ERROR: Chrome trace has {len(chrome_only)} warps not found in histogram:")
+        sorted_chrome_only = sorted(list(chrome_only))
+        if len(sorted_chrome_only) <= 10:
+            print(f"  Missing warp IDs: {sorted_chrome_only}")
+        else:
+            print(f"  First 10 missing warp IDs: {sorted_chrome_only[:10]}")
+            print(f"  ... and {len(sorted_chrome_only) - 10} more")
+    
+    if hist_only:
+        print(f"ERROR: Histogram has {len(hist_only)} warps not found in Chrome trace:")
+        sorted_hist_only = sorted(list(hist_only))
+        if len(sorted_hist_only) <= 10:
+            print(f"  Extra warp IDs: {sorted_hist_only}")
+        else:
+            print(f"  First 10 extra warp IDs: {sorted_hist_only[:10]}")
+            print(f"  ... and {len(sorted_hist_only) - 10} more")
+    
+    if len(chrome_only) == 0 and len(hist_only) == 0:
+        print("✓ Warp ID validation passed: All warps match between data sources")
+        return True
+    else:
+        print(f"✗ Warp ID validation failed: {len(chrome_only)} Chrome-only + {len(hist_only)} histogram-only warps")
+        return False
+
+
+def merge_traces(chrome_trace_path, cutracer_hist_path, cutracer_log_path, output_path, gpu_clock_mhz=None):
     """
     Merges data from Chrome trace, CUTRICER histogram, and CUTRICER log.
     """
@@ -137,12 +272,16 @@ def merge_traces(chrome_trace_path, cutracer_hist_path, cutracer_log_path, outpu
         print("Could not parse launch info from log file. Aborting merge.")
         return
 
-    block_x = launch_info["block_size"][0]
-    # Assuming warp size is 32, which is standard for NVIDIA GPUs.
-    warp_size = 32
-    warps_per_block = (block_x + warp_size - 1) // warp_size
+    grid_size = launch_info["grid_size"]  # (x, y, z)
+    block_size = launch_info["block_size"]  # (x, y, z)
+    
+    # Calculate total threads per block and warps per block
+    threads_per_block = block_size[0] * block_size[1] * block_size[2]
+    warp_size = 32  # Standard for NVIDIA GPUs
+    warps_per_block = (threads_per_block + warp_size - 1) // warp_size
+    
     print(
-        f"Launch info parsed: Block size = {launch_info['block_size']}, Warps per block = {warps_per_block}"
+        f"Launch info parsed: Grid size = {grid_size}, Block size = {block_size}, Warps per block = {warps_per_block}"
     )
 
     print("Parsing Chrome trace file...")
@@ -158,18 +297,39 @@ def merge_traces(chrome_trace_path, cutracer_hist_path, cutracer_log_path, outpu
         return
 
     # Calculate global_warp_id in the chrome trace data
-    # global_warp_id = cta_id * warps_per_block + local_warp_id
+    # For 3D grids, we need to check if cta is already linearized or if we need to linearize it
+    # Based on your grid (1, 528, 1), it seems cta is already a linear block ID
+    # global_warp_id = block_linear_id * warps_per_block + local_warp_id
+    
+    print("Analyzing CTA ID distribution...")
+    print(f"CTA ID range: {chrome_df['cta'].min()} to {chrome_df['cta'].max()}")
+    total_blocks = grid_size[0] * grid_size[1] * grid_size[2]
+    print(f"Expected total blocks from grid size: {total_blocks}")
+    
+    # If cta IDs are 1-based and linearized, we need to convert to 0-based
+    # If cta IDs start from a different base, we need to adjust accordingly
     chrome_df["global_warp_id"] = (
-        chrome_df["cta"] * warps_per_block + chrome_df["local_warp_id"]
+        (chrome_df["cta"] - chrome_df["cta"].min()) * warps_per_block + chrome_df["local_warp_id"]
     )
+    
+    print(f"Global warp ID range: {chrome_df['global_warp_id'].min()} to {chrome_df['global_warp_id'].max()}")
+
+    print("Validating warp coverage...")
+    is_valid = validate_warp_coverage(chrome_df, hist_df)
+    if not is_valid:
+        print("WARNING: Proceeding with merge despite warp ID mismatches.")
+        print("         This may result in missing data in the output.")
 
     print("Merging the dataframes...")
-    # Merge on the calculated global_warp_id and the region_id (assuming region 0 for simplicity for now)
-    # The histogram from cutracer_trace may have multiple regions, we'll merge with the primary one (0).
+    # Merge all regions - create cross join between chrome trace events and histogram regions
     merged_df = pd.merge(
-        chrome_df, hist_df[hist_df["region_id"] == 0], on="global_warp_id", how="left"
+        chrome_df, hist_df, on="global_warp_id", how="left"
     )
 
+    # Determine GPU clock frequency for IPC calculation
+    print("Determining GPU clock frequency for IPC calculation...")
+    gpu_clock_hz, clock_source = determine_gpu_clock_hz(chrome_trace_path, gpu_clock_mhz)
+    
     # Reorder and select columns for clarity
     output_columns = [
         "core",
@@ -183,9 +343,29 @@ def merge_traces(chrome_trace_path, cutracer_hist_path, cutracer_log_path, outpu
         "timestamp_ns",
         "total_instruction_count",
     ]
+    
+    # Add IPC calculation if clock frequency is available
+    if gpu_clock_hz:
+        print(f"✓ Using GPU clock frequency: {clock_source}")
+        print("Calculating IPC (Instructions Per Cycle)...")
+        merged_df['ipc'] = merged_df.apply(
+            lambda row: calculate_ipc(row['duration_ns'], row['total_instruction_count'], gpu_clock_hz),
+            axis=1
+        )
+        output_columns.append('ipc')
+    else:
+        print(f"✗ ERROR: {clock_source}")
+        print("       Please specify --gpu-clock-mhz parameter or ensure")
+        print("       Chrome trace contains clock frequency information.")
+        print("       IPC column will not be included in output.")
+    
     # Filter for columns that actually exist after the merge
     final_columns = [col for col in output_columns if col in merged_df.columns]
     final_df = merged_df[final_columns]
+
+    # Sort by global_warp_id first, then by region_id for better organization
+    print("Sorting output by global_warp_id, then region_id...")
+    final_df = final_df.sort_values(['global_warp_id', 'region_id'], ascending=True).reset_index(drop=True)
 
     final_df.to_csv(output_path, index=False)
     print(f"Successfully merged data and saved to {output_path}")
@@ -212,6 +392,11 @@ if __name__ == "__main__":
         dest="cutracer_log_input",
         help="Path to the CUTRICER log file to enable merge mode.",
     )
+    parser.add_argument(
+        "--gpu-clock-mhz",
+        type=float,
+        help="GPU SM clock frequency in MHz for IPC calculation. If not specified, will attempt to extract from Chrome trace.",
+    )
     parser.add_argument("--output", required=True, help="Path for the output CSV file.")
 
     args = parser.parse_args()
@@ -227,6 +412,7 @@ if __name__ == "__main__":
             args.cutracer_trace_input,
             args.cutracer_log_input,
             args.output,
+            args.gpu_clock_mhz,
         )
     elif args.chrome_trace_input:
         # Standalone Chrome trace parsing
