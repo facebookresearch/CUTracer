@@ -69,6 +69,43 @@ void init_log_handle();
  */
 void cleanup_log_handle();
 
+/**
+ * Computes a per-kernel numeric hash based on the mangled function name.
+ *
+ * Implementation details:
+ * - Retrieves the mangled kernel name via nvbit_get_func_name(ctx, func, true).
+ * - Falls back to the literal string "unknown_kernel" when the name is not available.
+ * - Applies std::hash<std::string> to the full mangled name and returns the result.
+ *
+ * Notes:
+ * - The concrete numeric value of std::hash is implementation-dependent, but this
+ *   function is the single source of truth used by both cutracer.cu and log.cu, so
+ *   the value will be consistent across those modules in the same build.
+ * - When printing, prefer the "%zx" printf specifier to format the returned size_t
+ *   as hexadecimal (e.g., "0x%zx").
+ */
+size_t compute_kernel_name_hash(CUcontext ctx, CUfunction func);
+/**
+ * Builds a deterministic base filename for a kernel's trace log.
+ *
+ * Format:
+ *   "kernel_<hash_hex>_iter<iteration>_<truncated_mangled_name>"
+ *
+ * Details:
+ * - Uses the mangled kernel name and compute_kernel_name_hash(ctx, func) to
+ *   derive a hex hash for uniqueness and name stability across modules.
+ * - Appends the kernel iteration number to distinguish repeated launches.
+ * - Includes a truncated (up to 150 chars) copy of the mangled name to aid
+ *   human readability while keeping the filename manageable.
+ *
+ * Args:
+ *   ctx: CUDA context associated with the kernel function.
+ *   func: The CUfunction handle of the kernel.
+ *   iteration: Per-kernel iteration counter maintained by the caller.
+ *
+ * Returns:
+ *   The base filename (without extension) for the kernel-specific log file.
+ */
 std::string generate_kernel_log_basename(CUcontext ctx, CUfunction func, uint32_t iteration);
 
 #endif /* LOG_HANDLE_H */
