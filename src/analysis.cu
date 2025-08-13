@@ -222,12 +222,6 @@ void dump_histograms_to_csv(CUcontext ctx, CUfunction func, uint32_t iteration,
   fprintf(fp, "warp_id,region_id,instruction,count\n");
   // Iterate through each completed region and write its histogram data.
   for (const RegionHistogram &region_result : histograms) {
-    if (!region_result.histogram.empty()) {
-      if (region_result.warp_id == 0) {
-        fprintf(fp, "=====debug findhao: warp id is 0 found");
-      }
-    }
-
     for (const std::pair<const std::string, int> &pair : region_result.histogram) {
       const std::string &instruction_name = pair.first;
       int count = pair.second;
@@ -337,7 +331,6 @@ void *recv_thread_fun(void *args) {
                         {pair.first, pair.second.region_counter, pair.second.histogram});
                   }
                 }
-                printf("=====debug findhao: last_seen_kernel_launch_id is %ld\n", last_seen_kernel_launch_id);
                 // Dump the previous kernel's data to a file.
                 dump_previous_kernel_data(last_seen_kernel_launch_id, local_completed_histograms);
 
@@ -348,18 +341,7 @@ void *recv_thread_fun(void *args) {
               // Update the launch ID to the new kernel's ID.
               last_seen_kernel_launch_id = oi->kernel_launch_id;
             }
-            // for debug
-            if (oi->warp_id == 0) {
-              auto func_iter = kernel_launch_to_func_map.find(oi->kernel_launch_id);
-              if (func_iter != kernel_launch_to_func_map.end()) {
-                auto [f_ctx, f_func] = func_iter->second;
-                if (ctx_state->id_to_sass_map.count(f_func) && ctx_state->id_to_sass_map[f_func].count(oi->opcode_id)) {
-                  sass_str = ctx_state->id_to_sass_map[f_func][oi->opcode_id].c_str();
-                }
-              }
-              trace_lprintf("CTX %p - CTA %d,%d,%d - warp %d - %s:\n", ctx, oi->cta_id_x, oi->cta_id_y, oi->cta_id_z,
-                            oi->warp_id, sass_str);
-            }
+
             process_instruction_histogram(oi, ctx_state, warp_states, local_completed_histograms);
           }
           num_processed_bytes += sizeof(opcode_only_t);
@@ -412,16 +394,11 @@ void *recv_thread_fun(void *args) {
   if (last_seen_kernel_launch_id != UINT64_MAX) {
     // Dump any remaining histograms for warps that were still collecting.
     for (const std::pair<const int, WarpState> &pair : warp_states) {
-      if (pair.first == 0) {
-        printf("=====debug findhao: warp id is 0 found in the remaining\n");
-        printf("warp id 0's historgram is empty? %d\n", pair.second.histogram.empty());
-      }
       if (pair.second.is_collecting && !pair.second.histogram.empty()) {
         local_completed_histograms.push_back({pair.first, pair.second.region_counter, pair.second.histogram});
       }
     }
     if (!local_completed_histograms.empty()) {
-      printf("=====debug findhao: got here");
       dump_previous_kernel_data(last_seen_kernel_launch_id, local_completed_histograms);
     }
   }

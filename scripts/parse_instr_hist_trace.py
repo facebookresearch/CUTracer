@@ -47,11 +47,12 @@ def get_chrome_trace_df(input_file_path):
             # This is the local warp ID within a CTA
             local_warp_id = int(tid_match.group(1)) if tid_match else 0
 
+            dur = event.get("dur")
             parsed_data.append(
                 {
                     "name": event.get("name"),
                     "category": event.get("cat"),
-                    "cycles": event.get("dur"),
+                    "cycles": dur * 1000 if dur is not None else dur,
                     "timestamp_ns": event.get("ts"),
                     "core": core_id,
                     "cta": cta_id,
