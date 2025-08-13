@@ -369,9 +369,7 @@ def merge_traces(chrome_trace_path, cutracer_hist_path, cutracer_log_path, outpu
     
     # If cta IDs are 1-based and linearized, we need to convert to 0-based
     # If cta IDs start from a different base, we need to adjust accordingly
-    chrome_df["global_warp_id"] = (
-        (chrome_df["cta"] - chrome_df["cta"].min()) * warps_per_block + chrome_df["local_warp_id"]
-    )
+    chrome_df["global_warp_id"] = chrome_df["cta"] * warps_per_block + chrome_df["local_warp_id"]
     
     print(f"Global warp ID range: {chrome_df['global_warp_id'].min()} to {chrome_df['global_warp_id'].max()}")
 
