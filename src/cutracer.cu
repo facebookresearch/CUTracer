@@ -292,9 +292,9 @@ static bool enter_kernel_launch(CUcontext ctx, CUfunction func, uint64_t &kernel
           "Kernel name %s - kernel hash 0x%s - kernel launch id %ld - grid size %d,%d,%d "
           "- block size %d,%d,%d - nregs %d - shmem %d - cuda stream "
           "id %ld\n",
-          (uint64_t)ctx, pc, func_name, kernel_hash_hex.c_str(), kernel_launch_id, p->config->gridDimX, p->config->gridDimY,
-          p->config->gridDimZ, p->config->blockDimX, p->config->blockDimY, p->config->blockDimZ, nregs,
-          shmem_static_nbytes + p->config->sharedMemBytes, (uint64_t)p->config->hStream);
+          (uint64_t)ctx, pc, func_name, kernel_hash_hex.c_str(), kernel_launch_id, p->config->gridDimX,
+          p->config->gridDimY, p->config->gridDimZ, p->config->blockDimX, p->config->blockDimY, p->config->blockDimZ,
+          nregs, shmem_static_nbytes + p->config->sharedMemBytes, (uint64_t)p->config->hStream);
     } else {
       cuLaunchKernel_params *p = (cuLaunchKernel_params *)params;
       loprintf(
@@ -302,8 +302,8 @@ static bool enter_kernel_launch(CUcontext ctx, CUfunction func, uint64_t &kernel
           "Kernel name %s - kernel hash 0x%s - kernel launch id %ld - grid size %d,%d,%d "
           "- block size %d,%d,%d - nregs %d - shmem %d - cuda stream "
           "id %ld\n",
-          (uint64_t)ctx, pc, func_name, kernel_hash_hex.c_str(), kernel_launch_id, p->gridDimX, p->gridDimY, p->gridDimZ,
-          p->blockDimX, p->blockDimY, p->blockDimZ, nregs, shmem_static_nbytes + p->sharedMemBytes,
+          (uint64_t)ctx, pc, func_name, kernel_hash_hex.c_str(), kernel_launch_id, p->gridDimX, p->gridDimY,
+          p->gridDimZ, p->blockDimX, p->blockDimY, p->blockDimZ, nregs, shmem_static_nbytes + p->sharedMemBytes,
           (uint64_t)p->hStream);
     }
 

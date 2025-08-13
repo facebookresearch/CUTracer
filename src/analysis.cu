@@ -331,6 +331,7 @@ void *recv_thread_fun(void *args) {
                         {pair.first, pair.second.region_counter, pair.second.histogram});
                   }
                 }
+
                 // Dump the previous kernel's data to a file.
                 dump_previous_kernel_data(last_seen_kernel_launch_id, local_completed_histograms);
 
