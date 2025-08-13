@@ -52,8 +52,8 @@ def get_chrome_trace_df(input_file_path):
                 {
                     "name": event.get("name"),
                     "category": event.get("cat"),
-                    "cycles": dur * 1000 if dur is not None else dur,
-                    "timestamp_ns": event.get("ts"),
+                    "cycles": dur * 1000 if dur is not None else None,
+                    "timestamp_ns": event.get("ts") * 1000 if event.get("ts") is not None else None,
                     "core": core_id,
                     "cta": cta_id,
                     "local_warp_id": local_warp_id,
