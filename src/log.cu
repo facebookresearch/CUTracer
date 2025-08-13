@@ -27,6 +27,35 @@
 /* include log handle header */
 #include "log.h"
 
+/**
+ * Computes a stable per-kernel hash (lowercase hex string without "0x") from the mangled name.
+ *
+ * The function uses the full mangled name (nvbit_get_func_name(ctx, func, true)) and applies
+ * std::hash<std::string>, then formats the numeric value in hexadecimal for display/storage.
+ */
+std::string compute_kernel_name_hash_hex(CUcontext ctx, CUfunction func) {
+  const char *mangled_name_raw = nvbit_get_func_name(ctx, func, true);
+  if (!mangled_name_raw) {
+    mangled_name_raw = "unknown_kernel";
+  }
+  std::string mangled_name(mangled_name_raw);
+  std::hash<std::string> hasher;
+  size_t value = hasher(mangled_name);
+  std::ostringstream oss;
+  oss << std::hex << std::nouppercase << value;
+  return oss.str();
+}
+
+/**
+ * Builds a deterministic base filename for a kernel's trace log.
+ *
+ * The resulting string embeds:
+ *   - A hex hash of the full mangled name (via compute_kernel_name_hash)
+ *   - The iteration number (decimal)
+ *   - A truncated copy (first 150 chars) of the mangled name for readability
+ *
+ * Example: "kernel_7fa21c3_iter42__Z23my_kernelPiS_..."
+ */
 std::string generate_kernel_log_basename(CUcontext ctx, CUfunction func, uint32_t iteration) {
   const char *mangled_name_raw = nvbit_get_func_name(ctx, func, true);
   if (!mangled_name_raw) {
@@ -35,15 +64,14 @@ std::string generate_kernel_log_basename(CUcontext ctx, CUfunction func, uint32_
 
   std::string mangled_name(mangled_name_raw);
 
-  std::hash<std::string> hasher;
-  // Hash the full name to ensure uniqueness
-  size_t name_hash = hasher(mangled_name);
+  // Hash the full name to ensure uniqueness (shared with cutracer)
+  std::string name_hash_hex = compute_kernel_name_hash_hex(ctx, func);
   // Truncate the name for the filename string part
   std::string truncated_name = mangled_name.substr(0, 150);
 
   std::stringstream ss;
   // Format to hex for the hash
-  ss << "kernel_" << std::hex << name_hash << "_iter" << std::dec << iteration << "_" << truncated_name;
+  ss << "kernel_" << name_hash_hex << "_iter" << std::dec << iteration << "_" << truncated_name;
 
   return ss.str();
 }
