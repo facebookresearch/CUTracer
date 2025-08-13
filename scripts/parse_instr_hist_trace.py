@@ -51,7 +51,7 @@ def get_chrome_trace_df(input_file_path):
                 {
                     "name": event.get("name"),
                     "category": event.get("cat"),
-                    "duration_ns": event.get("dur"),
+                    "cycles": event.get("dur"),
                     "timestamp_ns": event.get("ts"),
                     "core": core_id,
                     "cta": cta_id,
@@ -181,91 +181,19 @@ def parse_cutracer_log(log_file_path, kernel_hash_hex=None):
     return last_launch_info if last_launch_info else None
 
 
-def extract_clock_from_chrome_trace(trace_file_path):
-    """
-    Extracts GPU clock frequency from Chrome trace file metadata or comments.
-    
-    Args:
-        trace_file_path (str): Path to the Chrome trace JSON file.
-        
-    Returns:
-        float: Clock frequency in Hz, or None if not found.
-    """
-    patterns = [
-        # [measure in clock cycle (assume 1GHz)]
-        r'\[.*measure.*clock.*cycle.*assume\s+(\d+(?:\.\d+)?)\s*(GHz|MHz).*\]',
-        # (assume 1500MHz)
-        r'\(assume\s+(\d+(?:\.\d+)?)\s*(GHz|MHz)\)',
-        # assume 1.5 GHz clock
-        r'assume\s+(\d+(?:\.\d+)?)\s*(GHz|MHz)',
-        # [1500 MHz assumed]
-        r'\[.*(\d+(?:\.\d+)?)\s*(GHz|MHz).*assum.*\]',
-    ]
-    
-    try:
-        with open(trace_file_path, 'r') as f:
-            # Read first few KB to look for metadata
-            content = f.read(8192)  # Read first 8KB
-            
-            for pattern in patterns:
-                match = re.search(pattern, content, re.IGNORECASE)
-                if match:
-                    frequency = float(match.group(1))
-                    unit = match.group(2).upper()
-                    
-                    if unit == 'GHZ':
-                        return frequency * 1e9
-                    elif unit == 'MHZ':
-                        return frequency * 1e6
-                        
-    except (FileNotFoundError, json.JSONDecodeError, Exception) as e:
-        print(f"Warning: Could not extract clock frequency from trace file: {e}")
-        
-    return None
-
-
-def determine_gpu_clock_hz(chrome_trace_path, user_specified_mhz=None):
-    """
-    Determines GPU clock frequency using priority: user_specified > chrome_trace > None.
-    
-    Args:
-        chrome_trace_path (str): Path to Chrome trace file.
-        user_specified_mhz (float): User-specified frequency in MHz.
-        
-    Returns:
-        tuple: (clock_hz, source_description) or (None, error_message)
-    """
-    if user_specified_mhz:
-        clock_hz = user_specified_mhz * 1e6
-        return clock_hz, f"user-specified {user_specified_mhz} MHz"
-    
-    # Try to extract from Chrome trace
-    extracted_hz = extract_clock_from_chrome_trace(chrome_trace_path)
-    if extracted_hz:
-        return extracted_hz, f"extracted from trace ({extracted_hz/1e6:.1f} MHz)"
-    
-    # Could not determine clock frequency
-    return None, "Cannot determine GPU clock frequency"
-
-
-def calculate_ipc(duration_ns, instruction_count, gpu_clock_hz):
+def calculate_ipc(cycles, instruction_count):
     """
     Calculates Instructions Per Cycle (IPC).
     
     Args:
-        duration_ns (float): Duration in nanoseconds.
+        cycles (float): Number of cycles.
         instruction_count (float): Number of instructions.
-        gpu_clock_hz (float): GPU clock frequency in Hz.
         
     Returns:
         float: IPC value, or None if calculation not possible.
     """
-    if pd.isna(duration_ns) or pd.isna(instruction_count) or duration_ns <= 0 or instruction_count <= 0:
+    if pd.isna(cycles) or pd.isna(instruction_count) or cycles <= 0 or instruction_count <= 0:
         return None
-    
-    # Convert duration to seconds and calculate cycles
-    duration_seconds = duration_ns / 1e9
-    cycles = duration_seconds * gpu_clock_hz
     
     # Calculate IPC
     ipc = instruction_count / cycles
@@ -315,7 +243,7 @@ def validate_warp_coverage(chrome_df, hist_df):
         return False
 
 
-def merge_traces(chrome_trace_path, cutracer_hist_path, cutracer_log_path, output_path, gpu_clock_mhz=None, kernel_hash_hex=None):
+def merge_traces(chrome_trace_path, cutracer_hist_path, cutracer_log_path, output_path, kernel_hash_hex=None):
     """
     Merges data from Chrome trace, CUTRICER histogram, and CUTRICER log.
     """
@@ -385,10 +313,6 @@ def merge_traces(chrome_trace_path, cutracer_hist_path, cutracer_log_path, outpu
         chrome_df, hist_df, on="global_warp_id", how="left"
     )
 
-    # Determine GPU clock frequency for IPC calculation
-    print("Determining GPU clock frequency for IPC calculation...")
-    gpu_clock_hz, clock_source = determine_gpu_clock_hz(chrome_trace_path, gpu_clock_mhz)
-    
     # Reorder and select columns for clarity
     output_columns = [
         "core",
@@ -398,25 +322,18 @@ def merge_traces(chrome_trace_path, cutracer_hist_path, cutracer_log_path, outpu
         "region_id",
         "name",
         "category",
-        "duration_ns",
+        "cycles",
         "timestamp_ns",
         "total_instruction_count",
     ]
     
-    # Add IPC calculation if clock frequency is available
-    if gpu_clock_hz:
-        print(f"✓ Using GPU clock frequency: {clock_source}")
-        print("Calculating IPC (Instructions Per Cycle)...")
-        merged_df['ipc'] = merged_df.apply(
-            lambda row: calculate_ipc(row['duration_ns'], row['total_instruction_count'], gpu_clock_hz),
-            axis=1
-        )
-        output_columns.append('ipc')
-    else:
-        print(f"✗ ERROR: {clock_source}")
-        print("       Please specify --gpu-clock-mhz parameter or ensure")
-        print("       Chrome trace contains clock frequency information.")
-        print("       IPC column will not be included in output.")
+    # Add IPC calculation
+    print("Calculating IPC (Instructions Per Cycle)...")
+    merged_df['ipc'] = merged_df.apply(
+        lambda row: calculate_ipc(row['cycles'], row['total_instruction_count']),
+        axis=1
+    )
+    output_columns.append('ipc')
     
     # Filter for columns that actually exist after the merge
     final_columns = [col for col in output_columns if col in merged_df.columns]
@@ -456,11 +373,6 @@ if __name__ == "__main__":
         dest="kernel_hash_hex",
         help="Optional kernel hash (e.g., 0x7fa21c3) to select a specific launch from the log.",
     )
-    parser.add_argument(
-        "--gpu-clock-mhz",
-        type=float,
-        help="GPU SM clock frequency in MHz for IPC calculation. If not specified, will attempt to extract from Chrome trace.",
-    )
     parser.add_argument("--output", required=True, help="Path for the output CSV file.")
 
     args = parser.parse_args()
@@ -476,7 +388,6 @@ if __name__ == "__main__":
             args.cutracer_trace_input,
             args.cutracer_log_input,
             args.output,
-            args.gpu_clock_mhz,
             args.kernel_hash_hex,
         )
     elif args.chrome_trace_input:
