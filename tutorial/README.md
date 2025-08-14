@@ -59,7 +59,7 @@ Notes:
 - Continues even if warp ID mismatches are detected (warns explicitly).
 
 ### 3. Fused Attention IPC Example (`findhao/add_ipc_example`)
-Added file: `tests/proton_tests/06-fused-attention-updated.py`.
+Moved example to: `tutorial/ipc_parser_example.py`.
 
 Highlights:
 - Triton FlashAttention v2 style forward/backward reference & Triton kernels.
@@ -68,18 +68,20 @@ Highlights:
 
 Minimal run (forward path example):
 ```bash
-cd tests/proton_tests
-python 06-fused-attention-updated.py
+python tutorial/ipc_parser_example.py
 ```
-This will produce trace/log artifacts that can be fed into the parser script (once histogram generation is available) to compute IPC by warp/region.
+This will produce trace/log artifacts that can be fed into the parser script to compute IPC by warp/region.
 
 ### Suggested End-to-End Workflow
-1. Run CUTracer-instrumented workload (e.g., vector add or fused attention) to generate:
+1. Run CUTracer-instrumented workload (e.g., `python tutorial/ipc_parser_example.py`) to generate:
    - CUTracer log with kernel hash lines.
    - Chrome trace JSON (if enabled by your workflow).
    - Instruction histogram CSV (from histogram instrumentation feature).
 2. Identify the target kernel hash from the log.
 3. Run the parser script with `--kernel-hash` to produce merged IPC CSV.
+   ```bash
+   python scripts/parse_instr_hist_trace.py --chrome-trace ...
+   ```
 4. Load the CSV into Python / notebook for deeper analysis (group by region, aggregate IPC, etc.).
 
 ### Detailed Reproduction Steps (Fused Attention + IPC + Histogram)
@@ -87,15 +89,17 @@ These steps show how to override a Triton kernel, inject proton region markers, 
 
 Prereqs:
 - Triton main installed editable.
-- CUTracer built, shared object at `~/CUTracer_oss/lib/cutracer.so` (adjust path if different).
+- CUTracer built, with `cutracer.so` path correctly configured.
+
+**Note on paths**: The `ttgir_dump` are part of the Triton repository. The following steps may require path adjustments depending on your directory structure.
 
 Steps:
 
 Step 1: Dump TTGIR for the original fused attention kernel
 ```bash
-PYTEST_VERSION=1 TRITON_PRINT_AUTOTUNING=1 \
-  ../../triton/third_party/proton/scripts/dump_ttgir.sh \
-  python3 06-fused-attention.py
+PYTEST_VERSION=1 \
+  <path_to_triton>/third_party/proton/scripts/dump_ttgir.sh \
+  python3 tutorial/ipc_parser_example.py
 ```
 This produces a `ttgir_dump/` directory containing kernel IR and metadata.
 
@@ -116,21 +120,21 @@ Make sure you do not place a `start` inside another active `start` before its ma
 Step 4: Run with kernel override to validate correctness
 ```bash
 TRITON_KERNEL_OVERRIDE=1 TRITON_OVERRIDE_DIR=override \
-PYTEST_VERSION=1 TRITON_PRINT_AUTOTUNING=1 \
-python3 06-fused-attention.py
+PYTEST_VERSION=1 \
+python3 tutorial/ipc_parser_example.py
 ```
 Confirm the application still runs and the region markers appear in the trace (Chrome trace / proton output).
 
 Step 5: Collect histogram + trace with CUTracer + analysis mode
 ```bash
-CUDA_INJECTION64_PATH=~/CUTracer_oss/lib/cutracer.so \
+CUDA_INJECTION64_PATH=<path_to>/lib/cutracer.so \
 KERNEL_FILTERS=attn_fwd \
 TRITON_ALWAYS_COMPILE=1 \
 CUTRACER_ANALYSIS=proton_instr_histogram \
 TRITON_KERNEL_OVERRIDE=1 TRITON_OVERRIDE_DIR=override \
-PYTEST_VERSION=1 TRITON_PRINT_AUTOTUNING=1 \
-python3 06-fused-attention-updated.py
+python3 tutorial/ipc_parser_example.py
 ```
+
 Outputs to look for:
 - CUTracer log: `cutracer_main_<timestamp>.log` (contains LAUNCH lines with kernel hash)
 - Histogram CSV: `kernel_<hash>_iter0__attn_fwd_hist.csv`
@@ -138,10 +142,10 @@ Outputs to look for:
 
 Step 6: Merge and compute per-warp IPC
 ```bash
-python ../../scripts/parse_instr_hist_trace.py \
+python ../scripts/parse_instr_hist_trace.py \
   --chrome-trace ./fa.chrome_trace \
-  --cutracer-trace ./kernel_21fe4a291c9c836_iter0__attn_fwd_hist.csv \
-  --cutracer-log ./cutracer_main_20250813_134913.log \
+  --cutracer-trace ./kernel_..._hist.csv \
+  --cutracer-log ./cutracer_main_...log \
   --output ipc_merged.csv
 ```
 Open `ipc_merged.csv` to analyze IPC by warp/region.
