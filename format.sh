@@ -24,11 +24,13 @@ fi
 # --- Configuration ---
 # Define the directories to be processed.
 # Add or remove directories as needed for your project.
-DIRECTORIES_TO_SCAN=(src include tests)
+DIRECTORIES_TO_SCAN=(src include tests tutorial .ci)
 
 # Define the file extensions to be processed.
 # Add or remove extensions as needed for your project.
 FILE_PATTERNS=(-name "*.h" -o -name "*.hpp" -o -name "*.cpp" -o -name "*.cu" -o -name "*.cuh")
+
+# (Optional) Python formatting configuration can be supplied via pyproject.toml
 
 # --- Helper Functions ---
 
@@ -46,6 +48,60 @@ format_and_report_changes() {
 }
 # Export the function so it's available to the subshells created by xargs.
 export -f format_and_report_changes
+
+# Python checks/format aligned with format_fix.py: usort -> ruff -> black
+python_check() {
+  local failed=0
+
+  if command -v usort &>/dev/null; then
+    usort check .
+    [ $? -eq 0 ] || failed=1
+  else
+    echo "❌ usort not found (required for Python import sorting)." >&2
+    failed=1
+  fi
+
+  if command -v ruff &>/dev/null; then
+    ruff check . --diff
+    [ $? -eq 0 ] || failed=1
+  else
+    echo "❌ ruff not found (required for Python linting)." >&2
+    failed=1
+  fi
+
+  if command -v black &>/dev/null; then
+    black --check --diff .
+    [ $? -eq 0 ] || failed=1
+  else
+    echo "❌ black not found (required for Python formatting)." >&2
+    failed=1
+  fi
+
+  return $failed
+}
+
+python_format() {
+  if command -v usort &>/dev/null; then
+    echo "🎨  Sorting Python imports with usort..."
+    usort format .
+  else
+    echo "⚠️  usort not found; skipping import sorting." >&2
+  fi
+
+  if command -v ruff &>/dev/null; then
+    echo "🔧  Fixing Python linting issues with ruff..."
+    ruff check . --fix
+  else
+    echo "⚠️  ruff not found; skipping lint fixes." >&2
+  fi
+
+  if command -v black &>/dev/null; then
+    echo "🎨  Formatting Python code with black..."
+    black .
+  else
+    echo "⚠️  black not found; skipping code formatting." >&2
+  fi
+}
 
 # Function to print usage instructions
 usage() {
@@ -87,19 +143,22 @@ case "$MODE" in
 check)
   echo "🔎  Checking code formatting in: ${EXISTING_DIRS[*]}..."
 
-  # Step 1: Run with --Werror to get a reliable exit code.
-  # We silence the output because we only care about the exit code.
+  # Step 1: C/C++ check with --Werror to get a reliable exit code
   find "${EXISTING_DIRS[@]}" -type f \( "${FILE_PATTERNS[@]}" \) -print0 | xargs -0 -r clang-format --dry-run --Werror
+  CXX_STATUS=$?
 
-  # Step 2: If there was an error, run again to get the detailed diff for the user.
-  if [ $? -ne 0 ]; then
+  # Step 2: Python check using ufmt or black/usort
+  python_check
+  PY_STATUS=$?
+
+  if [ $CXX_STATUS -ne 0 ] || [ $PY_STATUS -ne 0 ]; then
     echo "----------------------------------------------------"
     echo "Please run './format.sh format' to fix them."
     exit 1
-  else
-    echo "✅  All files are correctly formatted (or no files were found to check)."
-    exit 0
   fi
+
+  echo "✅  All files are correctly formatted (or no files were found to check)."
+  exit 0
   ;;
 
 format)
@@ -118,6 +177,9 @@ format)
   else
     echo "No files needed formatting."
   fi
+
+  # Python formatting
+  python_format
 
   echo "✅  Formatting complete."
   ;;
