@@ -1,6 +1,7 @@
 import argparse
 import json
 import re
+import os
 
 import pandas as pd
 
@@ -263,15 +264,23 @@ def merge_traces(
     """
     Merges data from Chrome trace, CUTRICER histogram, and CUTRICER log.
     """
+    # If kernel_hash_hex is not provided, try to extract it from the histogram file name
+    if not kernel_hash_hex:
+        hist_filename = os.path.basename(cutracer_hist_path)
+        hash_match = re.search(r"kernel_([0-9a-fA-F]+)_", hist_filename)
+        if hash_match:
+            kernel_hash_hex = hash_match.group(1)
+            print(f"Successfully extracted kernel hash: {kernel_hash_hex}")
+        else:
+            print(f"ERROR: Could not extract kernel hash from filename: {hist_filename}")
+            print("       Please provide a kernel hash using the --kernel-hash argument or")
+            print("       ensure the histogram file name is in the format 'kernel_<hash>_...'.")
+            return
+
     print("Parsing log file to get metadata...")
     launch_info = parse_cutracer_log(cutracer_log_path, kernel_hash_hex)
     if not launch_info:
-        if kernel_hash_hex:
-            print(
-                f"Could not find launch info for kernel hash {kernel_hash_hex} in log file. Aborting merge."
-            )
-        else:
-            print("Could not parse launch info from log file. Aborting merge.")
+        print(f"Could not find launch info for kernel hash {kernel_hash_hex} in log file. Aborting merge.")
         return
 
     grid_size = launch_info["grid_size"]  # (x, y, z)
