@@ -32,7 +32,7 @@ def add_kernel(
     with pl.scope("load_ops"):
         x = tl.load(x_ptr + offsets, mask=mask)
         y = tl.load(y_ptr + offsets, mask=mask)
-    output = x + y
+        output = x + y
     tl.store(output_ptr + offsets, output, mask=mask)
 
 
