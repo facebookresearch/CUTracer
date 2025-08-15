@@ -35,6 +35,7 @@ if [ -f "/opt/miniconda3/etc/profile.d/conda.sh" ]; then
   source /opt/miniconda3/etc/profile.d/conda.sh
   conda activate $CONDA_ENV
   conda install -y -c conda-forge libstdcxx-ng=15.1.0
+  pip install pandas
 else
   echo "⚠️ Conda activation script not found, skipping."
 fi
