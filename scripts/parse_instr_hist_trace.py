@@ -2,6 +2,7 @@ import argparse
 import json
 import os
 import re
+import sys
 
 import pandas as pd
 
@@ -100,17 +101,14 @@ def get_cutracer_hist_df(input_file_path):
     return summary
 
 
-def parse_cutracer_log(log_file_path, kernel_hash_hex=None):
+def parse_cutracer_log(log_file_path, kernel_hash_hex):
     """
-    Parses a CUTRICER log file to find kernel launch parameters.
-
-    By default, returns the last seen (grid_size, block_size) from a LAUNCH line.
-    If kernel_hash_hex is provided, filters for the line whose "kernel hash 0x..."
-    matches the given hash (case-insensitive, with or without '0x' prefix).
+    Parses a CUTRICER log file to find the launch parameters for a *specific* kernel hash.
+    If multiple launches with the same hash are found, it uses the first one and prints a warning.
 
     Args:
         log_file_path (str): Path to the CUTRICER log file.
-        kernel_hash_hex (str, optional): Target kernel hash (e.g., "0x7fa21c3" or "7fa21c3").
+        kernel_hash_hex (str): The mandatory target kernel hash (e.g., "0x7fa21c3").
 
     Returns:
         dict: { 'grid_size': (gx, gy, gz), 'block_size': (bx, by, bz) } or None if not found.
@@ -119,11 +117,8 @@ def parse_cutracer_log(log_file_path, kernel_hash_hex=None):
     block_pattern = re.compile(r"block size\s+([0-9]+),([0-9]+),([0-9]+)")
     hash_pattern = re.compile(r"kernel hash\s+0x([0-9a-fA-F]+)")
 
-    expected_hash = None
-    if kernel_hash_hex:
-        expected_hash = kernel_hash_hex.lower().lstrip("0x")
-
-    last_launch_info = {}
+    expected_hash = kernel_hash_hex.lower().lstrip("0x")
+    matching_launches = []
 
     try:
         with open(log_file_path, "r") as f:
@@ -131,56 +126,36 @@ def parse_cutracer_log(log_file_path, kernel_hash_hex=None):
                 if "LAUNCH" not in line:
                     continue
 
-                # Prefer lines that explicitly contain a kernel hash
                 hash_match = hash_pattern.search(line)
+                if not hash_match or hash_match.group(1).lower() != expected_hash:
+                    continue
+
+                # Found a matching launch line
                 grid_match = grid_pattern.search(line)
                 block_match = block_pattern.search(line)
 
-                if not (grid_match and block_match):
-                    continue
-
-                # If caller specified a hash, only accept matching line
-                if expected_hash:
-                    if hash_match and hash_match.group(1).lower() == expected_hash:
-                        last_launch_info = {
-                            "grid_size": tuple(map(int, grid_match.groups())),
-                            "block_size": tuple(map(int, block_match.groups())),
-                        }
-                        break  # Exact match found; stop scanning
-                    else:
-                        continue
-                else:
-                    # No specific hash requested: prefer lines with a hash if present,
-                    # but also accept legacy lines without it (take the last one seen)
-                    last_launch_info = {
+                if grid_match and block_match:
+                    launch_info = {
                         "grid_size": tuple(map(int, grid_match.groups())),
                         "block_size": tuple(map(int, block_match.groups())),
                     }
+                    matching_launches.append(launch_info)
 
     except FileNotFoundError:
         print(f"Error: Log file not found at {log_file_path}")
         return None
 
-    if last_launch_info:
-        return last_launch_info
-
-    # Fallback: legacy behavior scanning any LAUNCH line (without requiring hash)
-    try:
-        with open(log_file_path, "r") as f:
-            for line in f:
-                if "LAUNCH" in line:
-                    grid_match = grid_pattern.search(line)
-                    block_match = block_pattern.search(line)
-                    if grid_match and block_match:
-                        last_launch_info = {
-                            "grid_size": tuple(map(int, grid_match.groups())),
-                            "block_size": tuple(map(int, block_match.groups())),
-                        }
-    except FileNotFoundError:
-        print(f"Error: Log file not found at {log_file_path}")
+    if not matching_launches:
         return None
 
-    return last_launch_info if last_launch_info else None
+    if len(matching_launches) > 1:
+        print(
+            f"Warning: Found {len(matching_launches)} launches for kernel hash '{kernel_hash_hex}'. "
+            "Defaulting to the first one.",
+            file=sys.stderr,
+        )
+
+    return matching_launches[0]
 
 
 def calculate_ipc(cycles, instruction_count):
