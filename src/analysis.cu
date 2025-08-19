@@ -253,15 +253,6 @@ static uint64_t get_kernel_launch_id(const message_header_t* header) {
     }
 }
 
-// Simple hash for a sequence of PCs
-static uint64_t compute_sig_for_sequence(const uint64_t* pcs, int len) {
-    uint64_t sig = 0;
-    for (int i = 0; i < len; ++i) {
-        sig = (sig << 5) ^ pcs[i];
-    }
-    return sig;
-}
-
 // Compute canonical signature of a loop from a ring buffer of merged records.
 // Returns 0 if no period is detected. Sets out_period to detected period when >0.
 static uint64_t compute_canonical_signature(const std::vector<TraceRecordMerged>& history,
