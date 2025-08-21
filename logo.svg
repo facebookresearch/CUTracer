@@ -1,0 +1,97 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" aria-label="CUTracer icon neutral">
+  <style>
+    :root{
+      --ink:#0b1221;
+      --accent:#76B900;
+      --chip:#f4f6f8;     /* neutral silver gray */
+      --pin:#d1d5db;      /* light gray pins */
+      --mem:#9ca3af;      /* gray grid */
+      --reg:#9ca3af;      /* gray registers */
+    }
+    @media (prefers-color-scheme: dark){
+      :root{
+        --ink:#e5e7eb; --chip:#1e293b; --pin:#475569; --mem:#6b7280; --reg:#6b7280;
+      }
+    }
+    .ns{vector-effect:non-scaling-stroke}
+  </style>
+
+  <rect x="16" y="16" width="224" height="224" rx="24"
+        fill="var(--chip)" stroke="var(--ink)" stroke-width="2.5"/>
+
+  <!-- pins -->
+  <g fill="var(--pin)">
+    <rect x="48" y="10" width="16" height="8" rx="2"/>
+    <rect x="84" y="10" width="16" height="8" rx="2"/>
+    <rect x="120" y="10" width="16" height="8" rx="2"/>
+    <rect x="156" y="10" width="16" height="8" rx="2"/>
+    <rect x="192" y="10" width="16" height="8" rx="2"/>
+    <rect x="48" y="238" width="16" height="8" rx="2"/>
+    <rect x="84" y="238" width="16" height="8" rx="2"/>
+    <rect x="120" y="238" width="16" height="8" rx="2"/>
+    <rect x="156" y="238" width="16" height="8" rx="2"/>
+    <rect x="192" y="238" width="16" height="8" rx="2"/>
+    <rect x="10" y="56" width="8" height="16" rx="2"/>
+    <rect x="10" y="92" width="8" height="16" rx="2"/>
+    <rect x="10" y="128" width="8" height="16" rx="2"/>
+    <rect x="10" y="164" width="8" height="16" rx="2"/>
+    <rect x="238" y="56" width="8" height="16" rx="2"/>
+    <rect x="238" y="92" width="8" height="16" rx="2"/>
+    <rect x="238" y="128" width="8" height="16" rx="2"/>
+    <rect x="238" y="164" width="8" height="16" rx="2"/>
+  </g>
+
+  <!-- memory grid -->
+  <g transform="translate(32,32)" fill="var(--mem)">
+    <rect x="0" y="0" width="16" height="16" rx="3"/>
+    <rect x="22" y="0" width="16" height="16" rx="3"/>
+    <rect x="44" y="0" width="16" height="16" rx="3"/>
+    <rect x="0" y="22" width="16" height="16" rx="3"/>
+    <rect x="22" y="22" width="16" height="16" rx="3"/>
+    <rect x="44" y="22" width="16" height="16" rx="3"/>
+    <rect x="0" y="44" width="16" height="16" rx="3"/>
+    <rect x="22" y="44" width="16" height="16" rx="3"/>
+    <rect x="44" y="44" width="16" height="16" rx="3"/>
+  </g>
+
+  <!-- reg lanes -->
+  <g transform="translate(144,28)" fill="var(--reg)">
+    <rect x="0" y="0" width="76" height="5" rx="2.5"/>
+    <rect x="0" y="8" width="76" height="5" rx="2.5"/>
+    <rect x="0" y="16" width="76" height="5" rx="2.5"/>
+    <rect x="0" y="24" width="76" height="5" rx="2.5"/>
+    <rect x="0" y="32" width="76" height="5" rx="2.5"/>
+    <rect x="0" y="40" width="76" height="5" rx="2.5"/>
+    <rect x="0" y="48" width="76" height="5" rx="2.5"/>
+    <rect x="0" y="56" width="76" height="5" rx="2.5"/>
+  </g>
+
+  <!-- trace -->
+  <polyline points="40,196 84,168 120,176 156,148 192,160 220,140"
+            fill="none" stroke="var(--accent)" stroke-width="7" stroke-linecap="round" stroke-linejoin="round"/>
+  <g fill="var(--accent)">
+    <circle cx="40" cy="196" r="5"/>
+    <circle cx="120" cy="176" r="5"/>
+    <circle cx="156" cy="148" r="5"/>
+    <circle cx="220" cy="140" r="5"/>
+  </g>
+
+  <!-- magnifier -->
+  <g transform="translate(168,120)">
+    <circle cx="0" cy="0" r="20" fill="none" stroke="var(--accent)" stroke-width="3"/>
+    <line x1="12" y1="12" x2="26" y2="26" stroke="var(--accent)" stroke-width="5" stroke-linecap="round"/>
+    <circle cx="7" cy="4" r="4" fill="var(--accent)"/>
+  </g>
+
+  <!-- deadlock -->
+  <g transform="translate(220,120)">
+    <path d="M0,-10 A10,10 0 1 1 -0.01,-10" fill="none" stroke="var(--accent)" stroke-width="3"
+          stroke-dasharray="18 10" stroke-linecap="round"/>
+  </g>
+
+  <!-- IPC half-ring -->
+  <g transform="translate(96,112)">
+    <path d="M0,0 A22,22 0 1 1 0.01,0" fill="none" stroke="rgba(118,185,0,.25)" stroke-width="6"/>
+    <path d="M0,0 A22,22 0 0 1 18,-10" fill="none" stroke="var(--accent)" stroke-width="6" stroke-linecap="round"/>
+  </g>
+</svg>
