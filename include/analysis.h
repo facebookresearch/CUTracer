@@ -180,6 +180,10 @@ struct CTXstate {
   // Per-warp activity timestamps for inactive cleanup
   std::unordered_map<WarpKey, time_t, WarpKey::Hash> last_seen_time_by_warp;
   std::unordered_map<WarpKey, time_t, WarpKey::Hash> exit_candidate_since_by_warp;
+
+  // Deadlock handling
+  int deadlock_consecutive_hits = 0;
+  bool deadlock_termination_initiated = false;
 };
 
 /* ===== Functions ===== */
