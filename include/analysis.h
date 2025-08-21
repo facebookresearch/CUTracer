@@ -166,6 +166,8 @@ struct CTXstate {
   // Per-function SASS mappings for instruction histogram feature
   std::unordered_map<CUfunction, std::map<int, std::string>> id_to_sass_map;
   std::unordered_map<CUfunction, std::unordered_set<int>> clock_opcode_ids;
+  // Per-function EXIT opcode ids (statically identified at instrumentation time)
+  std::unordered_map<CUfunction, std::unordered_set<int>> exit_opcode_ids;
 
   /* State for Deadlock/Hang Detection */
   std::map<WarpKey, WarpLoopState> loop_states;
@@ -174,6 +176,10 @@ struct CTXstate {
 
   // Pending mem traces per warp for out-of-order arrival (mem before reg)
   std::unordered_map<WarpKey, std::deque<mem_access_t>, WarpKey::Hash> pending_mem_by_warp;
+
+  // Per-warp activity timestamps for inactive cleanup
+  std::unordered_map<WarpKey, time_t, WarpKey::Hash> last_seen_time_by_warp;
+  std::unordered_map<WarpKey, time_t, WarpKey::Hash> exit_candidate_since_by_warp;
 };
 
 /* ===== Functions ===== */

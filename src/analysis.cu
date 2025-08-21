@@ -29,6 +29,8 @@
 #define PC_HISTORY_LEN 32
 #define LOOP_SIG_LEN 8
 #define LOOP_REPEAT_THRESH 3
+// Throttle interval for hang checks (seconds)
+#define HANG_CHECK_THROTTLE_SECS 1
 
 extern pthread_mutex_t mutex;
 extern std::unordered_map<CUcontext, CTXstate *> ctx_state_map;
@@ -379,17 +381,44 @@ static void clear_deadlock_state(CTXstate* ctx_state) {
     ctx_state->loop_states.clear();
     ctx_state->active_warps.clear();
     ctx_state->pending_mem_by_warp.clear();
+    ctx_state->last_seen_time_by_warp.clear();
+    ctx_state->exit_candidate_since_by_warp.clear();
 }
 
 static void check_kernel_hang(CTXstate* ctx_state, uint64_t current_kernel_launch_id) {
     time_t now = time(nullptr);
-    if (now - ctx_state->last_hang_check_time < 1) { // Throttle to 1 second
+    if (now - ctx_state->last_hang_check_time < HANG_CHECK_THROTTLE_SECS) { // Throttle to configured interval
         return;
     }
     ctx_state->last_hang_check_time = now;
 
     if (ctx_state->active_warps.empty()) {
         return;
+    }
+
+    // Cleanup exit-candidate warps before evaluating loop state
+    std::vector<WarpKey> to_remove;
+    to_remove.reserve(ctx_state->active_warps.size());
+    for (const WarpKey& key : ctx_state->active_warps) {
+        auto itExit = ctx_state->exit_candidate_since_by_warp.find(key);
+        if (itExit == ctx_state->exit_candidate_since_by_warp.end()) continue;
+        time_t exit_since = itExit->second;
+        time_t last_seen = 0;
+        auto itSeen = ctx_state->last_seen_time_by_warp.find(key);
+        if (itSeen != ctx_state->last_seen_time_by_warp.end()) last_seen = itSeen->second;
+        // Remove only if no activity since EXIT and at least one throttle interval has passed
+        if (last_seen <= exit_since && (now - exit_since) >= HANG_CHECK_THROTTLE_SECS) {
+            to_remove.push_back(key);
+        }
+    }
+    if (!to_remove.empty()) {
+        for (const WarpKey& key : to_remove) {
+            ctx_state->active_warps.erase(key);
+            ctx_state->loop_states.erase(key);
+            ctx_state->pending_mem_by_warp.erase(key);
+            ctx_state->last_seen_time_by_warp.erase(key);
+            ctx_state->exit_candidate_since_by_warp.erase(key);
+        }
     }
 
     bool all_warps_in_loop = true;
@@ -402,7 +431,8 @@ static void check_kernel_hang(CTXstate* ctx_state, uint64_t current_kernel_launc
 
     if (all_warps_in_loop) {
         time_t hang_time = now - ctx_state->loop_states.begin()->second.first_loop_time;
-        oprintf("POTENTIAL KERNEL HANG DETECTED: Kernel launch ID %lu has all active warps in a loop for %ld seconds.\n", current_kernel_launch_id, hang_time);
+        oprintf("Possible kernel hang: launch_id=%lu — all %zu active warps have been looping for %ld seconds.\n",
+                current_kernel_launch_id, ctx_state->active_warps.size(), hang_time);
         // Optional: Add detailed printout of loop info here
     }
 }
@@ -504,7 +534,20 @@ void *recv_thread_fun(void *args) {
                   ctx_state->last_hang_check_time = time(nullptr);
               }
               ctx_state->active_warps.insert(key);
+              // Update last seen time for this warp
+              ctx_state->last_seen_time_by_warp[key] = time(nullptr);
               update_loop_state(ctx_state, key, ri);
+
+              // Mark EXIT candidate if this opcode_id is an EXIT for the current function
+              auto func_iter2 = kernel_launch_to_func_map.find(ri->kernel_launch_id);
+              if (func_iter2 != kernel_launch_to_func_map.end()) {
+                CUfunction f_func2 = func_iter2->second.second;
+                if (ctx_state->exit_opcode_ids.count(f_func2) && ctx_state->exit_opcode_ids[f_func2].count(ri->opcode_id)) {
+                  if (!ctx_state->exit_candidate_since_by_warp.count(key)) {
+                    ctx_state->exit_candidate_since_by_warp[key] = time(nullptr);
+                  }
+                }
+              }
           }
           
           // Get SASS string for trace output
@@ -560,6 +603,22 @@ void *recv_thread_fun(void *args) {
 
             process_instruction_histogram(oi, ctx_state, warp_states, local_completed_histograms);
           }
+          if (is_analysis_type_enabled(AnalysisType::DEADLOCK_DETECTION)) {
+            opcode_only_t *oi = (opcode_only_t *)&recv_buffer[num_processed_bytes];
+            WarpKey key = {oi->cta_id_x, oi->cta_id_y, oi->cta_id_z, oi->warp_id};
+            // Update last seen time for this warp
+            ctx_state->last_seen_time_by_warp[key] = time(nullptr);
+            // Mark EXIT candidate if this opcode is EXIT
+            auto func_iter3 = kernel_launch_to_func_map.find(oi->kernel_launch_id);
+            if (func_iter3 != kernel_launch_to_func_map.end()) {
+              CUfunction f_func3 = func_iter3->second.second;
+              if (ctx_state->exit_opcode_ids.count(f_func3) && ctx_state->exit_opcode_ids[f_func3].count(oi->opcode_id)) {
+                if (!ctx_state->exit_candidate_since_by_warp.count(key)) {
+                  ctx_state->exit_candidate_since_by_warp[key] = time(nullptr);
+                }
+              }
+            }
+          }
           num_processed_bytes += sizeof(opcode_only_t);
 
         } else if (header->type == MSG_TYPE_MEM_ACCESS) {
@@ -596,6 +655,8 @@ void *recv_thread_fun(void *args) {
           // Attach mem trace to most recent unmatched reg record for deadlock_detection
           if (is_analysis_type_enabled(AnalysisType::DEADLOCK_DETECTION)) {
             WarpKey key = {mem->cta_id_x, mem->cta_id_y, mem->cta_id_z, mem->warp_id};
+            // Update last seen time for this warp
+            ctx_state->last_seen_time_by_warp[key] = time(nullptr);
             WarpLoopState& state = ctx_state->loop_states[key];
             if (state.history.size() == PC_HISTORY_LEN && state.filled > 0) {
               // Search backwards from most recent written position
