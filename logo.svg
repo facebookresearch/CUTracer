@@ -2,11 +2,11 @@
   <style>
     :root{
       --ink:#0b1221;
-      --accent:#76B900;   /* NVIDIA 绿 */
-      --chip:#f7f9fb;     /* 芯片底色 */
-      --pin:#76B900;      /* 引脚绿色 */
-      --mem:#9aa3ad;      /* memory grid 灰 */
-      --reg:#9aa3ad;      /* register 灰 */
+      --accent:#76B900;   /* NVIDIA green */
+      --chip:#f7f9fb;     /* chip background */
+      --pin:#76B900;      /* pin green */
+      --mem:#9aa3ad;      /* memory grid gray */
+      --reg:#9aa3ad;      /* register gray */
     }
     @media (prefers-color-scheme: dark){
       :root{
@@ -16,13 +16,13 @@
     .ns{vector-effect:non-scaling-stroke}
   </style>
 
-  <!-- 芯片主体（内部内容限制在 40–240） -->
+  <!-- chip body (internal content limited to 40–240) -->
   <rect x="40" y="40" width="200" height="200" rx="20"
         fill="var(--chip)" stroke="var(--ink)" stroke-width="2" class="ns"/>
 
-  <!-- 外侧引脚：每边 9 个，10×10，间隔 13，起点 43，严格居中 -->
+  <!-- outer pins: 9 per side, 10×10, 13 spacing, start at 43, strictly centered -->
   <g fill="var(--pin)">
-    <!-- 顶边 -->
+    <!-- top -->
     <g transform="translate(43,28)">
       <rect x="0"   y="0" width="10" height="10" rx="2"/>
       <rect x="23"  y="0" width="10" height="10" rx="2"/>
@@ -34,7 +34,7 @@
       <rect x="161" y="0" width="10" height="10" rx="2"/>
       <rect x="184" y="0" width="10" height="10" rx="2"/>
     </g>
-    <!-- 底边 -->
+    <!-- bottom -->
     <g transform="translate(43,242)">
       <rect x="0"   y="0" width="10" height="10" rx="2"/>
       <rect x="23"  y="0" width="10" height="10" rx="2"/>
@@ -46,7 +46,7 @@
       <rect x="161" y="0" width="10" height="10" rx="2"/>
       <rect x="184" y="0" width="10" height="10" rx="2"/>
     </g>
-    <!-- 左边 -->
+    <!-- left -->
     <g transform="translate(28,43)">
       <rect x="0" y="0"   width="10" height="10" rx="2"/>
       <rect x="0" y="23"  width="10" height="10" rx="2"/>
@@ -58,7 +58,7 @@
       <rect x="0" y="161" width="10" height="10" rx="2"/>
       <rect x="0" y="184" width="10" height="10" rx="2"/>
     </g>
-    <!-- 右边 -->
+    <!-- right -->
     <g transform="translate(242,43)">
       <rect x="0" y="0"   width="10" height="10" rx="2"/>
       <rect x="0" y="23"  width="10" height="10" rx="2"/>
@@ -72,7 +72,7 @@
     </g>
   </g>
 
-  <!-- 内部元素 -->
+  <!-- internal elements -->
   <!-- memory grid -->
   <g transform="translate(56,56)" fill="var(--mem)">
     <rect x="0"  y="0"  width="24" height="24" rx="4"/>
@@ -98,7 +98,7 @@
     <rect x="0" y="70" width="60" height="6" rx="3"/>
   </g>
 
-  <!-- SASS trace（避免与放大镜重叠） -->
+  <!-- SASS trace (avoid overlapping with magnifier) -->
   <polyline points="60,230 100,204 130,214 160,190 190,202 220,192"
             fill="none" stroke="var(--accent)" stroke-width="8" stroke-linecap="round" stroke-linejoin="round" class="ns"/>
   <g fill="var(--accent)">
@@ -121,7 +121,7 @@
           stroke-dasharray="20 12" stroke-linecap="round" class="ns"/>
   </g>
 
-  <!-- IPC 半环 -->
+  <!-- IPC semicircle -->
   <g transform="translate(110,130)">
     <path d="M0,0 A26,26 0 1 1 0.01,0" fill="none" stroke="rgba(118,185,0,.25)" stroke-width="7" class="ns"/>
     <path d="M0,0 A26,26 0 0 1 20,-12" fill="none" stroke="var(--accent)" stroke-width="7" stroke-linecap="round" class="ns"/>
