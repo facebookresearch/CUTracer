@@ -232,6 +232,16 @@ void dump_histograms_to_csv(CUcontext ctx, CUfunction func, uint32_t iteration,
   loprintf("Histogram data dumped to %s\n", csv_filename.c_str());
 }
 
+/**
+ * @brief Extract kernel launch ID from different message types
+ * 
+ * This helper function provides a unified interface to retrieve the kernel_launch_id
+ * field from various message structures. It's used for kernel boundary detection
+ * to determine when processing transitions from one CUDA kernel to another.
+ * 
+ * @param header Pointer to the message header containing the message type
+ * @return The kernel launch ID for the message, or 0 if the message type is unknown
+ */
 static uint64_t get_kernel_launch_id(const message_header_t* header) {
   switch (header->type) {
       case MSG_TYPE_REG_INFO:
@@ -241,7 +251,7 @@ static uint64_t get_kernel_launch_id(const message_header_t* header) {
       case MSG_TYPE_MEM_ACCESS:
           return ((const mem_access_t*)header)->kernel_launch_id;
       default:
-          return 0; // Or some other invalid value
+          return 0; // Invalid/unknown message type - no kernel ID available
   }
 }
 
