@@ -1,0 +1,129 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 280 280" role="img" aria-label="CUTracer icon — 9 centered outer pins (fixed)">
+  <style>
+    :root{
+      --ink:#0b1221;
+      --accent:#76B900;   /* NVIDIA 绿 */
+      --chip:#f7f9fb;     /* 芯片底色 */
+      --pin:#76B900;      /* 引脚绿色 */
+      --mem:#9aa3ad;      /* memory grid 灰 */
+      --reg:#9aa3ad;      /* register 灰 */
+    }
+    @media (prefers-color-scheme: dark){
+      :root{
+        --ink:#e5e7eb; --chip:#1e293b; --mem:#7a828c; --reg:#7a828c; --pin:#76B900;
+      }
+    }
+    .ns{vector-effect:non-scaling-stroke}
+  </style>
+
+  <!-- 芯片主体（内部内容限制在 40–240） -->
+  <rect x="40" y="40" width="200" height="200" rx="20"
+        fill="var(--chip)" stroke="var(--ink)" stroke-width="2" class="ns"/>
+
+  <!-- 外侧引脚：每边 9 个，10×10，间隔 13，起点 43，严格居中 -->
+  <g fill="var(--pin)">
+    <!-- 顶边 -->
+    <g transform="translate(43,28)">
+      <rect x="0"   y="0" width="10" height="10" rx="2"/>
+      <rect x="23"  y="0" width="10" height="10" rx="2"/>
+      <rect x="46"  y="0" width="10" height="10" rx="2"/>
+      <rect x="69"  y="0" width="10" height="10" rx="2"/>
+      <rect x="92"  y="0" width="10" height="10" rx="2"/>
+      <rect x="115" y="0" width="10" height="10" rx="2"/>
+      <rect x="138" y="0" width="10" height="10" rx="2"/>
+      <rect x="161" y="0" width="10" height="10" rx="2"/>
+      <rect x="184" y="0" width="10" height="10" rx="2"/>
+    </g>
+    <!-- 底边 -->
+    <g transform="translate(43,242)">
+      <rect x="0"   y="0" width="10" height="10" rx="2"/>
+      <rect x="23"  y="0" width="10" height="10" rx="2"/>
+      <rect x="46"  y="0" width="10" height="10" rx="2"/>
+      <rect x="69"  y="0" width="10" height="10" rx="2"/>
+      <rect x="92"  y="0" width="10" height="10" rx="2"/>
+      <rect x="115" y="0" width="10" height="10" rx="2"/>
+      <rect x="138" y="0" width="10" height="10" rx="2"/>
+      <rect x="161" y="0" width="10" height="10" rx="2"/>
+      <rect x="184" y="0" width="10" height="10" rx="2"/>
+    </g>
+    <!-- 左边 -->
+    <g transform="translate(28,43)">
+      <rect x="0" y="0"   width="10" height="10" rx="2"/>
+      <rect x="0" y="23"  width="10" height="10" rx="2"/>
+      <rect x="0" y="46"  width="10" height="10" rx="2"/>
+      <rect x="0" y="69"  width="10" height="10" rx="2"/>
+      <rect x="0" y="92"  width="10" height="10" rx="2"/>
+      <rect x="0" y="115" width="10" height="10" rx="2"/>
+      <rect x="0" y="138" width="10" height="10" rx="2"/>
+      <rect x="0" y="161" width="10" height="10" rx="2"/>
+      <rect x="0" y="184" width="10" height="10" rx="2"/>
+    </g>
+    <!-- 右边 -->
+    <g transform="translate(242,43)">
+      <rect x="0" y="0"   width="10" height="10" rx="2"/>
+      <rect x="0" y="23"  width="10" height="10" rx="2"/>
+      <rect x="0" y="46"  width="10" height="10" rx="2"/>
+      <rect x="0" y="69"  width="10" height="10" rx="2"/>
+      <rect x="0" y="92"  width="10" height="10" rx="2"/>
+      <rect x="0" y="115" width="10" height="10" rx="2"/>
+      <rect x="0" y="138" width="10" height="10" rx="2"/>
+      <rect x="0" y="161" width="10" height="10" rx="2"/>
+      <rect x="0" y="184" width="10" height="10" rx="2"/>
+    </g>
+  </g>
+
+  <!-- 内部元素 -->
+  <!-- memory grid -->
+  <g transform="translate(56,56)" fill="var(--mem)">
+    <rect x="0"  y="0"  width="24" height="24" rx="4"/>
+    <rect x="30" y="0"  width="24" height="24" rx="4"/>
+    <rect x="60" y="0"  width="24" height="24" rx="4"/>
+    <rect x="0"  y="30" width="24" height="24" rx="4"/>
+    <rect x="30" y="30" width="24" height="24" rx="4"/>
+    <rect x="60" y="30" width="24" height="24" rx="4"/>
+    <rect x="0"  y="60" width="24" height="24" rx="4"/>
+    <rect x="30" y="60" width="24" height="24" rx="4"/>
+    <rect x="60" y="60" width="24" height="24" rx="4"/>
+  </g>
+
+  <!-- register lanes -->
+  <g transform="translate(164,56)" fill="var(--reg)">
+    <rect x="0" y="0"  width="60" height="6" rx="3"/>
+    <rect x="0" y="10" width="60" height="6" rx="3"/>
+    <rect x="0" y="20" width="60" height="6" rx="3"/>
+    <rect x="0" y="30" width="60" height="6" rx="3"/>
+    <rect x="0" y="40" width="60" height="6" rx="3"/>
+    <rect x="0" y="50" width="60" height="6" rx="3"/>
+    <rect x="0" y="60" width="60" height="6" rx="3"/>
+    <rect x="0" y="70" width="60" height="6" rx="3"/>
+  </g>
+
+  <!-- SASS trace（避免与放大镜重叠） -->
+  <polyline points="60,230 100,204 130,214 160,190 190,202 220,192"
+            fill="none" stroke="var(--accent)" stroke-width="8" stroke-linecap="round" stroke-linejoin="round" class="ns"/>
+  <g fill="var(--accent)">
+    <circle cx="60" cy="230" r="6"/>
+    <circle cx="130" cy="214" r="6"/>
+    <circle cx="160" cy="190" r="6"/>
+    <circle cx="220" cy="192" r="6"/>
+  </g>
+
+  <!-- magnifier -->
+  <g transform="translate(180,140)">
+    <circle r="22" fill="none" stroke="var(--accent)" stroke-width="4" class="ns"/>
+    <line x1="14" y1="14" x2="30" y2="30" stroke="var(--accent)" stroke-width="6" stroke-linecap="round" class="ns"/>
+    <circle cx="8" cy="4" r="5" fill="var(--accent)"/>
+  </g>
+
+  <!-- deadlock cue -->
+  <g transform="translate(220,120)">
+    <path d="M0,-12 A12,12 0 1 1 -0.01,-12" fill="none" stroke="var(--accent)" stroke-width="3.5"
+          stroke-dasharray="20 12" stroke-linecap="round" class="ns"/>
+  </g>
+
+  <!-- IPC 半环 -->
+  <g transform="translate(110,130)">
+    <path d="M0,0 A26,26 0 1 1 0.01,0" fill="none" stroke="rgba(118,185,0,.25)" stroke-width="7" class="ns"/>
+    <path d="M0,0 A26,26 0 0 1 20,-12" fill="none" stroke="var(--accent)" stroke-width="7" stroke-linecap="round" class="ns"/>
+  </g>
+</svg>
