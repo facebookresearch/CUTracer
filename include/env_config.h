@@ -31,6 +31,11 @@ enum class AnalysisType {
    * `OPCODE_ONLY` instrumentation.
    */
   PROTON_INSTR_HISTOGRAM = 1,
+
+  /**
+   * @brief Enables deadlock detection analysis.
+   */
+  DEADLOCK_DETECTION = 2,
 };
 
 // Configuration variables

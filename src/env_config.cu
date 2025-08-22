@@ -150,6 +150,16 @@ void init_analysis(const std::string &analysis_str) {
           "instrumentation.\n");
     }
   }
+
+  // deadlock_detection: enable analysis type and ensure REG_TRACE is on
+  if (analysis_str.find("deadlock_detection") != std::string::npos) {
+    enabled_analysis_types.insert(AnalysisType::DEADLOCK_DETECTION);
+    loprintf("  - Enabled: deadlock_detection\n");
+    if (!is_instrument_type_enabled(InstrumentType::REG_TRACE)) {
+      enabled_instrument_types.insert(InstrumentType::REG_TRACE);
+      loprintf("  - deadlock_detection: forcing reg_trace instrumentation\n");
+    }
+  }
 }
 
 /**
