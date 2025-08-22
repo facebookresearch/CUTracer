@@ -234,24 +234,24 @@ void dump_histograms_to_csv(CUcontext ctx, CUfunction func, uint32_t iteration,
 
 /**
  * @brief Extract kernel launch ID from different message types
- * 
+ *
  * This helper function provides a unified interface to retrieve the kernel_launch_id
  * field from various message structures. It's used for kernel boundary detection
  * to determine when processing transitions from one CUDA kernel to another.
- * 
+ *
  * @param header Pointer to the message header containing the message type
  * @return The kernel launch ID for the message, or 0 if the message type is unknown
  */
-static uint64_t get_kernel_launch_id(const message_header_t* header) {
+static uint64_t get_kernel_launch_id(const message_header_t *header) {
   switch (header->type) {
-      case MSG_TYPE_REG_INFO:
-          return ((const reg_info_t*)header)->kernel_launch_id;
-      case MSG_TYPE_OPCODE_ONLY:
-          return ((const opcode_only_t*)header)->kernel_launch_id;
-      case MSG_TYPE_MEM_ACCESS:
-          return ((const mem_access_t*)header)->kernel_launch_id;
-      default:
-          return 0; // Invalid/unknown message type - no kernel ID available
+    case MSG_TYPE_REG_INFO:
+      return ((const reg_info_t *)header)->kernel_launch_id;
+    case MSG_TYPE_OPCODE_ONLY:
+      return ((const opcode_only_t *)header)->kernel_launch_id;
+    case MSG_TYPE_MEM_ACCESS:
+      return ((const mem_access_t *)header)->kernel_launch_id;
+    default:
+      return 0;  // Invalid/unknown message type - no kernel ID available
   }
 }
 
@@ -314,28 +314,26 @@ void *recv_thread_fun(void *args) {
         message_header_t *header = (message_header_t *)&recv_buffer[num_processed_bytes];
         const char *sass_str = "N/A";
 
-        
         uint64_t current_launch_id = get_kernel_launch_id(header);
         bool is_new_kernel = false;
 
         if (current_launch_id != 0 && current_launch_id != last_seen_kernel_launch_id) {
-            is_new_kernel = true;
-            if (last_seen_kernel_launch_id != UINT64_MAX) {
-                // Cleanup for the previous kernel
-                if (is_analysis_type_enabled(AnalysisType::PROTON_INSTR_HISTOGRAM)) {
-                    // Dump any remaining histograms for warps that were collecting
-                    for (auto &pair : warp_states) {
-                      if (pair.second.is_collecting && !pair.second.histogram.empty()) {
-                        local_completed_histograms.push_back(
-                            {pair.first, pair.second.region_counter, pair.second.histogram});
-                      }
-                    }
-                    dump_previous_kernel_data(last_seen_kernel_launch_id, local_completed_histograms);
-                    local_completed_histograms.clear();
-                    warp_states.clear();
+          is_new_kernel = true;
+          if (last_seen_kernel_launch_id != UINT64_MAX) {
+            // Cleanup for the previous kernel
+            if (is_analysis_type_enabled(AnalysisType::PROTON_INSTR_HISTOGRAM)) {
+              // Dump any remaining histograms for warps that were collecting
+              for (auto &pair : warp_states) {
+                if (pair.second.is_collecting && !pair.second.histogram.empty()) {
+                  local_completed_histograms.push_back({pair.first, pair.second.region_counter, pair.second.histogram});
                 }
+              }
+              dump_previous_kernel_data(last_seen_kernel_launch_id, local_completed_histograms);
+              local_completed_histograms.clear();
+              warp_states.clear();
             }
-            last_seen_kernel_launch_id = current_launch_id;
+          }
+          last_seen_kernel_launch_id = current_launch_id;
         }
 
         if (header->type == MSG_TYPE_REG_INFO) {
