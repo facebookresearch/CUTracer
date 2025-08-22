@@ -8,17 +8,17 @@
 #ifndef ANALYSIS_H
 #define ANALYSIS_H
 
+#include <ctime>
+#include <deque>
 #include <map>
+#include <set>
 #include <string>
 #include <unordered_map>
 #include <unordered_set>
 #include <vector>
-#include <ctime>
-#include <set>
-#include <deque>
 
 #include "common.h"
-#include "nvbit.h" 
+#include "nvbit.h"
 /* for channel */
 #include "utils/channel.hpp"
 
@@ -31,7 +31,6 @@ enum class RecvThreadState {
   STOP,
   FINISHED,
 };
-
 
 /* ===== Data Structures ===== */
 
@@ -65,7 +64,6 @@ struct WarpKey {
   }
 };
 
-
 // Merged trace record containing mandatory reg trace and optional mem trace
 struct TraceRecordMerged {
   reg_info_t reg;
@@ -87,13 +85,15 @@ struct WarpLoopState {
 
   // Structure to hold complete loop information
   struct LoopInfo {
-    std::vector<TraceRecordMerged> instructions; // Copy of one canonical period
+    std::vector<TraceRecordMerged> instructions;  // Copy of one canonical period
     uint8_t period;
   };
+
   LoopInfo current_loop;
 
   WarpLoopState()
-      : head(0), filled(0), last_sig(0), last_period(0), repeat_cnt(0), loop_flag(false), first_loop_time(0) {}
+      : head(0), filled(0), last_sig(0), last_period(0), repeat_cnt(0), loop_flag(false), first_loop_time(0) {
+  }
 };
 
 /**

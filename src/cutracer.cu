@@ -206,7 +206,7 @@ bool instrument_function_if_needed(CUcontext ctx, CUfunction func) {
     if (should_instrument) {
       for (std::map<int, std::string>::const_iterator it_sass = ctx_state->id_to_sass_map[f].begin();
            it_sass != ctx_state->id_to_sass_map[f].end(); ++it_sass) {
-        const char* sass_cstr = it_sass->second.c_str();
+        const char *sass_cstr = it_sass->second.c_str();
         if (strstr(sass_cstr, "CS2R") && strstr(sass_cstr, "SR_CLOCKLO")) {
           ctx_state->clock_opcode_ids[f].insert(it_sass->first);
         }

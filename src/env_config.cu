@@ -198,7 +198,8 @@ void init_config_from_env() {
   std::string kernel_filters_env;
   get_var_str(kernel_filters_env, "KERNEL_FILTERS", "", "Kernel name filters");
   std::string analysis_str;
-  get_var_str(analysis_str, "CUTRACER_ANALYSIS", "", "Analysis types to enable (proton_instr_histogram,deadlock_detection)");
+  get_var_str(analysis_str, "CUTRACER_ANALYSIS", "",
+              "Analysis types to enable (proton_instr_histogram,deadlock_detection)");
 
   //===== Initializations ==========
   // Get kernel name filters

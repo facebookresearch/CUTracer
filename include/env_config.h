@@ -31,7 +31,7 @@ enum class AnalysisType {
    * `OPCODE_ONLY` instrumentation.
    */
   PROTON_INSTR_HISTOGRAM = 1,
-  
+
   DEADLOCK_DETECTION = 2,
 };
 

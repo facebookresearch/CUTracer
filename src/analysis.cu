@@ -11,9 +11,9 @@
 
 #include <assert.h>
 #include <pthread.h>
+#include <signal.h>
 #include <stdio.h>
 #include <stdlib.h>
-#include <signal.h>
 #include <unistd.h>
 
 #include <map>
@@ -244,219 +244,224 @@ void dump_histograms_to_csv(CUcontext ctx, CUfunction func, uint32_t iteration,
 // Deadlock / Kernel Hang Detection Logic
 // =================================================================================
 
-static uint64_t get_kernel_launch_id(const message_header_t* header) {
-    switch (header->type) {
-        case MSG_TYPE_REG_INFO:
-            return ((const reg_info_t*)header)->kernel_launch_id;
-        case MSG_TYPE_OPCODE_ONLY:
-            return ((const opcode_only_t*)header)->kernel_launch_id;
-        case MSG_TYPE_MEM_ACCESS:
-            return ((const mem_access_t*)header)->kernel_launch_id;
-        default:
-            return 0; // Or some other invalid value
-    }
+static uint64_t get_kernel_launch_id(const message_header_t *header) {
+  switch (header->type) {
+    case MSG_TYPE_REG_INFO:
+      return ((const reg_info_t *)header)->kernel_launch_id;
+    case MSG_TYPE_OPCODE_ONLY:
+      return ((const opcode_only_t *)header)->kernel_launch_id;
+    case MSG_TYPE_MEM_ACCESS:
+      return ((const mem_access_t *)header)->kernel_launch_id;
+    default:
+      return 0;  // Or some other invalid value
+  }
 }
 
 // Compute canonical signature of a loop from a ring buffer of merged records.
 // Returns 0 if no period is detected. Sets out_period to detected period when >0.
-static uint64_t compute_canonical_signature(const std::vector<TraceRecordMerged>& history,
-                                            int ring_size,
-                                            uint8_t head,
-                                            uint8_t& out_period) {
-    // Reconstruct linear PC sequence in chronological order (oldest -> newest).
-    uint64_t pcs[PC_HISTORY_LEN];
-    for (int i = 0; i < ring_size; ++i) {
-        int idx = (head + i) % ring_size; // head points to oldest element position
-        pcs[i] = history[idx].reg.pc;
-    }
+static uint64_t compute_canonical_signature(const std::vector<TraceRecordMerged> &history, int ring_size, uint8_t head,
+                                            uint8_t &out_period) {
+  // Reconstruct linear PC sequence in chronological order (oldest -> newest).
+  uint64_t pcs[PC_HISTORY_LEN];
+  for (int i = 0; i < ring_size; ++i) {
+    int idx = (head + i) % ring_size;  // head points to oldest element position
+    pcs[i] = history[idx].reg.pc;
+  }
 
-    // Detect the shortest repeating period p (1..N-1) such that pcs[i] == pcs[i-p]
-    uint8_t period = 0;
-    for (uint8_t p = 1; p < ring_size; ++p) {
-        bool match = true;
-        for (uint8_t i = p; i < ring_size; ++i) {
-            if (pcs[i] != pcs[i - p]) { match = false; break; }
-        }
-        if (match) { period = p; break; }
+  // Detect the shortest repeating period p (1..N-1) such that pcs[i] == pcs[i-p]
+  uint8_t period = 0;
+  for (uint8_t p = 1; p < ring_size; ++p) {
+    bool match = true;
+    for (uint8_t i = p; i < ring_size; ++i) {
+      if (pcs[i] != pcs[i - p]) {
+        match = false;
+        break;
+      }
     }
-    if (period == 0) { out_period = 0; return 0; }
-
-    // Find minimal rotation of the period segment to get canonical representation
-    // Build candidate of length period from the first period entries
-    uint64_t seg[PC_HISTORY_LEN];
-    for (uint8_t i = 0; i < period; ++i) seg[i] = pcs[i];
-    uint8_t min_rot = 0;
-    for (uint8_t r = 1; r < period; ++r) {
-        // Compare rotation r with current min_rot lexicographically
-        bool smaller = false;
-        for (uint8_t i = 0; i < period; ++i) {
-            uint64_t a = seg[(i + r) % period];
-            uint64_t b = seg[(i + min_rot) % period];
-            if (a == b) continue;
-            if (a < b) smaller = true;
-            break;
-        }
-        if (smaller) min_rot = r;
+    if (match) {
+      period = p;
+      break;
     }
+  }
+  if (period == 0) {
+    out_period = 0;
+    return 0;
+  }
 
-    // FNV-1a style hash seeded by period for better distribution
-    const uint64_t FNV_OFFSET = 14695981039346656037ULL;
-    const uint64_t FNV_PRIME  = 1099511628211ULL;
-    uint64_t h = FNV_OFFSET ^ period;
+  // Find minimal rotation of the period segment to get canonical representation
+  // Build candidate of length period from the first period entries
+  uint64_t seg[PC_HISTORY_LEN];
+  for (uint8_t i = 0; i < period; ++i) seg[i] = pcs[i];
+  uint8_t min_rot = 0;
+  for (uint8_t r = 1; r < period; ++r) {
+    // Compare rotation r with current min_rot lexicographically
+    bool smaller = false;
     for (uint8_t i = 0; i < period; ++i) {
-        uint64_t pcv = seg[(i + min_rot) % period];
-        h = (h ^ pcv) * FNV_PRIME;
+      uint64_t a = seg[(i + r) % period];
+      uint64_t b = seg[(i + min_rot) % period];
+      if (a == b) continue;
+      if (a < b) smaller = true;
+      break;
     }
-    out_period = period;
-    return h;
+    if (smaller) min_rot = r;
+  }
+
+  // FNV-1a style hash seeded by period for better distribution
+  const uint64_t FNV_OFFSET = 14695981039346656037ULL;
+  const uint64_t FNV_PRIME = 1099511628211ULL;
+  uint64_t h = FNV_OFFSET ^ period;
+  for (uint8_t i = 0; i < period; ++i) {
+    uint64_t pcv = seg[(i + min_rot) % period];
+    h = (h ^ pcv) * FNV_PRIME;
+  }
+  out_period = period;
+  return h;
 }
 
-static void update_loop_state(CTXstate* ctx_state, const WarpKey& key, const reg_info_t* ri) {
-    WarpLoopState& state = ctx_state->loop_states[key];
-    // One-time buffer allocation per warp
-    if (state.history.size() != PC_HISTORY_LEN) {
-        state.history.assign(PC_HISTORY_LEN, TraceRecordMerged());
-        state.head = 0;
-        state.filled = 0;
+static void update_loop_state(CTXstate *ctx_state, const WarpKey &key, const reg_info_t *ri) {
+  WarpLoopState &state = ctx_state->loop_states[key];
+  // One-time buffer allocation per warp
+  if (state.history.size() != PC_HISTORY_LEN) {
+    state.history.assign(PC_HISTORY_LEN, TraceRecordMerged());
+    state.head = 0;
+    state.filled = 0;
+  }
+
+  // Write the incoming reg record into ring buffer
+  TraceRecordMerged &slot = state.history[state.head];
+  slot.reg = *ri;
+  slot.has_mem = false;  // will be flipped if we find a matching pending mem
+  memset(slot.mem_addrs, 0, sizeof(slot.mem_addrs));
+
+  // Try to match any pending mem for this warp (mem may arrive before reg)
+  auto &pending = ctx_state->pending_mem_by_warp[key];
+  if (!pending.empty()) {
+    // Find first matching mem by pc/opcode
+    for (auto it = pending.begin(); it != pending.end(); ++it) {
+      if (it->pc == ri->pc && it->opcode_id == ri->opcode_id) {
+        slot.has_mem = true;
+        memcpy(slot.mem_addrs, it->addrs, sizeof(slot.mem_addrs));
+        pending.erase(it);
+        break;
+      }
     }
+  }
 
-    // Write the incoming reg record into ring buffer
-    TraceRecordMerged& slot = state.history[state.head];
-    slot.reg = *ri;
-    slot.has_mem = false; // will be flipped if we find a matching pending mem
-    memset(slot.mem_addrs, 0, sizeof(slot.mem_addrs));
+  // Advance ring pointers
+  state.head = (uint8_t)((state.head + 1) % PC_HISTORY_LEN);
+  if (state.filled < PC_HISTORY_LEN) state.filled++;
 
-    // Try to match any pending mem for this warp (mem may arrive before reg)
-    auto& pending = ctx_state->pending_mem_by_warp[key];
-    if (!pending.empty()) {
-        // Find first matching mem by pc/opcode
-        for (auto it = pending.begin(); it != pending.end(); ++it) {
-            if (it->pc == ri->pc && it->opcode_id == ri->opcode_id) {
-                slot.has_mem = true;
-                memcpy(slot.mem_addrs, it->addrs, sizeof(slot.mem_addrs));
-                pending.erase(it);
-                break;
-            }
-        }
+  // Only check for loops once the history buffer is full
+  if (state.filled < PC_HISTORY_LEN) {
+    return;
+  }
+
+  // Compute canonical signature and period from the ring buffer
+  uint8_t period = 0;
+  uint64_t current_sig = compute_canonical_signature(state.history, PC_HISTORY_LEN, state.head, period);
+
+  if (current_sig != 0 && current_sig == state.last_sig && period == state.last_period) {
+    state.repeat_cnt++;
+  } else {
+    state.repeat_cnt = 1;  // current observed once
+    state.loop_flag = false;
+  }
+
+  if (state.repeat_cnt > LOOP_REPEAT_THRESH) {
+    if (!state.loop_flag) {
+      state.loop_flag = true;
+      state.first_loop_time = time(nullptr);
+      // Capture the loop body records (one period) from the ring buffer in chronological order
+      state.current_loop.period = period;
+      state.current_loop.instructions.clear();
+      state.current_loop.instructions.reserve(period);
+      // head points to oldest, so sequence starts from head index
+      for (uint8_t i = 0; i < period; ++i) {
+        int idx = (state.head + i) % PC_HISTORY_LEN;
+        state.current_loop.instructions.push_back(state.history[idx]);
+      }
     }
-
-    // Advance ring pointers
-    state.head = (uint8_t)((state.head + 1) % PC_HISTORY_LEN);
-    if (state.filled < PC_HISTORY_LEN) state.filled++;
-
-    // Only check for loops once the history buffer is full
-    if (state.filled < PC_HISTORY_LEN) {
-        return;
-    }
-
-    // Compute canonical signature and period from the ring buffer
-    uint8_t period = 0;
-    uint64_t current_sig = compute_canonical_signature(state.history, PC_HISTORY_LEN, state.head, period);
-
-    if (current_sig != 0 && current_sig == state.last_sig && period == state.last_period) {
-        state.repeat_cnt++;
-    } else {
-        state.repeat_cnt = 1; // current observed once
-        state.loop_flag = false;
-    }
-
-    if (state.repeat_cnt > LOOP_REPEAT_THRESH) {
-        if (!state.loop_flag) {
-            state.loop_flag = true;
-            state.first_loop_time = time(nullptr);
-            // Capture the loop body records (one period) from the ring buffer in chronological order
-            state.current_loop.period = period;
-            state.current_loop.instructions.clear();
-            state.current_loop.instructions.reserve(period);
-            // head points to oldest, so sequence starts from head index
-            for (uint8_t i = 0; i < period; ++i) {
-                int idx = (state.head + i) % PC_HISTORY_LEN;
-                state.current_loop.instructions.push_back(state.history[idx]);
-            }
-        }
-    }
-    state.last_sig = current_sig;
-    state.last_period = period;
+  }
+  state.last_sig = current_sig;
+  state.last_period = period;
 }
 
-static void clear_deadlock_state(CTXstate* ctx_state) {
-    ctx_state->loop_states.clear();
-    ctx_state->active_warps.clear();
-    ctx_state->pending_mem_by_warp.clear();
-    ctx_state->last_seen_time_by_warp.clear();
-    ctx_state->exit_candidate_since_by_warp.clear();
+static void clear_deadlock_state(CTXstate *ctx_state) {
+  ctx_state->loop_states.clear();
+  ctx_state->active_warps.clear();
+  ctx_state->pending_mem_by_warp.clear();
+  ctx_state->last_seen_time_by_warp.clear();
+  ctx_state->exit_candidate_since_by_warp.clear();
 }
 
-static void check_kernel_hang(CTXstate* ctx_state, uint64_t current_kernel_launch_id) {
-    time_t now = time(nullptr);
-    if (now - ctx_state->last_hang_check_time < HANG_CHECK_THROTTLE_SECS) { // Throttle to configured interval
-        return;
-    }
-    ctx_state->last_hang_check_time = now;
+static void check_kernel_hang(CTXstate *ctx_state, uint64_t current_kernel_launch_id) {
+  time_t now = time(nullptr);
+  if (now - ctx_state->last_hang_check_time < HANG_CHECK_THROTTLE_SECS) {  // Throttle to configured interval
+    return;
+  }
+  ctx_state->last_hang_check_time = now;
 
-    if (ctx_state->active_warps.empty()) {
-        return;
-    }
+  if (ctx_state->active_warps.empty()) {
+    return;
+  }
 
-    // Cleanup exit-candidate warps before evaluating loop state
-    std::vector<WarpKey> to_remove;
-    to_remove.reserve(ctx_state->active_warps.size());
-    for (const WarpKey& key : ctx_state->active_warps) {
-        auto itExit = ctx_state->exit_candidate_since_by_warp.find(key);
-        if (itExit == ctx_state->exit_candidate_since_by_warp.end()) continue;
-        time_t exit_since = itExit->second;
-        time_t last_seen = 0;
-        auto itSeen = ctx_state->last_seen_time_by_warp.find(key);
-        if (itSeen != ctx_state->last_seen_time_by_warp.end()) last_seen = itSeen->second;
-        // Remove only if no activity since EXIT and at least one throttle interval has passed
-        if (last_seen <= exit_since && (now - exit_since) >= HANG_CHECK_THROTTLE_SECS) {
-            to_remove.push_back(key);
-        }
+  // Cleanup exit-candidate warps before evaluating loop state
+  std::vector<WarpKey> to_remove;
+  to_remove.reserve(ctx_state->active_warps.size());
+  for (const WarpKey &key : ctx_state->active_warps) {
+    auto itExit = ctx_state->exit_candidate_since_by_warp.find(key);
+    if (itExit == ctx_state->exit_candidate_since_by_warp.end()) continue;
+    time_t exit_since = itExit->second;
+    time_t last_seen = 0;
+    auto itSeen = ctx_state->last_seen_time_by_warp.find(key);
+    if (itSeen != ctx_state->last_seen_time_by_warp.end()) last_seen = itSeen->second;
+    // Remove only if no activity since EXIT and at least one throttle interval has passed
+    if (last_seen <= exit_since && (now - exit_since) >= HANG_CHECK_THROTTLE_SECS) {
+      to_remove.push_back(key);
     }
-    if (!to_remove.empty()) {
-        for (const WarpKey& key : to_remove) {
-            ctx_state->active_warps.erase(key);
-            ctx_state->loop_states.erase(key);
-            ctx_state->pending_mem_by_warp.erase(key);
-            ctx_state->last_seen_time_by_warp.erase(key);
-            ctx_state->exit_candidate_since_by_warp.erase(key);
-        }
+  }
+  if (!to_remove.empty()) {
+    for (const WarpKey &key : to_remove) {
+      ctx_state->active_warps.erase(key);
+      ctx_state->loop_states.erase(key);
+      ctx_state->pending_mem_by_warp.erase(key);
+      ctx_state->last_seen_time_by_warp.erase(key);
+      ctx_state->exit_candidate_since_by_warp.erase(key);
     }
+  }
 
-    bool all_warps_in_loop = true;
-    for (const auto& warp_key : ctx_state->active_warps) {
-        if (ctx_state->loop_states.find(warp_key) == ctx_state->loop_states.end() || !ctx_state->loop_states.at(warp_key).loop_flag) {
-            all_warps_in_loop = false;
-            break;
-        }
+  bool all_warps_in_loop = true;
+  for (const auto &warp_key : ctx_state->active_warps) {
+    if (ctx_state->loop_states.find(warp_key) == ctx_state->loop_states.end() ||
+        !ctx_state->loop_states.at(warp_key).loop_flag) {
+      all_warps_in_loop = false;
+      break;
     }
+  }
 
-    if (all_warps_in_loop) {
-        time_t hang_time = now - ctx_state->loop_states.begin()->second.first_loop_time;
-        oprintf("Possible kernel hang: launch_id=%lu — all %zu active warps have been looping for %ld seconds.\n",
-                current_kernel_launch_id, ctx_state->active_warps.size(), hang_time);
-        // Deadlock sustained handling: count consecutive hits and terminate after threshold
-        if (!ctx_state->deadlock_termination_initiated) {
-            ctx_state->deadlock_consecutive_hits++;
-            if (ctx_state->deadlock_consecutive_hits >= 3) {
-                ctx_state->deadlock_termination_initiated = true;
-                oprintf("Deadlock sustained for %d checks; sending SIGTERM.\n", ctx_state->deadlock_consecutive_hits);
-                raise(SIGTERM);
-                // Grace period; if not terminated externally, force kill
-                sleep(2);
-                oprintf("Process still alive after SIGTERM; sending SIGKILL.\n");
-                raise(SIGKILL);
-            }
-        }
-        // Optional: Add detailed printout of loop info here
+  if (all_warps_in_loop) {
+    time_t hang_time = now - ctx_state->loop_states.begin()->second.first_loop_time;
+    oprintf("Possible kernel hang: launch_id=%lu — all %zu active warps have been looping for %ld seconds.\n",
+            current_kernel_launch_id, ctx_state->active_warps.size(), hang_time);
+    // Deadlock sustained handling: count consecutive hits and terminate after threshold
+    if (!ctx_state->deadlock_termination_initiated) {
+      ctx_state->deadlock_consecutive_hits++;
+      if (ctx_state->deadlock_consecutive_hits >= 3) {
+        ctx_state->deadlock_termination_initiated = true;
+        oprintf("Deadlock sustained for %d checks; sending SIGTERM.\n", ctx_state->deadlock_consecutive_hits);
+        raise(SIGTERM);
+        // Grace period; if not terminated externally, force kill
+        sleep(2);
+        oprintf("Process still alive after SIGTERM; sending SIGKILL.\n");
+        raise(SIGKILL);
+      }
     }
-    else {
-        // Reset hit counter if condition is not sustained
-        ctx_state->deadlock_consecutive_hits = 0;
-    }
+    // Optional: Add detailed printout of loop info here
+  } else {
+    // Reset hit counter if condition is not sustained
+    ctx_state->deadlock_consecutive_hits = 0;
+  }
 }
-
-
 
 /**
  * @brief The main thread function for receiving and processing data from the
@@ -521,54 +526,53 @@ void *recv_thread_fun(void *args) {
         bool is_new_kernel = false;
 
         if (current_launch_id != 0 && current_launch_id != last_seen_kernel_launch_id) {
-            is_new_kernel = true;
-            if (last_seen_kernel_launch_id != UINT64_MAX) {
-                // Cleanup for the previous kernel
-                if (is_analysis_type_enabled(AnalysisType::PROTON_INSTR_HISTOGRAM)) {
-                    // Dump any remaining histograms for warps that were collecting
-                    for (auto &pair : warp_states) {
-                      if (pair.second.is_collecting && !pair.second.histogram.empty()) {
-                        local_completed_histograms.push_back(
-                            {pair.first, pair.second.region_counter, pair.second.histogram});
-                      }
-                    }
-                    dump_previous_kernel_data(last_seen_kernel_launch_id, local_completed_histograms);
-                    local_completed_histograms.clear();
-                    warp_states.clear();
+          is_new_kernel = true;
+          if (last_seen_kernel_launch_id != UINT64_MAX) {
+            // Cleanup for the previous kernel
+            if (is_analysis_type_enabled(AnalysisType::PROTON_INSTR_HISTOGRAM)) {
+              // Dump any remaining histograms for warps that were collecting
+              for (auto &pair : warp_states) {
+                if (pair.second.is_collecting && !pair.second.histogram.empty()) {
+                  local_completed_histograms.push_back({pair.first, pair.second.region_counter, pair.second.histogram});
                 }
-                if (is_analysis_type_enabled(AnalysisType::DEADLOCK_DETECTION)) {
-                    clear_deadlock_state(ctx_state);
-                }
+              }
+              dump_previous_kernel_data(last_seen_kernel_launch_id, local_completed_histograms);
+              local_completed_histograms.clear();
+              warp_states.clear();
             }
-            last_seen_kernel_launch_id = current_launch_id;
+            if (is_analysis_type_enabled(AnalysisType::DEADLOCK_DETECTION)) {
+              clear_deadlock_state(ctx_state);
+            }
+          }
+          last_seen_kernel_launch_id = current_launch_id;
         }
-
 
         if (header->type == MSG_TYPE_REG_INFO) {
           reg_info_t *ri = (reg_info_t *)&recv_buffer[num_processed_bytes];
 
           if (is_analysis_type_enabled(AnalysisType::DEADLOCK_DETECTION)) {
-              WarpKey key = {ri->cta_id_x, ri->cta_id_y, ri->cta_id_z, ri->warp_id};
-              if (is_new_kernel) {
-                  ctx_state->last_hang_check_time = time(nullptr);
-              }
-              ctx_state->active_warps.insert(key);
-              // Update last seen time for this warp
-              ctx_state->last_seen_time_by_warp[key] = time(nullptr);
-              update_loop_state(ctx_state, key, ri);
+            WarpKey key = {ri->cta_id_x, ri->cta_id_y, ri->cta_id_z, ri->warp_id};
+            if (is_new_kernel) {
+              ctx_state->last_hang_check_time = time(nullptr);
+            }
+            ctx_state->active_warps.insert(key);
+            // Update last seen time for this warp
+            ctx_state->last_seen_time_by_warp[key] = time(nullptr);
+            update_loop_state(ctx_state, key, ri);
 
-              // Mark EXIT candidate if this opcode_id is an EXIT for the current function
-              auto func_iter2 = kernel_launch_to_func_map.find(ri->kernel_launch_id);
-              if (func_iter2 != kernel_launch_to_func_map.end()) {
-                CUfunction f_func2 = func_iter2->second.second;
-                if (ctx_state->exit_opcode_ids.count(f_func2) && ctx_state->exit_opcode_ids[f_func2].count(ri->opcode_id)) {
-                  if (!ctx_state->exit_candidate_since_by_warp.count(key)) {
-                    ctx_state->exit_candidate_since_by_warp[key] = time(nullptr);
-                  }
+            // Mark EXIT candidate if this opcode_id is an EXIT for the current function
+            auto func_iter2 = kernel_launch_to_func_map.find(ri->kernel_launch_id);
+            if (func_iter2 != kernel_launch_to_func_map.end()) {
+              CUfunction f_func2 = func_iter2->second.second;
+              if (ctx_state->exit_opcode_ids.count(f_func2) &&
+                  ctx_state->exit_opcode_ids[f_func2].count(ri->opcode_id)) {
+                if (!ctx_state->exit_candidate_since_by_warp.count(key)) {
+                  ctx_state->exit_candidate_since_by_warp[key] = time(nullptr);
                 }
               }
+            }
           }
-          
+
           // Get SASS string for trace output
           auto func_iter = kernel_launch_to_func_map.find(ri->kernel_launch_id);
           if (func_iter != kernel_launch_to_func_map.end()) {
@@ -631,7 +635,8 @@ void *recv_thread_fun(void *args) {
             auto func_iter3 = kernel_launch_to_func_map.find(oi->kernel_launch_id);
             if (func_iter3 != kernel_launch_to_func_map.end()) {
               CUfunction f_func3 = func_iter3->second.second;
-              if (ctx_state->exit_opcode_ids.count(f_func3) && ctx_state->exit_opcode_ids[f_func3].count(oi->opcode_id)) {
+              if (ctx_state->exit_opcode_ids.count(f_func3) &&
+                  ctx_state->exit_opcode_ids[f_func3].count(oi->opcode_id)) {
                 if (!ctx_state->exit_candidate_since_by_warp.count(key)) {
                   ctx_state->exit_candidate_since_by_warp[key] = time(nullptr);
                 }
@@ -676,7 +681,7 @@ void *recv_thread_fun(void *args) {
             WarpKey key = {mem->cta_id_x, mem->cta_id_y, mem->cta_id_z, mem->warp_id};
             // Update last seen time for this warp
             ctx_state->last_seen_time_by_warp[key] = time(nullptr);
-            WarpLoopState& state = ctx_state->loop_states[key];
+            WarpLoopState &state = ctx_state->loop_states[key];
             if (state.history.size() == PC_HISTORY_LEN && state.filled > 0) {
               // Search backwards from most recent written position
               bool attached = false;
@@ -684,7 +689,7 @@ void *recv_thread_fun(void *args) {
               for (int i = 0; i < max_scan && i < PC_HISTORY_LEN; ++i) {
                 int idx = (int)state.head - 1 - i;
                 if (idx < 0) idx += PC_HISTORY_LEN;
-                TraceRecordMerged& rec = state.history[(uint8_t)idx];
+                TraceRecordMerged &rec = state.history[(uint8_t)idx];
                 if (!rec.has_mem && rec.reg.pc == mem->pc && rec.reg.opcode_id == mem->opcode_id) {
                   rec.has_mem = true;
                   memcpy(rec.mem_addrs, mem->addrs, sizeof(rec.mem_addrs));
@@ -694,7 +699,7 @@ void *recv_thread_fun(void *args) {
               }
               if (!attached) {
                 // Store for later matching when corresponding reg arrives
-                auto& dq = ctx_state->pending_mem_by_warp[key];
+                auto &dq = ctx_state->pending_mem_by_warp[key];
                 dq.push_back(*mem);
                 // Cap the queue to avoid unbounded growth
                 const size_t MAX_PENDING = 2 * PC_HISTORY_LEN;
@@ -702,7 +707,7 @@ void *recv_thread_fun(void *args) {
               }
             } else {
               // No history yet for this warp, queue it
-              auto& dq = ctx_state->pending_mem_by_warp[key];
+              auto &dq = ctx_state->pending_mem_by_warp[key];
               dq.push_back(*mem);
               const size_t MAX_PENDING = 2 * PC_HISTORY_LEN;
               if (dq.size() > MAX_PENDING) dq.pop_front();
@@ -722,7 +727,7 @@ void *recv_thread_fun(void *args) {
     }
 
     if (is_analysis_type_enabled(AnalysisType::DEADLOCK_DETECTION) && last_seen_kernel_launch_id != UINT64_MAX) {
-        check_kernel_hang(ctx_state, last_seen_kernel_launch_id);
+      check_kernel_hang(ctx_state, last_seen_kernel_launch_id);
     }
   }
 
