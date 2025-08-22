@@ -200,14 +200,19 @@ bool instrument_function_if_needed(CUcontext ctx, CUfunction func) {
       }
     }
 
-    // Statically identify all "clock" instructions (CS2R SR_CLOCKLO) for this
-    // function. Their opcode IDs will be used at runtime to detect region
-    // boundaries.
+    // Statically identify special instructions for this function:
+    // - "clock" (CS2R SR_CLOCKLO) used for histogram region boundaries
+    // - "EXIT" used as a candidate signal for warp completion on host side
     if (should_instrument) {
       for (std::map<int, std::string>::const_iterator it_sass = ctx_state->id_to_sass_map[f].begin();
            it_sass != ctx_state->id_to_sass_map[f].end(); ++it_sass) {
-        if (strstr(it_sass->second.c_str(), "CS2R") && strstr(it_sass->second.c_str(), "SR_CLOCKLO")) {
+        const char *sass_cstr = it_sass->second.c_str();
+        if (strstr(sass_cstr, "CS2R") && strstr(sass_cstr, "SR_CLOCKLO")) {
           ctx_state->clock_opcode_ids[f].insert(it_sass->first);
+        }
+        // Simple substring detection for EXIT mnemonic (predication handled by extract on host side)
+        if (strstr(sass_cstr, "EXIT")) {
+          ctx_state->exit_opcode_ids[f].insert(it_sass->first);
         }
       }
     }
