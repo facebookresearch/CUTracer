@@ -48,6 +48,7 @@
     cudaError_t err = cudaGetLastError();                                                             \
     if (err != cudaSuccess) {                                                                         \
       loprintf("FATAL: CUDA Last Error: %s at %s:%d\n", cudaGetErrorString(err), __FILE__, __LINE__); \
+      fflush(stderr);                                                                                 \
       assert(err == cudaSuccess);                                                                     \
     }                                                                                                 \
   } while (0)
