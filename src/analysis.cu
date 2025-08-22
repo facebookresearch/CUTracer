@@ -315,10 +315,8 @@ void *recv_thread_fun(void *args) {
         const char *sass_str = "N/A";
 
         uint64_t current_launch_id = get_kernel_launch_id(header);
-        bool is_new_kernel = false;
 
         if (current_launch_id != 0 && current_launch_id != last_seen_kernel_launch_id) {
-          is_new_kernel = true;
           if (last_seen_kernel_launch_id != UINT64_MAX) {
             // Cleanup for the previous kernel
             if (is_analysis_type_enabled(AnalysisType::PROTON_INSTR_HISTOGRAM)) {
