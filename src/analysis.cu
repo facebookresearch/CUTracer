@@ -257,6 +257,31 @@ static uint64_t get_kernel_launch_id(const message_header_t *header) {
   }
 }
 
+/**
+ * @brief Updates the loop detection state for a given warp.
+ *
+ * This function is the core of the host-side loop detection logic. It maintains
+ * a history of instructions for each warp and uses it to detect when a warp
+ * enters a stable loop.
+ *
+ * The process for each new instruction is as follows:
+ * 1.  **History Update**: The new instruction record (`reg_info_t`) is added to
+ *     the warp's ring buffer. The function also tries to match it with any
+ *     pending memory access records for the same instruction.
+ * 2.  **Signature Calculation**: Once the history buffer is full, it calls
+ *     `compute_canonical_signature` to get a signature of the current PC sequence.
+ * 3.  **Loop State Tracking**:
+ *     - If the new signature and period match the previous one, a `repeat_cnt`
+ *       is incremented.
+ *     - If they don't match, the counter is reset.
+ *     - When `repeat_cnt` exceeds `LOOP_REPEAT_THRESH`, the warp is officially
+ *       considered to be in a loop (`loop_flag` is set to true), and the loop
+ *       body (one full period) is captured and stored.
+ *
+ * @param ctx_state Pointer to the state for the current CUDA context.
+ * @param key The `WarpKey` identifying the warp to be updated.
+ * @param ri Pointer to the `reg_info_t` packet for the current instruction.
+ */
 static void update_loop_state(CTXstate *ctx_state, const WarpKey &key, const reg_info_t *ri) {
   WarpLoopState &state = ctx_state->loop_states[key];
   // One-time buffer allocation per warp
@@ -284,6 +309,15 @@ static void update_loop_state(CTXstate *ctx_state, const WarpKey &key, const reg
         break;
       }
     }
+  }
+
+  // Advance ring pointers
+  state.head = (uint8_t)((state.head + 1) % PC_HISTORY_LEN);
+  if (state.filled < PC_HISTORY_LEN) state.filled++;
+
+  // Only check for loops once the history buffer is full
+  if (state.filled < PC_HISTORY_LEN) {
+    return;
   }
 }
 
