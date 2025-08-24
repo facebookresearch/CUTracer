@@ -26,6 +26,8 @@
 #include "log.h"
 #include "utils/channel.hpp"
 
+#define PC_HISTORY_LEN 32
+
 extern pthread_mutex_t mutex;
 extern std::unordered_map<CUcontext, CTXstate *> ctx_state_map;
 extern std::map<uint64_t, std::pair<CUcontext, CUfunction>> kernel_launch_to_func_map;
@@ -255,6 +257,36 @@ static uint64_t get_kernel_launch_id(const message_header_t *header) {
   }
 }
 
+static void update_loop_state(CTXstate *ctx_state, const WarpKey &key, const reg_info_t *ri) {
+  WarpLoopState &state = ctx_state->loop_states[key];
+  // One-time buffer allocation per warp
+  if (state.history.size() != PC_HISTORY_LEN) {
+    state.history.assign(PC_HISTORY_LEN, TraceRecordMerged());
+    state.head = 0;
+    state.filled = 0;
+  }
+
+  // Write the incoming reg record into ring buffer
+  TraceRecordMerged &slot = state.history[state.head];
+  slot.reg = *ri;
+  slot.has_mem = false;  // will be flipped if we find a matching pending mem
+  memset(slot.mem_addrs, 0, sizeof(slot.mem_addrs));
+
+  // Try to match any pending mem for this warp (mem may arrive before reg)
+  auto &pending = ctx_state->pending_mem_by_warp[key];
+  if (!pending.empty()) {
+    // Find first matching mem by pc/opcode
+    for (auto it = pending.begin(); it != pending.end(); ++it) {
+      if (it->pc == ri->pc && it->opcode_id == ri->opcode_id) {
+        slot.has_mem = true;
+        memcpy(slot.mem_addrs, it->addrs, sizeof(slot.mem_addrs));
+        pending.erase(it);
+        break;
+      }
+    }
+  }
+}
+
 /**
  * @brief The main thread function for receiving and processing data from the
  * GPU.
@@ -346,8 +378,7 @@ void *recv_thread_fun(void *args) {
             ctx_state->active_warps.insert(key);
             // Update last seen time for this warp
             ctx_state->last_seen_time_by_warp[key] = time(nullptr);
-            // TODO: add impmenetation in next PR
-            //  update_loop_state(ctx_state, key, ri);
+            update_loop_state(ctx_state, key, ri);
 
             // Mark EXIT candidate if this opcode_id is an EXIT for the current function
             auto func_iter2 = kernel_launch_to_func_map.find(ri->kernel_launch_id);
