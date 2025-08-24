@@ -244,6 +244,16 @@ void dump_histograms_to_csv(CUcontext ctx, CUfunction func, uint32_t iteration,
 // Deadlock / Kernel Hang Detection Logic
 // =================================================================================
 
+/**
+ * @brief Extracts the kernel launch ID from a generic message header.
+ *
+ * This function safely casts the message header to the appropriate message type
+ * and retrieves the `kernel_launch_id`. It supports `reg_info_t`,
+ * `opcode_only_t`, and `mem_access_t` message types.
+ *
+ * @param header A pointer to the `message_header_t` of the received packet.
+ * @return The kernel launch ID, or 0 if the message type is unknown.
+ */
 static uint64_t get_kernel_launch_id(const message_header_t *header) {
   switch (header->type) {
     case MSG_TYPE_REG_INFO:
@@ -257,8 +267,27 @@ static uint64_t get_kernel_launch_id(const message_header_t *header) {
   }
 }
 
-// Compute canonical signature of a loop from a ring buffer of merged records.
-// Returns 0 if no period is detected. Sets out_period to detected period when >0.
+/**
+ * @brief Computes a canonical signature for a sequence of PCs to detect loops.
+ *
+ * This function analyzes the recent history of Program Counters (PCs) for a warp
+ * to identify repeating patterns, which indicate a loop. The process involves:
+ * 1.  **Period Detection**: It finds the shortest repeating sequence of PCs in
+ *     the history buffer. If no repeating pattern is found, it returns 0.
+ * 2.  **Canonicalization**: To ensure that the same loop produces the same
+ *     signature regardless of the entry point, it finds the lexicographically
+ *     smallest rotation of the detected period. For example, `[3,1,2]` becomes
+ *     `[1,2,3]`.
+ * 3.  **Hashing**: It computes an FNV-1a hash of the canonical sequence, seeded
+ *     with the period length, to produce the final signature.
+ *
+ * @param history A constant reference to the ring buffer of merged trace records.
+ * @param ring_size The total size of the ring buffer (must be `PC_HISTORY_LEN`).
+ * @param head The index of the oldest element in the ring buffer.
+ * @param out_period A reference to a `uint8_t` that will be set to the detected
+ *                   period length. If no period is found, it's set to 0.
+ * @return A 64-bit canonical signature of the loop, or 0 if no loop is detected.
+ */
 static uint64_t compute_canonical_signature(const std::vector<TraceRecordMerged> &history, int ring_size, uint8_t head,
                                             uint8_t &out_period) {
   // Reconstruct linear PC sequence in chronological order (oldest -> newest).
@@ -318,6 +347,31 @@ static uint64_t compute_canonical_signature(const std::vector<TraceRecordMerged>
   return h;
 }
 
+/**
+ * @brief Updates the loop detection state for a given warp.
+ *
+ * This function is the core of the host-side loop detection logic. It maintains
+ * a history of instructions for each warp and uses it to detect when a warp
+ * enters a stable loop.
+ *
+ * The process for each new instruction is as follows:
+ * 1.  **History Update**: The new instruction record (`reg_info_t`) is added to
+ *     the warp's ring buffer. The function also tries to match it with any
+ *     pending memory access records for the same instruction.
+ * 2.  **Signature Calculation**: Once the history buffer is full, it calls
+ *     `compute_canonical_signature` to get a signature of the current PC sequence.
+ * 3.  **Loop State Tracking**:
+ *     - If the new signature and period match the previous one, a `repeat_cnt`
+ *       is incremented.
+ *     - If they don't match, the counter is reset.
+ *     - When `repeat_cnt` exceeds `LOOP_REPEAT_THRESH`, the warp is officially
+ *       considered to be in a loop (`loop_flag` is set to true), and the loop
+ *       body (one full period) is captured and stored.
+ *
+ * @param ctx_state Pointer to the state for the current CUDA context.
+ * @param key The `WarpKey` identifying the warp to be updated.
+ * @param ri Pointer to the `reg_info_t` packet for the current instruction.
+ */
 static void update_loop_state(CTXstate *ctx_state, const WarpKey &key, const reg_info_t *ri) {
   WarpLoopState &state = ctx_state->loop_states[key];
   // One-time buffer allocation per warp
@@ -386,6 +440,16 @@ static void update_loop_state(CTXstate *ctx_state, const WarpKey &key, const reg
   state.last_period = period;
 }
 
+/**
+ * @brief Clears all state related to deadlock and hang detection.
+ *
+ * This function is called at the boundary of a new kernel launch to ensure that
+ * the state from the previous kernel does not interfere with the analysis of the
+ * new one. It clears all maps and sets that track warp activity, loop states,
+ * and pending memory operations.
+ *
+ * @param ctx_state Pointer to the state for the current CUDA context.
+ */
 static void clear_deadlock_state(CTXstate *ctx_state) {
   ctx_state->loop_states.clear();
   ctx_state->active_warps.clear();
@@ -394,6 +458,10 @@ static void clear_deadlock_state(CTXstate *ctx_state) {
   ctx_state->exit_candidate_since_by_warp.clear();
 }
 
+// Checks for potential kernel hangs by determining if all active warps are stuck in loops.
+// The check is throttled to run at most once every HANG_CHECK_THROTTLE_SECS.
+// If all warps are looping and the condition persists for several checks, it terminates the process.
+// Before checking, it prunes warps that are candidates for exiting and have been inactive.
 static void check_kernel_hang(CTXstate *ctx_state, uint64_t current_kernel_launch_id) {
   time_t now = time(nullptr);
   if (now - ctx_state->last_hang_check_time < HANG_CHECK_THROTTLE_SECS) {  // Throttle to configured interval
