@@ -285,6 +285,15 @@ static void update_loop_state(CTXstate *ctx_state, const WarpKey &key, const reg
       }
     }
   }
+
+  // Advance ring pointers
+  state.head = (uint8_t)((state.head + 1) % PC_HISTORY_LEN);
+  if (state.filled < PC_HISTORY_LEN) state.filled++;
+
+  // Only check for loops once the history buffer is full
+  if (state.filled < PC_HISTORY_LEN) {
+    return;
+  }
 }
 
 /**
