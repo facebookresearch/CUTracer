@@ -258,30 +258,85 @@ static uint64_t get_kernel_launch_id(const message_header_t *header) {
 }
 
 /**
- * @brief Updates the loop detection state for a given warp.
+ * @brief Computes a canonical signature for a sequence of PCs to detect loops.
  *
- * This function is the core of the host-side loop detection logic. It maintains
- * a history of instructions for each warp and uses it to detect when a warp
- * enters a stable loop.
+ * This function analyzes the recent history of Program Counters (PCs) for a warp
+ * to identify repeating patterns, which indicate a loop. The process involves:
+ * 1.  **Period Detection**: It finds the shortest repeating sequence of PCs in
+ *     the history buffer. If no repeating pattern is found, it returns 0.
+ * 2.  **Canonicalization**: To ensure that the same loop produces the same
+ *     signature regardless of the entry point, it finds the lexicographically
+ *     smallest rotation of the detected period. For example, `[3,1,2]` becomes
+ *     `[1,2,3]`.
+ * 3.  **Hashing**: It computes an FNV-1a hash of the canonical sequence, seeded
+ *     with the period length, to produce the final signature.
  *
- * The process for each new instruction is as follows:
- * 1.  **History Update**: The new instruction record (`reg_info_t`) is added to
- *     the warp's ring buffer. The function also tries to match it with any
- *     pending memory access records for the same instruction.
- * 2.  **Signature Calculation**: Once the history buffer is full, it calls
- *     `compute_canonical_signature` to get a signature of the current PC sequence.
- * 3.  **Loop State Tracking**:
- *     - If the new signature and period match the previous one, a `repeat_cnt`
- *       is incremented.
- *     - If they don't match, the counter is reset.
- *     - When `repeat_cnt` exceeds `LOOP_REPEAT_THRESH`, the warp is officially
- *       considered to be in a loop (`loop_flag` is set to true), and the loop
- *       body (one full period) is captured and stored.
- *
- * @param ctx_state Pointer to the state for the current CUDA context.
- * @param key The `WarpKey` identifying the warp to be updated.
- * @param ri Pointer to the `reg_info_t` packet for the current instruction.
+ * @param history A constant reference to the ring buffer of merged trace records.
+ * @param ring_size The total size of the ring buffer (must be `PC_HISTORY_LEN`).
+ * @param head The index of the oldest element in the ring buffer.
+ * @param out_period A reference to a `uint8_t` that will be set to the detected
+ *                   period length. If no period is found, it's set to 0.
+ * @return A 64-bit canonical signature of the loop, or 0 if no loop is detected.
  */
+static uint64_t compute_canonical_signature(const std::vector<TraceRecordMerged> &history, int ring_size, uint8_t head,
+                                            uint8_t &out_period) {
+  // Reconstruct linear PC sequence in chronological order (oldest -> newest).
+  uint64_t pcs[PC_HISTORY_LEN];
+  for (int i = 0; i < ring_size; ++i) {
+    int idx = (head + i) % ring_size;  // head points to oldest element position
+    pcs[i] = history[idx].reg.pc;
+  }
+
+  // Detect the shortest repeating period p (1..N-1) such that pcs[i] == pcs[i-p]
+  uint8_t period = 0;
+  for (uint8_t p = 1; p < ring_size; ++p) {
+    bool match = true;
+    for (uint8_t i = p; i < ring_size; ++i) {
+      if (pcs[i] != pcs[i - p]) {
+        match = false;
+        break;
+      }
+    }
+    if (match) {
+      period = p;
+      break;
+    }
+  }
+  if (period == 0) {
+    out_period = 0;
+    return 0;
+  }
+
+  // Find minimal rotation of the period segment to get canonical representation
+  // Build candidate of length period from the first period entries
+  uint64_t seg[PC_HISTORY_LEN];
+  for (uint8_t i = 0; i < period; ++i) seg[i] = pcs[i];
+  uint8_t min_rot = 0;
+  for (uint8_t r = 1; r < period; ++r) {
+    // Compare rotation r with current min_rot lexicographically
+    bool smaller = false;
+    for (uint8_t i = 0; i < period; ++i) {
+      uint64_t a = seg[(i + r) % period];
+      uint64_t b = seg[(i + min_rot) % period];
+      if (a == b) continue;
+      if (a < b) smaller = true;
+      break;
+    }
+    if (smaller) min_rot = r;
+  }
+
+  // FNV-1a style hash seeded by period for better distribution
+  const uint64_t FNV_OFFSET = 14695981039346656037ULL;
+  const uint64_t FNV_PRIME = 1099511628211ULL;
+  uint64_t h = FNV_OFFSET ^ period;
+  for (uint8_t i = 0; i < period; ++i) {
+    uint64_t pcv = seg[(i + min_rot) % period];
+    h = (h ^ pcv) * FNV_PRIME;
+  }
+  out_period = period;
+  return h;
+}
+
 static void update_loop_state(CTXstate *ctx_state, const WarpKey &key, const reg_info_t *ri) {
   WarpLoopState &state = ctx_state->loop_states[key];
   // One-time buffer allocation per warp
@@ -319,6 +374,10 @@ static void update_loop_state(CTXstate *ctx_state, const WarpKey &key, const reg
   if (state.filled < PC_HISTORY_LEN) {
     return;
   }
+
+  // Compute canonical signature and period from the ring buffer
+  uint8_t period = 0;
+  uint64_t current_sig = compute_canonical_signature(state.history, PC_HISTORY_LEN, state.head, period);
 }
 
 /**
