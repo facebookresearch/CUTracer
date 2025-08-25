@@ -503,18 +503,20 @@ static void check_kernel_hang(CTXstate *ctx_state, uint64_t current_kernel_launc
 
   if (all_warps_in_loop) {
     time_t hang_time = now - ctx_state->loop_states.begin()->second.first_loop_time;
-    oprintf("Possible kernel hang: launch_id=%lu — all %zu active warps have been looping for %ld seconds.\n",
+    loprintf("Possible kernel hang: launch_id=%lu — all %zu active warps have been looping for %ld seconds.\n",
             current_kernel_launch_id, ctx_state->active_warps.size(), hang_time);
     // Deadlock sustained handling: count consecutive hits and terminate after threshold
     if (!ctx_state->deadlock_termination_initiated) {
       ctx_state->deadlock_consecutive_hits++;
       if (ctx_state->deadlock_consecutive_hits >= 3) {
         ctx_state->deadlock_termination_initiated = true;
-        oprintf("Deadlock sustained for %d checks; sending SIGTERM.\n", ctx_state->deadlock_consecutive_hits);
+        loprintf("Deadlock sustained for %d checks; sending SIGTERM.\n", ctx_state->deadlock_consecutive_hits);
+        fflush(stdout);
+        fflush(stderr);
         raise(SIGTERM);
         // Grace period; if not terminated externally, force kill
         sleep(2);
-        oprintf("Process still alive after SIGTERM; sending SIGKILL.\n");
+        loprintf("Process still alive after SIGTERM; sending SIGKILL.\n");
         raise(SIGKILL);
       }
     }
