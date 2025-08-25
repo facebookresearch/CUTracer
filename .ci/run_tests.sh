@@ -380,21 +380,58 @@ test_proton() {
   return 0
 }
 
+# Function to run hang detection test
+test_hang_test() {
+  echo "🧪 Testing hang detection..."
+  cd "$PROJECT_ROOT/tests/hang_test"
+
+  # Clean up old logs to ensure a fresh run
+  rm -f *.log *.csv *.chrome_trace
+
+  # Require test_hang.py to exist
+  if [ ! -f "test_hang.py" ]; then
+    echo "❌ test_hang.py not found."
+    echo "     Listing current directory contents:"
+    ls -la
+    cd "$PROJECT_ROOT"
+    return 1
+  fi
+
+  # Run with CUTracer deadlock detection and a timeout guard
+  if ! timeout "$TIMEOUT" CUDA_INJECTION64_PATH="$PROJECT_ROOT/lib/cutracer.so" CUTRACER_ANALYSIS=deadlock_detection KERNEL_FILTERS=add_kernel python "./test_hang.py" > hang_output.log 2>&1; then
+    echo "❌ Hang test failed to execute or timed out."
+    echo "     === Hang test output ==="
+    cat hang_output.log
+    cd "$PROJECT_ROOT"
+    return 1
+  fi
+
+  echo "     === Hang test output ==="
+  cat hang_output.log
+
+  # Basic validation: ensure CUTracer produced a main log
+  cutracer_log=$(ls -1 cutracer_main_*.log 2>/dev/null | head -n 1)
+  if [ -z "$cutracer_log" ] || [ ! -f "$cutracer_log" ]; then
+    echo "❌ CUTracer log file (cutracer_main_*.log) not found!"
+    echo "     Listing current directory contents:"
+    ls -la
+    cd "$PROJECT_ROOT"
+    return 1
+  fi
+  echo "  ✅ Found CUTracer log: $cutracer_log"
+
+  # Optional: look for a deadlock hint, but don't fail if absent
+  if grep -qi "deadlock" hang_output.log; then
+    echo "  ✅ Detected 'deadlock' keyword in output."
+  fi
+
+  cd "$PROJECT_ROOT"
+  return 0
+}
+
 # Function to run all tests
 run_all_tests() {
   echo "🚀 Running all CUTracer tests..."
-
-  # Build phase
-  if ! build_cutracer; then
-    echo "❌ CUTracer build failed"
-    return 1
-  fi
-
-  if ! build_vectoradd; then
-    echo "❌ vectoradd build failed"
-    return 1
-  fi
-
   # Test phase
   if ! test_vectoradd; then
     echo "❌ vectoradd test failed"
@@ -406,20 +443,31 @@ run_all_tests() {
     return 1
   fi
 
+  if ! test_hang_test; then
+    echo "❌ hang test failed"
+    return 1
+  fi
+
   echo "🎉 All tests passed successfully!"
   return 0
 }
 
+# Build CUTracer first
+build_cutracer
+
 # Main execution
 case "$TEST_TYPE" in
 "build-only")
-  build_cutracer && build_vectoradd
+  build_vectoradd
   ;;
 "vectoradd")
   test_vectoradd && test_py_add_with_kernel_filters
   ;;
 "proton")
-  build_cutracer && test_proton
+  test_proton
+  ;;
+"hang")
+  test_hang_test
   ;;
 "all" | *)
   run_all_tests
