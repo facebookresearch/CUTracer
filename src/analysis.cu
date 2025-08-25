@@ -432,6 +432,24 @@ static void update_loop_state(CTXstate *ctx_state, const WarpKey &key, const reg
 }
 
 /**
+ * @brief Clears all state related to deadlock and hang detection.
+ *
+ * This function is called at the boundary of a new kernel launch to ensure that
+ * the state from the previous kernel does not interfere with the analysis of the
+ * new one. It clears all maps and sets that track warp activity, loop states,
+ * and pending memory operations.
+ *
+ * @param ctx_state Pointer to the state for the current CUDA context.
+ */
+static void clear_deadlock_state(CTXstate *ctx_state) {
+  ctx_state->loop_states.clear();
+  ctx_state->active_warps.clear();
+  ctx_state->pending_mem_by_warp.clear();
+  ctx_state->last_seen_time_by_warp.clear();
+  ctx_state->exit_candidate_since_by_warp.clear();
+}
+
+/**
  * @brief The main thread function for receiving and processing data from the
  * GPU.
  *
@@ -506,6 +524,9 @@ void *recv_thread_fun(void *args) {
               dump_previous_kernel_data(last_seen_kernel_launch_id, local_completed_histograms);
               local_completed_histograms.clear();
               warp_states.clear();
+            }
+            if (is_analysis_type_enabled(AnalysisType::DEADLOCK_DETECTION)) {
+              clear_deadlock_state(ctx_state);
             }
           }
           last_seen_kernel_launch_id = current_launch_id;
