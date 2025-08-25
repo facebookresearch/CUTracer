@@ -7,13 +7,16 @@
 
 #ifndef ANALYSIS_H
 #define ANALYSIS_H
-
+#include <ctime>
+#include <deque>
 #include <map>
+#include <set>
 #include <string>
 #include <unordered_map>
 #include <unordered_set>
 #include <vector>
 
+#include "common.h"
 #include "nvbit.h"
 /* for channel */
 #include "utils/channel.hpp"
@@ -26,25 +29,6 @@ enum class RecvThreadState {
   WORKING,
   STOP,
   FINISHED,
-};
-
-struct CTXstate {
-  /* context id */
-  int id;
-
-  /* Channel used to communicate from GPU to CPU receiving thread */
-  ChannelDev *channel_dev;
-  ChannelHost channel_host;
-
-  // After initialization, set it to WORKING to make recv thread get data,
-  // parent thread sets it to STOP to make recv thread stop working.
-  // recv thread sets it to FINISHED when it cleans up.
-  // parent thread should wait until the state becomes FINISHED to clean up.
-  volatile RecvThreadState recv_thread_done = RecvThreadState::STOP;
-
-  // Per-function SASS mappings for instruction histogram feature
-  std::unordered_map<CUfunction, std::map<int, std::string>> id_to_sass_map;
-  std::unordered_map<CUfunction, std::unordered_set<int>> clock_opcode_ids;
 };
 
 /* ===== Data Structures ===== */
@@ -76,6 +60,38 @@ struct WarpKey {
   bool operator==(const WarpKey &other) const {
     return cta_id_x == other.cta_id_x && cta_id_y == other.cta_id_y && cta_id_z == other.cta_id_z &&
            warp_id == other.warp_id;
+  }
+};
+
+// Merged trace record containing mandatory reg trace and optional mem trace
+struct TraceRecordMerged {
+  reg_info_t reg;
+  bool has_mem = false;
+  uint64_t mem_addrs[32] = {0};
+};
+
+// Structure to track the loop state of a warp
+struct WarpLoopState {
+  // Circular buffer of recent merged trace records
+  std::vector<TraceRecordMerged> history;
+  uint8_t head;    // Next write position in circular buffer
+  uint8_t filled;  // Number of valid entries written, capped at buffer size
+  uint64_t last_sig;
+  uint8_t last_period;
+  uint32_t repeat_cnt;
+  bool loop_flag;
+  time_t first_loop_time;
+
+  // Structure to hold complete loop information
+  struct LoopInfo {
+    std::vector<TraceRecordMerged> instructions;  // Copy of one canonical period
+    uint8_t period;
+  };
+
+  LoopInfo current_loop;
+
+  WarpLoopState()
+      : head(0), filled(0), last_sig(0), last_period(0), repeat_cnt(0), loop_flag(false), first_loop_time(0) {
   }
 };
 
@@ -127,6 +143,51 @@ struct RegionHistogram {
    */
   std::map<std::string, int> histogram;
 };
+
+/**
+ * @brief Stores the completed instruction histogram for a specific region of a
+ * warp.
+ */
+struct CTXstate {
+  /* context id */
+  int id;
+
+  /* Channel used to communicate from GPU to CPU receiving thread */
+  ChannelDev *channel_dev;
+  ChannelHost channel_host;
+
+  // After initialization, set it to WORKING to make recv thread get data,
+  // parent thread sets it to STOP to make recv thread stop working.
+  // recv thread sets it to FINISHED when it cleans up.
+  // parent thread should wait until the state becomes FINISHED to clean up.
+  volatile RecvThreadState recv_thread_done = RecvThreadState::STOP;
+
+  // Per-function SASS mappings for instruction histogram feature
+  std::unordered_map<CUfunction, std::map<int, std::string>> id_to_sass_map;
+  std::unordered_map<CUfunction, std::unordered_set<int>> clock_opcode_ids;
+  // Per-function EXIT opcode ids (statically identified at instrumentation time)
+  std::unordered_map<CUfunction, std::unordered_set<int>> exit_opcode_ids;
+
+  /* State for Deadlock/Hang Detection */
+  std::map<WarpKey, WarpLoopState> loop_states;
+  std::set<WarpKey> active_warps;
+  time_t last_hang_check_time;
+
+  // Pending mem traces per warp for out-of-order arrival (mem before reg)
+  std::unordered_map<WarpKey, std::deque<mem_access_t>, WarpKey::Hash> pending_mem_by_warp;
+
+  // Per-warp activity timestamps for inactive cleanup
+  std::unordered_map<WarpKey, time_t, WarpKey::Hash> last_seen_time_by_warp;
+  std::unordered_map<WarpKey, time_t, WarpKey::Hash> exit_candidate_since_by_warp;
+
+  // Deadlock handling
+  int deadlock_consecutive_hits = 0;
+  bool deadlock_termination_initiated = false;
+};
+
+// =================================================================================
+// Function Declarations
+// =================================================================================
 
 /**
  * @brief The main thread function for receiving and processing data from the
