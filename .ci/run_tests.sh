@@ -424,6 +424,7 @@ test_hang_test() {
 run_all_tests() {
   echo "🚀 Running all CUTracer tests..."
   # Test phase
+  build_vectoradd
   if ! test_vectoradd; then
     echo "❌ vectoradd test failed"
     return 1
@@ -443,15 +444,15 @@ run_all_tests() {
   return 0
 }
 
-# build_cutracer
+build_cutracer
 
 # Main execution
 case "$TEST_TYPE" in
 "build-only")
-  build_vectoradd
+  build_cutracer && build_vectoradd
   ;;
 "vectoradd")
-  test_vectoradd && test_py_add_with_kernel_filters
+  build_vectoradd && test_vectoradd && test_py_add_with_kernel_filters
   ;;
 "proton")
   test_proton

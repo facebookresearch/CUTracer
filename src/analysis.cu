@@ -504,7 +504,7 @@ static void check_kernel_hang(CTXstate *ctx_state, uint64_t current_kernel_launc
   if (all_warps_in_loop) {
     time_t hang_time = now - ctx_state->loop_states.begin()->second.first_loop_time;
     loprintf("Possible kernel hang: launch_id=%lu — all %zu active warps have been looping for %ld seconds.\n",
-            current_kernel_launch_id, ctx_state->active_warps.size(), hang_time);
+             current_kernel_launch_id, ctx_state->active_warps.size(), hang_time);
     // Deadlock sustained handling: count consecutive hits and terminate after threshold
     if (!ctx_state->deadlock_termination_initiated) {
       ctx_state->deadlock_consecutive_hits++;
