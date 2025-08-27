@@ -29,6 +29,7 @@
 #define PC_HISTORY_LEN 32
 #define LOOP_REPEAT_THRESH 3
 
+extern pthread_mutex_t mutex;
 extern std::unordered_map<CUcontext, CTXstate *> ctx_state_map;
 extern std::map<uint64_t, std::pair<CUcontext, CUfunction>> kernel_launch_to_func_map;
 extern std::map<uint64_t, uint32_t> kernel_launch_to_iter_map;
@@ -337,6 +338,31 @@ static uint64_t compute_canonical_signature(const std::vector<TraceRecordMerged>
   return h;
 }
 
+/**
+ * @brief Updates the loop detection state for a given warp.
+ *
+ * This function is the core of the host-side loop detection logic. It maintains
+ * a history of instructions for each warp and uses it to detect when a warp
+ * enters a stable loop.
+ *
+ * The process for each new instruction is as follows:
+ * 1.  **History Update**: The new instruction record (`reg_info_t`) is added to
+ *     the warp's ring buffer. The function also tries to match it with any
+ *     pending memory access records for the same instruction.
+ * 2.  **Signature Calculation**: Once the history buffer is full, it calls
+ *     `compute_canonical_signature` to get a signature of the current PC sequence.
+ * 3.  **Loop State Tracking**:
+ *     - If the new signature and period match the previous one, a `repeat_cnt`
+ *       is incremented.
+ *     - If they don't match, the counter is reset.
+ *     - When `repeat_cnt` exceeds `LOOP_REPEAT_THRESH`, the warp is officially
+ *       considered to be in a loop (`loop_flag` is set to true), and the loop
+ *       body (one full period) is captured and stored.
+ *
+ * @param ctx_state Pointer to the state for the current CUDA context.
+ * @param key The `WarpKey` identifying the warp to be updated.
+ * @param ri Pointer to the `reg_info_t` packet for the current instruction.
+ */
 static void update_loop_state(CTXstate *ctx_state, const WarpKey &key, const reg_info_t *ri) {
   WarpLoopState &state = ctx_state->loop_states[key];
   // One-time buffer allocation per warp
@@ -403,6 +429,24 @@ static void update_loop_state(CTXstate *ctx_state, const WarpKey &key, const reg
   }
   state.last_sig = current_sig;
   state.last_period = period;
+}
+
+/**
+ * @brief Clears all state related to deadlock and hang detection.
+ *
+ * This function is called at the boundary of a new kernel launch to ensure that
+ * the state from the previous kernel does not interfere with the analysis of the
+ * new one. It clears all maps and sets that track warp activity, loop states,
+ * and pending memory operations.
+ *
+ * @param ctx_state Pointer to the state for the current CUDA context.
+ */
+static void clear_deadlock_state(CTXstate *ctx_state) {
+  ctx_state->loop_states.clear();
+  ctx_state->active_warps.clear();
+  ctx_state->pending_mem_by_warp.clear();
+  ctx_state->last_seen_time_by_warp.clear();
+  ctx_state->exit_candidate_since_by_warp.clear();
 }
 
 /**
@@ -480,6 +524,9 @@ void *recv_thread_fun(void *args) {
               dump_previous_kernel_data(last_seen_kernel_launch_id, local_completed_histograms);
               local_completed_histograms.clear();
               warp_states.clear();
+            }
+            if (is_analysis_type_enabled(AnalysisType::DEADLOCK_DETECTION)) {
+              clear_deadlock_state(ctx_state);
             }
           }
           last_seen_kernel_launch_id = current_launch_id;
