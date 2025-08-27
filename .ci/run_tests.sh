@@ -273,7 +273,7 @@ test_proton() {
 
   # First run: Execute with CUTracer to generate instruction histogram and tracer log.
   # We are using KERNEL_FILTERS to only trace 'add_kernel'.
-  if ! CUDA_INJECTION64_PATH=$PROJECT_ROOT/lib/cutracer.so CUTRACER_ANALYSIS=proton_instr_histogram KERNEL_FILTERS=add_kernel python ./vector-add-instrumented.py > proton_instr_output.log 2>&1; then
+  if ! CUDA_INJECTION64_PATH=$PROJECT_ROOT/lib/cutracer.so CUTRACER_ANALYSIS=proton_instr_histogram KERNEL_FILTERS=add_kernel python ./vector-add-instrumented.py >proton_instr_output.log 2>&1; then
     echo "❌ Proton test (step 1: kernel filter run) failed to execute."
     echo "     === Proton test (kernel filter) output ==="
     cat proton_instr_output.log
@@ -322,7 +322,7 @@ test_proton() {
 
   # Second run: Execute without CUTracer to get a clean trace with accurate timing.
   # This is critical because the tracer can interfere with cycle counts.
-  if ! python ./vector-add-instrumented.py > python_runner.log 2>&1; then
+  if ! python ./vector-add-instrumented.py >python_runner.log 2>&1; then
     echo "❌ Python runner (step 2: chrome trace generation) failed to execute."
     echo "     === Python runner output ==="
     cat python_runner.log
@@ -341,7 +341,7 @@ test_proton() {
 
   # --- Step 3: Run the parsing script ---
   echo "  -> Step 3: Running parse_instr_hist_trace.py..."
-  if ! python "$PROJECT_ROOT/scripts/parse_instr_hist_trace.py" --chrome-trace ./vector.chrome_trace --cutracer-trace "$instr_hist_csv" --cutracer-log "$cutracer_log" --output vectoradd_ipc.csv > parse_script_output.log 2>&1; then
+  if ! python "$PROJECT_ROOT/scripts/parse_instr_hist_trace.py" --chrome-trace ./vector.chrome_trace --cutracer-trace "$instr_hist_csv" --cutracer-log "$cutracer_log" --output vectoradd_ipc.csv >parse_script_output.log 2>&1; then
     echo "❌ Parse script (step 3) failed to execute."
     echo "     === Parse script output ==="
     cat parse_script_output.log
@@ -360,7 +360,7 @@ test_proton() {
     return 1
   fi
 
-  line_count=$(wc -l < "vectoradd_ipc.csv")
+  line_count=$(wc -l <"vectoradd_ipc.csv")
   if [ "$line_count" -le 5 ]; then
     echo "❌ Output file 'vectoradd_ipc.csv' has $line_count lines, which is not more than 5."
     echo "     --- Full content of vectoradd_ipc.csv ---"
@@ -380,22 +380,51 @@ test_proton() {
   return 0
 }
 
+# Function to run hang detection test
+test_hang_test() {
+  echo "🧪 Testing hang detection..."
+  cd "$PROJECT_ROOT/tests/hang_test"
+
+  # Clean up old logs to ensure a fresh run
+  rm -f *.log *.csv *.chrome_trace
+
+  # Require test_hang.py to exist
+  if [ ! -f "test_hang.py" ]; then
+    echo "❌ test_hang.py not found."
+    echo "     Listing current directory contents:"
+    ls -la
+    cd "$PROJECT_ROOT"
+    return 1
+  fi
+
+  # Run with CUTracer deadlock detection and a timeout guard
+  if ! timeout "$TIMEOUT" env CUDA_INJECTION64_PATH="$PROJECT_ROOT/lib/cutracer.so" CUTRACER_ANALYSIS=deadlock_detection KERNEL_FILTERS=add_kernel python "./test_hang.py" >hang_output.log 2>&1; then
+    exit_code=$?
+    echo "     === Hang test output ==="
+    cat hang_output.log
+    if [ "$exit_code" -eq 124 ]; then
+      echo "❌ Hang test timed out (no detection within $TIMEOUT s)."
+      cd "$PROJECT_ROOT"
+      return 1
+    fi
+    if grep -q "Deadlock sustained" hang_output.log; then
+      echo "  ✅ Hang detection confirmed (process terminated by tracer)."
+    else
+      echo "❌ Hang test failed without detection (exit $exit_code)."
+      cd "$PROJECT_ROOT"
+      return 1
+    fi
+  fi
+
+  cd "$PROJECT_ROOT"
+  return 0
+}
+
 # Function to run all tests
 run_all_tests() {
   echo "🚀 Running all CUTracer tests..."
-
-  # Build phase
-  if ! build_cutracer; then
-    echo "❌ CUTracer build failed"
-    return 1
-  fi
-
-  if ! build_vectoradd; then
-    echo "❌ vectoradd build failed"
-    return 1
-  fi
-
   # Test phase
+  build_vectoradd
   if ! test_vectoradd; then
     echo "❌ vectoradd test failed"
     return 1
@@ -406,9 +435,16 @@ run_all_tests() {
     return 1
   fi
 
+  if ! test_hang_test; then
+    echo "❌ hang test failed"
+    return 1
+  fi
+
   echo "🎉 All tests passed successfully!"
   return 0
 }
+
+build_cutracer
 
 # Main execution
 case "$TEST_TYPE" in
@@ -416,10 +452,13 @@ case "$TEST_TYPE" in
   build_cutracer && build_vectoradd
   ;;
 "vectoradd")
-  test_vectoradd && test_py_add_with_kernel_filters
+  build_vectoradd && test_vectoradd && test_py_add_with_kernel_filters
   ;;
 "proton")
-  build_cutracer && test_proton
+  test_proton
+  ;;
+"hang")
+  test_hang_test
   ;;
 "all" | *)
   run_all_tests
