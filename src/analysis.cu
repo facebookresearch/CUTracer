@@ -11,6 +11,7 @@
 
 #include <assert.h>
 #include <pthread.h>
+#include <signal.h>
 #include <stdio.h>
 #include <stdlib.h>
 
@@ -28,6 +29,8 @@
 
 #define PC_HISTORY_LEN 32
 #define LOOP_REPEAT_THRESH 3
+// Throttle interval for hang checks (seconds)
+#define HANG_CHECK_THROTTLE_SECS 1
 
 extern pthread_mutex_t mutex;
 extern std::unordered_map<CUcontext, CTXstate *> ctx_state_map;
@@ -449,6 +452,79 @@ static void clear_deadlock_state(CTXstate *ctx_state) {
   ctx_state->exit_candidate_since_by_warp.clear();
 }
 
+// Checks for potential kernel hangs by determining if all active warps are stuck in loops.
+// The check is throttled to run at most once every HANG_CHECK_THROTTLE_SECS.
+// If all warps are looping and the condition persists for several checks, it terminates the process.
+// Before checking, it prunes warps that are candidates for exiting and have been inactive.
+static void check_kernel_hang(CTXstate *ctx_state, uint64_t current_kernel_launch_id) {
+  time_t now = time(nullptr);
+  if (now - ctx_state->last_hang_check_time < HANG_CHECK_THROTTLE_SECS) {  // Throttle to configured interval
+    return;
+  }
+  ctx_state->last_hang_check_time = now;
+
+  if (ctx_state->active_warps.empty()) {
+    return;
+  }
+
+  // Cleanup exit-candidate warps before evaluating loop state
+  std::vector<WarpKey> to_remove;
+  to_remove.reserve(ctx_state->active_warps.size());
+  for (const WarpKey &key : ctx_state->active_warps) {
+    auto itExit = ctx_state->exit_candidate_since_by_warp.find(key);
+    if (itExit == ctx_state->exit_candidate_since_by_warp.end()) continue;
+    time_t exit_since = itExit->second;
+    time_t last_seen = 0;
+    auto itSeen = ctx_state->last_seen_time_by_warp.find(key);
+    if (itSeen != ctx_state->last_seen_time_by_warp.end()) last_seen = itSeen->second;
+    // Remove only if no activity since EXIT and at least one throttle interval has passed
+    if (last_seen <= exit_since && (now - exit_since) >= HANG_CHECK_THROTTLE_SECS) {
+      to_remove.push_back(key);
+    }
+  }
+  if (!to_remove.empty()) {
+    for (const WarpKey &key : to_remove) {
+      ctx_state->active_warps.erase(key);
+      ctx_state->loop_states.erase(key);
+      ctx_state->pending_mem_by_warp.erase(key);
+      ctx_state->last_seen_time_by_warp.erase(key);
+      ctx_state->exit_candidate_since_by_warp.erase(key);
+    }
+  }
+
+  bool all_warps_in_loop = true;
+  for (const auto &warp_key : ctx_state->active_warps) {
+    if (ctx_state->loop_states.find(warp_key) == ctx_state->loop_states.end() ||
+        !ctx_state->loop_states.at(warp_key).loop_flag) {
+      all_warps_in_loop = false;
+      break;
+    }
+  }
+
+  if (all_warps_in_loop) {
+    time_t hang_time = now - ctx_state->loop_states.begin()->second.first_loop_time;
+    oprintf("Possible kernel hang: launch_id=%lu — all %zu active warps have been looping for %ld seconds.\n",
+            current_kernel_launch_id, ctx_state->active_warps.size(), hang_time);
+    // Deadlock sustained handling: count consecutive hits and terminate after threshold
+    if (!ctx_state->deadlock_termination_initiated) {
+      ctx_state->deadlock_consecutive_hits++;
+      if (ctx_state->deadlock_consecutive_hits >= 3) {
+        ctx_state->deadlock_termination_initiated = true;
+        oprintf("Deadlock sustained for %d checks; sending SIGTERM.\n", ctx_state->deadlock_consecutive_hits);
+        raise(SIGTERM);
+        // Grace period; if not terminated externally, force kill
+        sleep(2);
+        oprintf("Process still alive after SIGTERM; sending SIGKILL.\n");
+        raise(SIGKILL);
+      }
+    }
+    // Optional: Add detailed printout of loop info here
+  } else {
+    // Reset hit counter if condition is not sustained
+    ctx_state->deadlock_consecutive_hits = 0;
+  }
+}
+
 /**
  * @brief The main thread function for receiving and processing data from the
  * GPU.
@@ -629,6 +705,10 @@ void *recv_thread_fun(void *args) {
           continue;
         }
       }
+    }
+
+    if (is_analysis_type_enabled(AnalysisType::DEADLOCK_DETECTION) && last_seen_kernel_launch_id != UINT64_MAX) {
+      check_kernel_hang(ctx_state, last_seen_kernel_launch_id);
     }
   }
 
