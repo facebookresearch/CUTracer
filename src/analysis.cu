@@ -315,8 +315,9 @@ void *recv_thread_fun(void *args) {
         const char *sass_str = "N/A";
 
         uint64_t current_launch_id = get_kernel_launch_id(header);
-
+        bool is_new_kernel = false;
         if (current_launch_id != 0 && current_launch_id != last_seen_kernel_launch_id) {
+          is_new_kernel = true;
           if (last_seen_kernel_launch_id != UINT64_MAX) {
             // Cleanup for the previous kernel
             if (is_analysis_type_enabled(AnalysisType::PROTON_INSTR_HISTOGRAM)) {
@@ -336,6 +337,30 @@ void *recv_thread_fun(void *args) {
 
         if (header->type == MSG_TYPE_REG_INFO) {
           reg_info_t *ri = (reg_info_t *)&recv_buffer[num_processed_bytes];
+
+          if (is_analysis_type_enabled(AnalysisType::DEADLOCK_DETECTION)) {
+            WarpKey key = {ri->cta_id_x, ri->cta_id_y, ri->cta_id_z, ri->warp_id};
+            if (is_new_kernel) {
+              ctx_state->last_hang_check_time = time(nullptr);
+            }
+            ctx_state->active_warps.insert(key);
+            // Update last seen time for this warp
+            ctx_state->last_seen_time_by_warp[key] = time(nullptr);
+            // TODO: add impmenetation in next PR
+            //  update_loop_state(ctx_state, key, ri);
+
+            // Mark EXIT candidate if this opcode_id is an EXIT for the current function
+            auto func_iter2 = kernel_launch_to_func_map.find(ri->kernel_launch_id);
+            if (func_iter2 != kernel_launch_to_func_map.end()) {
+              CUfunction f_func2 = func_iter2->second.second;
+              if (ctx_state->exit_opcode_ids.count(f_func2) &&
+                  ctx_state->exit_opcode_ids[f_func2].count(ri->opcode_id)) {
+                if (!ctx_state->exit_candidate_since_by_warp.count(key)) {
+                  ctx_state->exit_candidate_since_by_warp[key] = time(nullptr);
+                }
+              }
+            }
+          }
           // Get SASS string for trace output
           auto func_iter = kernel_launch_to_func_map.find(ri->kernel_launch_id);
           if (func_iter != kernel_launch_to_func_map.end()) {
