@@ -27,8 +27,8 @@
 #include "utils/channel.hpp"
 
 #define PC_HISTORY_LEN 32
+#define LOOP_REPEAT_THRESH 3
 
-extern pthread_mutex_t mutex;
 extern std::unordered_map<CUcontext, CTXstate *> ctx_state_map;
 extern std::map<uint64_t, std::pair<CUcontext, CUfunction>> kernel_launch_to_func_map;
 extern std::map<uint64_t, uint32_t> kernel_launch_to_iter_map;
@@ -378,6 +378,31 @@ static void update_loop_state(CTXstate *ctx_state, const WarpKey &key, const reg
   // Compute canonical signature and period from the ring buffer
   uint8_t period = 0;
   uint64_t current_sig = compute_canonical_signature(state.history, PC_HISTORY_LEN, state.head, period);
+
+  if (current_sig != 0 && current_sig == state.last_sig && period == state.last_period) {
+    state.repeat_cnt++;
+  } else {
+    state.repeat_cnt = 1;  // current observed once
+    state.loop_flag = false;
+  }
+
+  if (state.repeat_cnt > LOOP_REPEAT_THRESH) {
+    if (!state.loop_flag) {
+      state.loop_flag = true;
+      state.first_loop_time = time(nullptr);
+      // Capture the loop body records (one period) from the ring buffer in chronological order
+      state.current_loop.period = period;
+      state.current_loop.instructions.clear();
+      state.current_loop.instructions.reserve(period);
+      // head points to oldest, so sequence starts from head index
+      for (uint8_t i = 0; i < period; ++i) {
+        int idx = (state.head + i) % PC_HISTORY_LEN;
+        state.current_loop.instructions.push_back(state.history[idx]);
+      }
+    }
+  }
+  state.last_sig = current_sig;
+  state.last_period = period;
 }
 
 /**
