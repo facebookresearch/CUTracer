@@ -159,8 +159,8 @@ Install the tools via your package manager (clang-format) and `pip install usort
 
 ## License
 
-This repository contains code under MIT and BSD-3-Clause licenses. See `LICENSE` and `LICENSE-BSD` for details.
+This repository contains code under the MIT license (Meta) and the BSD-3-Clause license (NVIDIA). See [LICENSE](LICENSE) and [LICENSE-BSD](LICENSE-BSD) for details.
 
 ## More Documentation
 
-The full documentation lives in the project Wiki (in this repository’s wiki folder). Key topics include Quickstart, Analyses, Post-processing, Configuration, Outputs, API & Data Structures, Developer Guide, and Troubleshooting.
+The full documentation lives in the [project Wiki](https://github.com/findhao/CUTracer/wiki). Key topics include Quickstart, Analyses, Post-processing, Configuration, Outputs, API & Data Structures, Developer Guide, and Troubleshooting.
