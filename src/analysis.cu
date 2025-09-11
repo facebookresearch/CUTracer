@@ -452,6 +452,87 @@ static void clear_deadlock_state(CTXstate *ctx_state) {
   ctx_state->exit_candidate_since_by_warp.clear();
 }
 
+/**
+ * @brief Prints detailed status information for all active warps including loop states.
+ *
+ * This function provides a comprehensive view of each warp's current state including:
+ * - Basic warp identification (CTA coordinates, warp ID)
+ * - Loop detection status (whether in loop, loop period, repeat count)
+ * - Activity timestamps and exit candidate status
+ * - Loop body instruction details if available
+ *
+ * @param ctx_state Pointer to the state for the current CUDA context
+ * @param current_kernel_launch_id The current kernel launch ID for context
+ */
+static void print_warp_status_summary(CTXstate *ctx_state, uint64_t current_kernel_launch_id) {
+  if (ctx_state->active_warps.empty()) {
+    loprintf("==> WARP STATUS: No active warps for kernel_launch_id=%lu\n", current_kernel_launch_id);
+    return;
+  }
+
+  time_t now = time(nullptr);
+  loprintf("==> WARP STATUS SUMMARY for kernel_launch_id=%lu (%zu active warps):\n", current_kernel_launch_id,
+           ctx_state->active_warps.size());
+  loprintf("    Format: WarpID[CTA_x,y,z] - LoopStatus - Activity\n");
+  loprintf("    -----------------------------------------------------------------------\n");
+
+  for (const auto &warp_key : ctx_state->active_warps) {
+    // Basic warp info
+    loprintf("    Warp%d[%d,%d,%d]: ", warp_key.warp_id, warp_key.cta_id_x, warp_key.cta_id_y, warp_key.cta_id_z);
+
+    // Loop state info
+    auto loop_iter = ctx_state->loop_states.find(warp_key);
+    if (loop_iter != ctx_state->loop_states.end()) {
+      const WarpLoopState &loop_state = loop_iter->second;
+      if (loop_state.loop_flag) {
+        time_t loop_duration = now - loop_state.first_loop_time;
+        loprintf("LOOPING(period=%d, repeat=%d, %lds) ", loop_state.last_period, loop_state.repeat_cnt, loop_duration);
+      } else {
+        loprintf("NO_LOOP(period=%d, repeat=%d) ", loop_state.last_period, loop_state.repeat_cnt);
+      }
+    } else {
+      loprintf("NO_STATE ");
+    }
+
+    // Activity info
+    auto seen_iter = ctx_state->last_seen_time_by_warp.find(warp_key);
+    if (seen_iter != ctx_state->last_seen_time_by_warp.end()) {
+      time_t inactive_duration = now - seen_iter->second;
+      loprintf("- Last_seen=%lds_ago ", inactive_duration);
+    } else {
+      loprintf("- Last_seen=UNKNOWN ");
+    }
+
+    // Exit candidate status
+    auto exit_iter = ctx_state->exit_candidate_since_by_warp.find(warp_key);
+    if (exit_iter != ctx_state->exit_candidate_since_by_warp.end()) {
+      time_t exit_duration = now - exit_iter->second;
+      loprintf("- EXIT_CANDIDATE(%lds)", exit_duration);
+    }
+
+    loprintf("\n");
+
+    // Print loop body details if warp is in a confirmed loop
+    if (loop_iter != ctx_state->loop_states.end() && loop_iter->second.loop_flag) {
+      const WarpLoopState &loop_state = loop_iter->second;
+      if (!loop_state.current_loop.instructions.empty()) {
+        loprintf("      Loop Body (%d instructions):\n", loop_state.current_loop.period);
+        for (size_t i = 0;
+             i < static_cast<size_t>(loop_state.current_loop.period) && i < loop_state.current_loop.instructions.size();
+             ++i) {
+          const auto &instr = loop_state.current_loop.instructions[i];
+          loprintf("        [%zu] PC=0x%lx, opcode_id=%d", i, instr.reg.pc, instr.reg.opcode_id);
+          if (instr.has_mem) {
+            loprintf(" (has_mem)");
+          }
+          loprintf("\n");
+        }
+      }
+    }
+  }
+  loprintf("    -----------------------------------------------------------------------\n");
+}
+
 // Checks for potential kernel hangs by determining if all active warps are stuck in loops.
 // The check is throttled to run at most once every HANG_CHECK_THROTTLE_SECS.
 // If all warps are looping and the condition persists for several checks, it terminates the process.
@@ -505,6 +586,7 @@ static void check_kernel_hang(CTXstate *ctx_state, uint64_t current_kernel_launc
     time_t hang_time = now - ctx_state->loop_states.begin()->second.first_loop_time;
     loprintf("Possible kernel hang: launch_id=%lu — all %zu active warps have been looping for %ld seconds.\n",
              current_kernel_launch_id, ctx_state->active_warps.size(), hang_time);
+    print_warp_status_summary(ctx_state, current_kernel_launch_id);
     // Deadlock sustained handling: count consecutive hits and terminate after threshold
     if (!ctx_state->deadlock_termination_initiated) {
       ctx_state->deadlock_consecutive_hits++;
