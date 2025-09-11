@@ -476,6 +476,19 @@ static void print_warp_status_summary(CTXstate *ctx_state, uint64_t current_kern
   loprintf("    Format: WarpID[CTA_x,y,z] - LoopStatus - Activity\n");
   loprintf("    -----------------------------------------------------------------------\n");
 
+  // Resolve SASS map for the current function, if available
+  const std::map<int, std::string> *sass_map_for_func = nullptr;
+  {
+    std::map<uint64_t, std::pair<CUcontext, CUfunction>>::iterator func_iter =
+        kernel_launch_to_func_map.find(current_kernel_launch_id);
+    if (func_iter != kernel_launch_to_func_map.end()) {
+      CUfunction f_func = func_iter->second.second;
+      if (ctx_state->id_to_sass_map.count(f_func)) {
+        sass_map_for_func = &ctx_state->id_to_sass_map[f_func];
+      }
+    }
+  }
+
   for (const auto &warp_key : ctx_state->active_warps) {
     // Basic warp info
     loprintf("    Warp%d[%d,%d,%d]: ", warp_key.warp_id, warp_key.cta_id_x, warp_key.cta_id_y, warp_key.cta_id_z);
@@ -517,11 +530,64 @@ static void print_warp_status_summary(CTXstate *ctx_state, uint64_t current_kern
       const WarpLoopState &loop_state = loop_iter->second;
       if (!loop_state.current_loop.instructions.empty()) {
         loprintf("      Loop Body (%d instructions):\n", loop_state.current_loop.period);
+        // Determine index field width based on period digit count for aligned indices
+        int index_width = 1;
+        {
+          int tmp_period = loop_state.current_loop.period;
+          while (tmp_period >= 10) {
+            index_width++;
+            tmp_period /= 10;
+          }
+          if (index_width < 1) index_width = 1;
+        }
+        // Pre-compute alignment for PC/Offset columns across the loop body
+        int pc_dec_width = 1;
+        int hex_nibbles_max = 4;
+        {
+          size_t upper = std::min(static_cast<size_t>(loop_state.current_loop.period),
+                                  loop_state.current_loop.instructions.size());
+          for (size_t j = 0; j < upper; ++j) {
+            uint64_t pc = loop_state.current_loop.instructions[j].reg.pc;
+            // decimal width
+            int dec_w = 1;
+            uint64_t td = pc;
+            while (td >= 10) {
+              td /= 10;
+              dec_w++;
+            }
+            if (dec_w > pc_dec_width) pc_dec_width = dec_w;
+            // hex width in nibbles
+            int nibbles = 1;
+            if (pc != 0) {
+              nibbles = 0;
+              uint64_t th = pc;
+              while (th) {
+                th >>= 4;
+                nibbles++;
+              }
+            }
+            if (nibbles > hex_nibbles_max) hex_nibbles_max = nibbles;
+          }
+          // Round hex width up to multiple of 4, clamp to [4,16]
+          hex_nibbles_max = ((hex_nibbles_max + 3) / 4) * 4;
+          if (hex_nibbles_max < 4) hex_nibbles_max = 4;
+          if (hex_nibbles_max > 16) hex_nibbles_max = 16;
+        }
         for (size_t i = 0;
              i < static_cast<size_t>(loop_state.current_loop.period) && i < loop_state.current_loop.instructions.size();
              ++i) {
           const auto &instr = loop_state.current_loop.instructions[i];
-          loprintf("        [%zu] PC=0x%lx, opcode_id=%d", i, instr.reg.pc, instr.reg.opcode_id);
+          uint64_t pc_val = instr.reg.pc;
+
+          const char *sass_cstr = "UNKNOWN";
+          if (sass_map_for_func && sass_map_for_func->count(instr.reg.opcode_id)) {
+            sass_cstr = sass_map_for_func->at(instr.reg.opcode_id).c_str();
+          }
+
+          // Desired format with aligned columns: "[ 4] PC  128; Offset  128 /*0x0080*/;  <SASS>"
+          loprintf("        [%*zu] PC %*lu; Offset %*lu /*0x%0*lx*/;  %s", index_width, i, pc_dec_width,
+                   (unsigned long)pc_val, pc_dec_width, (unsigned long)pc_val, hex_nibbles_max, (unsigned long)pc_val,
+                   sass_cstr);
           if (instr.has_mem) {
             loprintf(" (has_mem)");
           }
