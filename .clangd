@@ -1,0 +1,10 @@
+CompileFlags:
+  Add:
+    - -I./third_party/nvbit/core
+    - -I./include
+    - -std=c++11
+    - -x
+    - cuda
+    - --cuda-gpu-arch=sm_90
+  Remove:
+    - -W*

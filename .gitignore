@@ -1,0 +1,79 @@
+# Prerequisites
+*.d
+
+# Compiled Object files
+*.slo
+*.lo
+*.o
+*.obj
+
+# Precompiled Headers
+*.gch
+*.pch
+
+# Compiled Dynamic libraries
+*.so
+*.dylib
+*.dll
+
+# Fortran module files
+*.mod
+*.smod
+
+# Compiled Static libraries
+*.lai
+*.la
+*.a
+!third_party/nvbit/core/libnvbit.a
+*.lib
+
+# Executables
+*.exe
+*.out
+*.app
+
+# Build directories
+build/
+bin/
+obj/
+
+# CUDA specific
+*.i
+*.ii
+*.gpu
+*.ptx
+*.cubin
+*.fatbin
+
+# Editor files
+.vscode/
+.idea/
+*.swp
+*~
+
+# Debug files
+*.dSYM/
+*.su
+*.idb
+*.pdb
+
+# Dependency directories
+deps/
+
+nvbit_release/
+
+*.log
+third_party/nvbit
+
+tests/vectoradd/vectoradd
+.cache/
+compile_commands.json
+
+# CSV files
+*.csv
+*.chrome_trace
+*.llir
+*.ttir
+*.ttgir
+*.ptx
+*.sass

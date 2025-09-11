@@ -1,0 +1,10 @@
+BasedOnStyle: Google
+BreakBeforeBraces: Attach
+ColumnLimit: 120
+IndentWidth: 2
+TabWidth: 2
+UseTab: Never
+InsertNewlineAtEOF: true
+KeepEmptyLinesAtEOF: true
+SeparateDefinitionBlocks: Always
+AllowShortFunctionsOnASingleLine: None
