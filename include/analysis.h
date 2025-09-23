@@ -180,6 +180,9 @@ struct CTXstate {
   std::unordered_map<WarpKey, time_t, WarpKey::Hash> last_seen_time_by_warp;
   std::unordered_map<WarpKey, time_t, WarpKey::Hash> exit_candidate_since_by_warp;
 
+  // Per-warp last observed state: whether last instruction was BAR.SYNC.DEFER_BLOCKING
+  std::unordered_map<WarpKey, bool, WarpKey::Hash> last_is_defer_blocking_by_warp;
+
   // Deadlock handling
   int deadlock_consecutive_hits = 0;
   bool deadlock_termination_initiated = false;
