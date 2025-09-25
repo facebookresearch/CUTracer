@@ -37,6 +37,27 @@ extern std::unordered_map<CUcontext, CTXstate *> ctx_state_map;
 extern std::map<uint64_t, std::pair<CUcontext, CUfunction>> kernel_launch_to_func_map;
 extern std::map<uint64_t, uint32_t> kernel_launch_to_iter_map;
 
+// Forward declaration for helper defined below in this file
+std::string extract_instruction_name(const std::string &sass_line);
+
+static inline bool matches_barrier_defer_blocking(const std::string &mnemonic) {
+  if (mnemonic == "BAR.SYNC.DEFER_BLOCKING") return true;
+  // Conservative fallback: prefix BAR.SYNC and contains .DEFER_BLOCKING
+  if (mnemonic.rfind("BAR.SYNC", 0) == 0 && mnemonic.find(".DEFER_BLOCKING") != std::string::npos) return true;
+  return false;
+}
+
+static bool is_barrier_defer_blocking_for_opcode(CTXstate *ctx_state, CUfunction func, int opcode_id) {
+  if (!ctx_state) return false;
+  if (!ctx_state->id_to_sass_map.count(func)) return false;
+  const std::map<int, std::string> &sass_map = ctx_state->id_to_sass_map[func];
+  std::map<int, std::string>::const_iterator it = sass_map.find(opcode_id);
+  if (it == sass_map.end()) return false;
+  const std::string &sass_line = it->second;
+  std::string mnemonic = extract_instruction_name(sass_line);
+  return matches_barrier_defer_blocking(mnemonic);
+}
+
 /**
  * @brief Extracts the full instruction mnemonic from a SASS line.
  *
@@ -450,6 +471,7 @@ static void clear_deadlock_state(CTXstate *ctx_state) {
   ctx_state->pending_mem_by_warp.clear();
   ctx_state->last_seen_time_by_warp.clear();
   ctx_state->exit_candidate_since_by_warp.clear();
+  ctx_state->last_is_defer_blocking_by_warp.clear();
 }
 
 /**
@@ -495,25 +517,51 @@ static void print_warp_status_summary(CTXstate *ctx_state, uint64_t current_kern
 
     // Loop state info
     auto loop_iter = ctx_state->loop_states.find(warp_key);
+    bool is_looping = false;
     if (loop_iter != ctx_state->loop_states.end()) {
       const WarpLoopState &loop_state = loop_iter->second;
       if (loop_state.loop_flag) {
+        is_looping = true;
         time_t loop_duration = now - loop_state.first_loop_time;
         loprintf("LOOPING(period=%d, repeat=%d, %lds) ", loop_state.last_period, loop_state.repeat_cnt, loop_duration);
-      } else {
-        loprintf("NO_LOOP(period=%d, repeat=%d) ", loop_state.last_period, loop_state.repeat_cnt);
       }
-    } else {
-      loprintf("NO_STATE ");
     }
 
     // Activity info
+    time_t inactive_duration = 0;
     auto seen_iter = ctx_state->last_seen_time_by_warp.find(warp_key);
     if (seen_iter != ctx_state->last_seen_time_by_warp.end()) {
-      time_t inactive_duration = now - seen_iter->second;
-      loprintf("- Last_seen=%lds_ago ", inactive_duration);
-    } else {
-      loprintf("- Last_seen=UNKNOWN ");
+      inactive_duration = now - seen_iter->second;
+    }
+
+    if (!is_looping) {
+      // If not looping, distinguish barrier vs progressing by last_is_defer_blocking_by_warp
+      bool is_barrier = false;
+      auto itBar = ctx_state->last_is_defer_blocking_by_warp.find(warp_key);
+      if (itBar != ctx_state->last_is_defer_blocking_by_warp.end()) {
+        is_barrier = itBar->second;
+      }
+
+      if (is_barrier) {
+        // Barrier category (last observed instruction is BAR.SYNC.DEFER_BLOCKING)
+        // Include inactivity seconds for quick assessment
+        int period_val = 0;
+        int repeat_val = 0;
+        if (loop_iter != ctx_state->loop_states.end()) {
+          period_val = loop_iter->second.last_period;
+          repeat_val = loop_iter->second.repeat_cnt;
+        }
+        loprintf("BARRIER(inactive=%lds) no_loop(period=%d, repeat=%d) ", inactive_duration, period_val, repeat_val);
+      } else {
+        // Progressing category
+        int period_val = 0;
+        int repeat_val = 0;
+        if (loop_iter != ctx_state->loop_states.end()) {
+          period_val = loop_iter->second.last_period;
+          repeat_val = loop_iter->second.repeat_cnt;
+        }
+        loprintf("PROGRESSING no_loop(period=%d, repeat=%d) ", period_val, repeat_val);
+      }
     }
 
     // Exit candidate status
@@ -639,21 +687,55 @@ static void check_kernel_hang(CTXstate *ctx_state, uint64_t current_kernel_launc
     }
   }
 
-  bool all_warps_in_loop = true;
-  for (const auto &warp_key : ctx_state->active_warps) {
-    if (ctx_state->loop_states.find(warp_key) == ctx_state->loop_states.end() ||
-        !ctx_state->loop_states.at(warp_key).loop_flag) {
-      all_warps_in_loop = false;
-      break;
+  size_t looping_cnt = 0;
+  size_t barrier_cnt = 0;
+  size_t progressing_cnt = 0;
+  bool candidate_hang = false;
+  for (const WarpKey &warp_key : ctx_state->active_warps) {
+    bool is_looping = false;
+    {
+      std::map<WarpKey, WarpLoopState>::const_iterator it = ctx_state->loop_states.find(warp_key);
+      if (it != ctx_state->loop_states.end() && it->second.loop_flag) is_looping = true;
     }
+
+    bool is_barrier = false;
+    {
+      std::unordered_map<WarpKey, bool, WarpKey::Hash>::const_iterator itBar =
+          ctx_state->last_is_defer_blocking_by_warp.find(warp_key);
+      if (itBar != ctx_state->last_is_defer_blocking_by_warp.end()) is_barrier = itBar->second;
+    }
+
+    if (is_barrier)
+      barrier_cnt++;
+    else if (is_looping)
+      looping_cnt++;
+    else
+      progressing_cnt++;
   }
 
-  if (all_warps_in_loop) {
-    time_t hang_time = now - ctx_state->loop_states.begin()->second.first_loop_time;
-    loprintf("Possible kernel hang: launch_id=%lu — all %zu active warps have been looping for %ld seconds.\n",
-             current_kernel_launch_id, ctx_state->active_warps.size(), hang_time);
+  // Hang trigger: no warp is progressing → kernel is effectively stalled.
+  // We partition active warps into three mutually exclusive categories:
+  //  - barrier: the last observed instruction is BAR.SYNC.DEFER_BLOCKING
+  //  - looping: not barrier and loop_flag == true (stable PC cycle detected)
+  //  - progressing: not barrier and loop_flag == false (still making forward progress)
+  // If progressing_cnt == 0 (and there are active warps), the system is stalled.
+  // This single condition covers the three intended hang scenarios:
+  //  (1) All barrier: barrier_cnt == active_warps.size(), looping_cnt == 0, progressing_cnt == 0
+  //  (2) Barrier + the rest looping: barrier_cnt > 0, looping_cnt > 0, progressing_cnt == 0
+  //  (3) All looping: looping_cnt == active_warps.size(), barrier_cnt == 0, progressing_cnt == 0
+  if (!ctx_state->active_warps.empty() && progressing_cnt == 0) {
+    candidate_hang = true;
+  }
+
+  if (candidate_hang) {
+    time_t hang_time = 0;
+    if (!ctx_state->loop_states.empty()) {
+      hang_time = now - ctx_state->loop_states.begin()->second.first_loop_time;
+    }
+    loprintf(
+        "Possible kernel hang: launch_id=%lu — state(looping=%zu, barrier=%zu, progressing=%zu) for %ld seconds.\n",
+        current_kernel_launch_id, looping_cnt, barrier_cnt, progressing_cnt, hang_time);
     print_warp_status_summary(ctx_state, current_kernel_launch_id);
-    // Deadlock sustained handling: count consecutive hits and terminate after threshold
     if (!ctx_state->deadlock_termination_initiated) {
       ctx_state->deadlock_consecutive_hits++;
       if (ctx_state->deadlock_consecutive_hits >= 3) {
@@ -662,15 +744,12 @@ static void check_kernel_hang(CTXstate *ctx_state, uint64_t current_kernel_launc
         fflush(stdout);
         fflush(stderr);
         raise(SIGTERM);
-        // Grace period; if not terminated externally, force kill
         sleep(2);
         loprintf("Process still alive after SIGTERM; sending SIGKILL.\n");
         raise(SIGKILL);
       }
     }
-    // Optional: Add detailed printout of loop info here
   } else {
-    // Reset hit counter if condition is not sustained
     ctx_state->deadlock_consecutive_hits = 0;
   }
 }
@@ -771,10 +850,18 @@ void *recv_thread_fun(void *args) {
             ctx_state->last_seen_time_by_warp[key] = time(nullptr);
             update_loop_state(ctx_state, key, ri);
 
-            // Mark EXIT candidate if this opcode_id is an EXIT for the current function
+            // Determine if current instruction is BAR.SYNC.DEFER_BLOCKING
+            bool is_barrier_defer = false;
+            CUfunction f_func2 = nullptr;
             auto func_iter2 = kernel_launch_to_func_map.find(ri->kernel_launch_id);
             if (func_iter2 != kernel_launch_to_func_map.end()) {
-              CUfunction f_func2 = func_iter2->second.second;
+              f_func2 = func_iter2->second.second;
+              is_barrier_defer = is_barrier_defer_blocking_for_opcode(ctx_state, f_func2, ri->opcode_id);
+            }
+            ctx_state->last_is_defer_blocking_by_warp[key] = is_barrier_defer;
+
+            // Mark EXIT candidate if this opcode_id is an EXIT for the current function
+            if (func_iter2 != kernel_launch_to_func_map.end()) {
               if (ctx_state->exit_opcode_ids.count(f_func2) &&
                   ctx_state->exit_opcode_ids[f_func2].count(ri->opcode_id)) {
                 if (!ctx_state->exit_candidate_since_by_warp.count(key)) {
