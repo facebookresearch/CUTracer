@@ -517,25 +517,51 @@ static void print_warp_status_summary(CTXstate *ctx_state, uint64_t current_kern
 
     // Loop state info
     auto loop_iter = ctx_state->loop_states.find(warp_key);
+    bool is_looping = false;
     if (loop_iter != ctx_state->loop_states.end()) {
       const WarpLoopState &loop_state = loop_iter->second;
       if (loop_state.loop_flag) {
+        is_looping = true;
         time_t loop_duration = now - loop_state.first_loop_time;
         loprintf("LOOPING(period=%d, repeat=%d, %lds) ", loop_state.last_period, loop_state.repeat_cnt, loop_duration);
-      } else {
-        loprintf("NO_LOOP(period=%d, repeat=%d) ", loop_state.last_period, loop_state.repeat_cnt);
       }
-    } else {
-      loprintf("NO_STATE ");
     }
 
     // Activity info
+    time_t inactive_duration = 0;
     auto seen_iter = ctx_state->last_seen_time_by_warp.find(warp_key);
     if (seen_iter != ctx_state->last_seen_time_by_warp.end()) {
-      time_t inactive_duration = now - seen_iter->second;
-      loprintf("- Last_seen=%lds_ago ", inactive_duration);
-    } else {
-      loprintf("- Last_seen=UNKNOWN ");
+      inactive_duration = now - seen_iter->second;
+    }
+
+    if (!is_looping) {
+      // If not looping, distinguish barrier vs progressing by last_is_defer_blocking_by_warp
+      bool is_barrier = false;
+      auto itBar = ctx_state->last_is_defer_blocking_by_warp.find(warp_key);
+      if (itBar != ctx_state->last_is_defer_blocking_by_warp.end()) {
+        is_barrier = itBar->second;
+      }
+
+      if (is_barrier) {
+        // Barrier category (last observed instruction is BAR.SYNC.DEFER_BLOCKING)
+        // Include inactivity seconds for quick assessment
+        int period_val = 0;
+        int repeat_val = 0;
+        if (loop_iter != ctx_state->loop_states.end()) {
+          period_val = loop_iter->second.last_period;
+          repeat_val = loop_iter->second.repeat_cnt;
+        }
+        loprintf("BARRIER(inactive=%lds) no_loop(period=%d, repeat=%d) ", inactive_duration, period_val, repeat_val);
+      } else {
+        // Progressing category
+        int period_val = 0;
+        int repeat_val = 0;
+        if (loop_iter != ctx_state->loop_states.end()) {
+          period_val = loop_iter->second.last_period;
+          repeat_val = loop_iter->second.repeat_cnt;
+        }
+        loprintf("PROGRESSING no_loop(period=%d, repeat=%d) ", period_val, repeat_val);
+      }
     }
 
     // Exit candidate status
