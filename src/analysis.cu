@@ -40,6 +40,123 @@ extern std::map<uint64_t, uint32_t> kernel_launch_to_iter_map;
 // Forward declaration for helper defined below in this file
 std::string extract_instruction_name(const std::string &sass_line);
 
+/**
+ * Print one instruction line in the exact same format as loop body entries.
+ *
+ * Purpose:
+ * - Provide a single-line renderer that matches the loop body formatting so
+ *   different states (looping/barrier/progressing) can share the same
+ *   presentation logic for an instruction row.
+ *
+ * Output format (aligned columns):
+ *   Example: [idx] PC <dec>; Offset <dec> [0x<hex>];  <SASS> (has_mem)\n
+ * - The trailing "(has_mem)" is printed only when the merged record has
+ *   associated memory info.
+ * - The index field width is currently fixed to 1 for consistency with our
+ *   existing loop body output. Adjust if you later support wider indices.
+ *
+ * Parameters:
+ * - index: The row index to print inside square brackets. For barrier/
+ *   progressing single-line outputs, callers typically pass 0.
+ * - instr: The merged trace record containing the reg info (and optional mem).
+ * - sass_map_for_func: Per-function opcode->SASS map to resolve the mnemonic.
+ *   If null or missing entry, prints "UNKNOWN" as fallback.
+ * - pc_dec_width: Precomputed decimal width for PC/Offset alignment.
+ * - hex_nibbles_max: Precomputed hex width (in nibbles), rounded to multiples
+ *   of 4 and clamped to [4,16], used for the 0x... field.
+ *
+ * Notes:
+ * - This function does not perform width computation. Callers should compute
+ *   widths across the intended set of rows (entire loop body, or just the last
+ *   single record) and pass them here to ensure consistent alignment.
+ */
+static inline void print_instruction_line(size_t index, const TraceRecordMerged &instr,
+                                          const std::map<int, std::string> *sass_map_for_func, int pc_dec_width,
+                                          int hex_nibbles_max) {
+  uint64_t pc_val = instr.reg.pc;
+  const char *sass_cstr = "UNKNOWN";
+  if (sass_map_for_func && sass_map_for_func->count(instr.reg.opcode_id)) {
+    sass_cstr = sass_map_for_func->at(instr.reg.opcode_id).c_str();
+  }
+  loprintf("        [%*zu] PC %*lu; Offset %*lu /*0x%0*lx*/;  %s", 1, index, pc_dec_width, (unsigned long)pc_val,
+           pc_dec_width, (unsigned long)pc_val, hex_nibbles_max, (unsigned long)pc_val, sass_cstr);
+  if (instr.has_mem) {
+    loprintf(" (has_mem)");
+  }
+  loprintf("\n");
+}
+
+/**
+ * Print the most recent instruction for a warp as a single line (loop-body style).
+ *
+ * Purpose:
+ * - Provide a one-liner for BARRIER/PROGRESSING states that mirrors the loop
+ *   body row format for visual consistency with LOOPING output.
+ *
+ * Behavior:
+ * - Fetches the latest entry from the per-warp ring buffer
+ *   ((head + filled - 1) % PC_HISTORY_LEN).
+ * - Computes widths (decimal/hex) based solely on this last record and prints
+ *   a single formatted line prefixed by "last: ".
+ * - If there is no available entry (null state or empty), prints a line with
+ *   UNKNOWN mnemonic and zero PC/Offset.
+ *
+ * Parameters:
+ * - loop_state: Pointer to the warp's loop state holding the ring buffer.
+ * - sass_map_for_func: Per-function opcode->SASS map to resolve the mnemonic.
+ *
+ * Notes:
+ * - This function intentionally recomputes widths for the single last record.
+ *   For multi-row loop bodies, prefer computing widths once across all rows and
+ *   calling print_instruction_line_like_loop per row.
+ */
+static inline void print_last_instruction_line(const WarpLoopState *loop_state,
+                                               const std::map<int, std::string> *sass_map_for_func) {
+  uint64_t last_pc_val = 0;
+  bool last_has_mem = false;
+  const char *last_sass_cstr = "UNKNOWN";
+
+  if (loop_state && loop_state->filled > 0 && sass_map_for_func) {
+    int idx_last = (loop_state->head + (int)loop_state->filled + PC_HISTORY_LEN - 1) % PC_HISTORY_LEN;
+    int opcode_last = loop_state->history[idx_last].reg.opcode_id;
+    last_pc_val = loop_state->history[idx_last].reg.pc;
+    last_has_mem = loop_state->history[idx_last].has_mem;
+    if (sass_map_for_func->count(opcode_last)) {
+      last_sass_cstr = sass_map_for_func->at(opcode_last).c_str();
+    }
+  }
+
+  int pc_dec_width = 1;
+  int hex_nibbles_max = 4;
+  {
+    uint64_t td = last_pc_val;
+    int dec_w = 1;
+    while (td >= 10) {
+      td /= 10;
+      dec_w++;
+    }
+    if (dec_w > pc_dec_width) pc_dec_width = dec_w;
+    int nibbles = 1;
+    if (last_pc_val != 0) {
+      nibbles = 0;
+      uint64_t th = last_pc_val;
+      while (th) {
+        th >>= 4;
+        nibbles++;
+      }
+    }
+    if (nibbles > hex_nibbles_max) hex_nibbles_max = nibbles;
+    hex_nibbles_max = ((hex_nibbles_max + 3) / 4) * 4;
+    if (hex_nibbles_max < 4) hex_nibbles_max = 4;
+    if (hex_nibbles_max > 16) hex_nibbles_max = 16;
+  }
+  loprintf("      Last: [%*d] PC %*lu; Offset %*lu /*0x%0*lx*/;  %s", 1, 0, pc_dec_width, (unsigned long)last_pc_val,
+           pc_dec_width, (unsigned long)last_pc_val, hex_nibbles_max, (unsigned long)last_pc_val, last_sass_cstr);
+  if (last_has_mem) {
+    loprintf(" (has_mem)");
+  }
+}
+
 static inline bool matches_barrier_defer_blocking(const std::string &mnemonic) {
   if (mnemonic == "BAR.SYNC.DEFER_BLOCKING") return true;
   // Conservative fallback: prefix BAR.SYNC and contains .DEFER_BLOCKING
@@ -522,8 +639,13 @@ static void print_warp_status_summary(CTXstate *ctx_state, uint64_t current_kern
       const WarpLoopState &loop_state = loop_iter->second;
       if (loop_state.loop_flag) {
         is_looping = true;
-        time_t loop_duration = now - loop_state.first_loop_time;
-        loprintf("LOOPING(period=%d, repeat=%d, %lds) ", loop_state.last_period, loop_state.repeat_cnt, loop_duration);
+        time_t last_seen_secs = 0;
+        auto seen_it2 = ctx_state->last_seen_time_by_warp.find(warp_key);
+        if (seen_it2 != ctx_state->last_seen_time_by_warp.end()) {
+          last_seen_secs = now - seen_it2->second;
+        }
+        loprintf("LOOPING(period=%d, repeat=%d) last_seen=%lds ", loop_state.last_period, loop_state.repeat_cnt,
+                 last_seen_secs);
       }
     }
 
@@ -542,6 +664,8 @@ static void print_warp_status_summary(CTXstate *ctx_state, uint64_t current_kern
         is_barrier = itBar->second;
       }
 
+      // Use unified single-line printer for last instruction; no temporary variables needed here
+
       if (is_barrier) {
         // Barrier category (last observed instruction is BAR.SYNC.DEFER_BLOCKING)
         // Include inactivity seconds for quick assessment
@@ -551,7 +675,9 @@ static void print_warp_status_summary(CTXstate *ctx_state, uint64_t current_kern
           period_val = loop_iter->second.last_period;
           repeat_val = loop_iter->second.repeat_cnt;
         }
-        loprintf("BARRIER(inactive=%lds) no_loop(period=%d, repeat=%d) ", inactive_duration, period_val, repeat_val);
+        loprintf("BARRIER(inactive=%lds) no_loop(period=%d, repeat=%d)\n", inactive_duration, period_val, repeat_val);
+        print_last_instruction_line(loop_iter != ctx_state->loop_states.end() ? &loop_iter->second : nullptr,
+                                    sass_map_for_func);
       } else {
         // Progressing category
         int period_val = 0;
@@ -560,7 +686,9 @@ static void print_warp_status_summary(CTXstate *ctx_state, uint64_t current_kern
           period_val = loop_iter->second.last_period;
           repeat_val = loop_iter->second.repeat_cnt;
         }
-        loprintf("PROGRESSING no_loop(period=%d, repeat=%d) ", period_val, repeat_val);
+        loprintf("PROGRESSING no_loop(period=%d, repeat=%d)\n", period_val, repeat_val);
+        print_last_instruction_line(loop_iter != ctx_state->loop_states.end() ? &loop_iter->second : nullptr,
+                                    sass_map_for_func);
       }
     }
 
@@ -578,16 +706,6 @@ static void print_warp_status_summary(CTXstate *ctx_state, uint64_t current_kern
       const WarpLoopState &loop_state = loop_iter->second;
       if (!loop_state.current_loop.instructions.empty()) {
         loprintf("      Loop Body (%d instructions):\n", loop_state.current_loop.period);
-        // Determine index field width based on period digit count for aligned indices
-        int index_width = 1;
-        {
-          int tmp_period = loop_state.current_loop.period;
-          while (tmp_period >= 10) {
-            index_width++;
-            tmp_period /= 10;
-          }
-          if (index_width < 1) index_width = 1;
-        }
         // Pre-compute alignment for PC/Offset columns across the loop body
         int pc_dec_width = 1;
         int hex_nibbles_max = 4;
@@ -596,7 +714,6 @@ static void print_warp_status_summary(CTXstate *ctx_state, uint64_t current_kern
                                   loop_state.current_loop.instructions.size());
           for (size_t j = 0; j < upper; ++j) {
             uint64_t pc = loop_state.current_loop.instructions[j].reg.pc;
-            // decimal width
             int dec_w = 1;
             uint64_t td = pc;
             while (td >= 10) {
@@ -604,7 +721,6 @@ static void print_warp_status_summary(CTXstate *ctx_state, uint64_t current_kern
               dec_w++;
             }
             if (dec_w > pc_dec_width) pc_dec_width = dec_w;
-            // hex width in nibbles
             int nibbles = 1;
             if (pc != 0) {
               nibbles = 0;
@@ -616,7 +732,6 @@ static void print_warp_status_summary(CTXstate *ctx_state, uint64_t current_kern
             }
             if (nibbles > hex_nibbles_max) hex_nibbles_max = nibbles;
           }
-          // Round hex width up to multiple of 4, clamp to [4,16]
           hex_nibbles_max = ((hex_nibbles_max + 3) / 4) * 4;
           if (hex_nibbles_max < 4) hex_nibbles_max = 4;
           if (hex_nibbles_max > 16) hex_nibbles_max = 16;
@@ -625,21 +740,7 @@ static void print_warp_status_summary(CTXstate *ctx_state, uint64_t current_kern
              i < static_cast<size_t>(loop_state.current_loop.period) && i < loop_state.current_loop.instructions.size();
              ++i) {
           const auto &instr = loop_state.current_loop.instructions[i];
-          uint64_t pc_val = instr.reg.pc;
-
-          const char *sass_cstr = "UNKNOWN";
-          if (sass_map_for_func && sass_map_for_func->count(instr.reg.opcode_id)) {
-            sass_cstr = sass_map_for_func->at(instr.reg.opcode_id).c_str();
-          }
-
-          // Desired format with aligned columns: "[ 4] PC  128; Offset  128 /*0x0080*/;  <SASS>"
-          loprintf("        [%*zu] PC %*lu; Offset %*lu /*0x%0*lx*/;  %s", index_width, i, pc_dec_width,
-                   (unsigned long)pc_val, pc_dec_width, (unsigned long)pc_val, hex_nibbles_max, (unsigned long)pc_val,
-                   sass_cstr);
-          if (instr.has_mem) {
-            loprintf(" (has_mem)");
-          }
-          loprintf("\n");
+          print_instruction_line(i, instr, sass_map_for_func, pc_dec_width, hex_nibbles_max);
         }
       }
     }
