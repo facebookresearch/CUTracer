@@ -542,6 +542,20 @@ static void print_warp_status_summary(CTXstate *ctx_state, uint64_t current_kern
         is_barrier = itBar->second;
       }
 
+      // Determine last SASS from most recent record in history if available
+      const char *last_sass_cstr = "UNKNOWN";
+      if (loop_iter != ctx_state->loop_states.end()) {
+        const WarpLoopState &loop_state = loop_iter->second;
+        if (loop_state.filled > 0 && sass_map_for_func) {
+          // Most recent element is at (head + filled - 1) % PC_HISTORY_LEN
+          int idx_last = (loop_state.head + (int)loop_state.filled + PC_HISTORY_LEN - 1) % PC_HISTORY_LEN;
+          int opcode_last = loop_state.history[idx_last].reg.opcode_id;
+          if (sass_map_for_func->count(opcode_last)) {
+            last_sass_cstr = sass_map_for_func->at(opcode_last).c_str();
+          }
+        }
+      }
+
       if (is_barrier) {
         // Barrier category (last observed instruction is BAR.SYNC.DEFER_BLOCKING)
         // Include inactivity seconds for quick assessment
@@ -551,7 +565,8 @@ static void print_warp_status_summary(CTXstate *ctx_state, uint64_t current_kern
           period_val = loop_iter->second.last_period;
           repeat_val = loop_iter->second.repeat_cnt;
         }
-        loprintf("BARRIER(inactive=%lds) no_loop(period=%d, repeat=%d) ", inactive_duration, period_val, repeat_val);
+        loprintf("BARRIER(inactive=%lds) no_loop(period=%d, repeat=%d) last=%s ", inactive_duration, period_val,
+                 repeat_val, last_sass_cstr);
       } else {
         // Progressing category
         int period_val = 0;
@@ -560,7 +575,7 @@ static void print_warp_status_summary(CTXstate *ctx_state, uint64_t current_kern
           period_val = loop_iter->second.last_period;
           repeat_val = loop_iter->second.repeat_cnt;
         }
-        loprintf("PROGRESSING no_loop(period=%d, repeat=%d) ", period_val, repeat_val);
+        loprintf("PROGRESSING no_loop(period=%d, repeat=%d) last=%s ", period_val, repeat_val, last_sass_cstr);
       }
     }
 
