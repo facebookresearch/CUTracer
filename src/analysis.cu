@@ -150,12 +150,11 @@ static inline void print_last_instruction_line(const WarpLoopState *loop_state,
     if (hex_nibbles_max < 4) hex_nibbles_max = 4;
     if (hex_nibbles_max > 16) hex_nibbles_max = 16;
   }
-  loprintf("last: [%*d] PC %*lu; Offset %*lu /*0x%0*lx*/;  %s", 1, 0, pc_dec_width, (unsigned long)last_pc_val,
+  loprintf("      Last: [%*d] PC %*lu; Offset %*lu /*0x%0*lx*/;  %s", 1, 0, pc_dec_width, (unsigned long)last_pc_val,
            pc_dec_width, (unsigned long)last_pc_val, hex_nibbles_max, (unsigned long)last_pc_val, last_sass_cstr);
   if (last_has_mem) {
     loprintf(" (has_mem)");
   }
-  loprintf(" ");
 }
 
 static inline bool matches_barrier_defer_blocking(const std::string &mnemonic) {
@@ -640,8 +639,13 @@ static void print_warp_status_summary(CTXstate *ctx_state, uint64_t current_kern
       const WarpLoopState &loop_state = loop_iter->second;
       if (loop_state.loop_flag) {
         is_looping = true;
-        time_t loop_duration = now - loop_state.first_loop_time;
-        loprintf("LOOPING(period=%d, repeat=%d, %lds) ", loop_state.last_period, loop_state.repeat_cnt, loop_duration);
+        time_t last_seen_secs = 0;
+        auto seen_it2 = ctx_state->last_seen_time_by_warp.find(warp_key);
+        if (seen_it2 != ctx_state->last_seen_time_by_warp.end()) {
+          last_seen_secs = now - seen_it2->second;
+        }
+        loprintf("LOOPING(period=%d, repeat=%d) last_seen=%lds ", loop_state.last_period, loop_state.repeat_cnt,
+                 last_seen_secs);
       }
     }
 
@@ -671,7 +675,7 @@ static void print_warp_status_summary(CTXstate *ctx_state, uint64_t current_kern
           period_val = loop_iter->second.last_period;
           repeat_val = loop_iter->second.repeat_cnt;
         }
-        loprintf("BARRIER(inactive=%lds) no_loop(period=%d, repeat=%d) ", inactive_duration, period_val, repeat_val);
+        loprintf("BARRIER(inactive=%lds) no_loop(period=%d, repeat=%d)\n", inactive_duration, period_val, repeat_val);
         print_last_instruction_line(loop_iter != ctx_state->loop_states.end() ? &loop_iter->second : nullptr,
                                     sass_map_for_func);
       } else {
@@ -682,7 +686,7 @@ static void print_warp_status_summary(CTXstate *ctx_state, uint64_t current_kern
           period_val = loop_iter->second.last_period;
           repeat_val = loop_iter->second.repeat_cnt;
         }
-        loprintf("PROGRESSING no_loop(period=%d, repeat=%d) ", period_val, repeat_val);
+        loprintf("PROGRESSING no_loop(period=%d, repeat=%d)\n", period_val, repeat_val);
         print_last_instruction_line(loop_iter != ctx_state->loop_states.end() ? &loop_iter->second : nullptr,
                                     sass_map_for_func);
       }
