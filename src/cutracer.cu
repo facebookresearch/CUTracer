@@ -145,7 +145,11 @@ bool instrument_function_if_needed(CUcontext ctx, CUfunction func) {
     if (!should_instrument) {
       continue;
     }
-
+    if (dump_cubin) {
+      std::string kernel_hash_hex = compute_kernel_name_hash_hex(ctx, f);
+      std::string cubin_filename = std::string(nvbit_get_func_name(ctx, f)) + "_0x" + kernel_hash_hex + ".cubin";
+      nvbit_dump_cubin(ctx, f, cubin_filename.c_str());
+    }
     uint32_t cnt = 0;
     /* iterate on all the static instructions in the function */
     for (auto instr : instrs) {

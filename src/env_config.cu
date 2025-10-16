@@ -17,6 +17,7 @@
 uint32_t instr_begin_interval;
 uint32_t instr_end_interval;
 int verbose;
+bool dump_cubin;
 // kernel name filters
 std::vector<std::string> kernel_filters;
 // enabled instrumentation types
@@ -184,6 +185,9 @@ void init_config_from_env() {
   init_log_handle();
   // Get other configuration variables
   get_var_int(verbose, "TOOL_VERBOSE", 0, "Enable verbosity inside the tool");
+  int dump_cubin_int = 0;
+  get_var_int(dump_cubin_int, "CUTRACER_DUMP_CUBIN", 0, "Dump cubin files for instrumented kernels");
+  dump_cubin = (dump_cubin_int != 0);
   // If INSTRS is not set, fall back to the old INSTR_BEGIN/INSTR_END behavior
   get_var_uint32(instr_begin_interval, "INSTR_BEGIN", 0,
                  "Beginning of the instruction interval where to apply instrumentation");
