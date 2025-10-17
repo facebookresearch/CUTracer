@@ -42,6 +42,7 @@ enum class AnalysisType {
 extern uint32_t instr_begin_interval;
 extern uint32_t instr_end_interval;
 extern int verbose;
+extern bool dump_cubin;
 
 // Kernel name filters
 extern std::vector<std::string> kernel_filters;
