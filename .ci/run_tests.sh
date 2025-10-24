@@ -1,5 +1,5 @@
 #!/bin/bash
-
+# Copyright (c) Meta Platforms, Inc. and affiliates.
 # Main test script for CUTracer
 # This script builds CUTracer and runs the vectoradd test with validation
 
