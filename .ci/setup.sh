@@ -1,5 +1,5 @@
 #!/bin/bash
-
+# Copyright (c) Meta Platforms, Inc. and affiliates.
 # Setup script for CUTracer CI environment
 # This script sets up CUDA and system dependencies for building and testing CUTracer
 
