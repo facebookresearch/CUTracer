@@ -42,7 +42,7 @@ struct WarpKey {
   int warp_id;
 
   // Operator for map comparison
-  bool operator<(const WarpKey &other) const {
+  bool operator<(const WarpKey& other) const {
     if (cta_id_x != other.cta_id_x) return cta_id_x < other.cta_id_x;
     if (cta_id_y != other.cta_id_y) return cta_id_y < other.cta_id_y;
     if (cta_id_z != other.cta_id_z) return cta_id_z < other.cta_id_z;
@@ -51,13 +51,13 @@ struct WarpKey {
 
   // Hash function for unordered_map
   struct Hash {
-    size_t operator()(const WarpKey &k) const {
+    size_t operator()(const WarpKey& k) const {
       return (size_t)k.cta_id_x ^ ((size_t)k.cta_id_y << 10) ^ ((size_t)k.cta_id_z << 20) ^ ((size_t)k.warp_id << 30);
     }
   };
 
   // Equality operator for unordered_map
-  bool operator==(const WarpKey &other) const {
+  bool operator==(const WarpKey& other) const {
     return cta_id_x == other.cta_id_x && cta_id_y == other.cta_id_y && cta_id_z == other.cta_id_z &&
            warp_id == other.warp_id;
   }
@@ -153,7 +153,7 @@ struct CTXstate {
   int id;
 
   /* Channel used to communicate from GPU to CPU receiving thread */
-  ChannelDev *channel_dev;
+  ChannelDev* channel_dev;
   ChannelHost channel_host;
 
   // After initialization, set it to WORKING to make recv thread get data,
@@ -203,7 +203,7 @@ struct CTXstate {
  * @param args A pointer to the `CUcontext` for which this thread is launched.
  * @return void*
  */
-void *recv_thread_fun(void *args);
+void* recv_thread_fun(void* args);
 
 /**
  * @brief Writes a set of histograms to a formatted CSV file.
@@ -214,6 +214,6 @@ void *recv_thread_fun(void *args);
  * @param histograms The histogram data to be written.
  */
 void dump_histograms_to_csv(CUcontext ctx, CUfunction func, uint32_t iteration,
-                            const std::vector<RegionHistogram> &histograms);
+                            const std::vector<RegionHistogram>& histograms);
 
 #endif /* ANALYSIS_H */

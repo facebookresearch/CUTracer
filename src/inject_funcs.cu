@@ -69,7 +69,7 @@ extern "C" __device__ __noinline__ void instrument_reg_val(int pred, int opcode_
   }
 
   if (first_laneid == laneid) {
-    ChannelDev *channel_dev = (ChannelDev *)pchannel_dev;
+    ChannelDev* channel_dev = (ChannelDev*)pchannel_dev;
     channel_dev->push(&ri, sizeof(reg_info_t));
   }
 }
@@ -105,7 +105,7 @@ extern "C" __device__ __noinline__ void instrument_mem(int pred, int opcode_id, 
 
   /* first active lane pushes information on the channel */
   if (first_laneid == laneid) {
-    ChannelDev *channel_dev = (ChannelDev *)pchannel_dev;
+    ChannelDev* channel_dev = (ChannelDev*)pchannel_dev;
     channel_dev->push(&ma, sizeof(mem_access_t));
   }
 }
@@ -133,7 +133,7 @@ extern "C" __device__ __noinline__ void instrument_opcode(int pred, int opcode_i
   oi.pc = pc;
 
   if (first_laneid == laneid) {
-    ChannelDev *channel_dev = (ChannelDev *)pchannel_dev;
+    ChannelDev* channel_dev = (ChannelDev*)pchannel_dev;
     channel_dev->push(&oi, sizeof(opcode_only_t));
   }
 }

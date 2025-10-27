@@ -62,7 +62,7 @@ bool is_instrument_type_enabled(InstrumentType type);
 bool is_analysis_type_enabled(AnalysisType type);
 
 // Initialize instrumentation configuration
-void init_instrumentation(const std::string &instrument_str);
+void init_instrumentation(const std::string& instrument_str);
 
 // Initialize analysis configuration
-void init_analysis(const std::string &analysis_str);
+void init_analysis(const std::string& analysis_str);

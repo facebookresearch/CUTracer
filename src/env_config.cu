@@ -48,7 +48,7 @@ std::unordered_set<AnalysisType> enabled_analysis_types;
  * After calling this function with the example string, the `kernel_filters`
  * vector will contain: `{"add", "_Z2_gemm", "reduce"}`
  */
-static void parse_kernel_filters(const std::string &filters_env) {
+static void parse_kernel_filters(const std::string& filters_env) {
   if (filters_env.empty()) return;
 
   std::string filters_str = filters_env;
@@ -70,14 +70,14 @@ static void parse_kernel_filters(const std::string &filters_env) {
   }
 
   printf("Kernel name filters to instrument:\n");
-  for (const auto &filter : kernel_filters) {
+  for (const auto& filter : kernel_filters) {
     printf("  - %s\n", filter.c_str());
   }
 }
 
 // Helper function for reading environment variables
-static void get_var_int(int &var, const char *env_name, int default_val, const char *description) {
-  const char *env_val = getenv(env_name);
+static void get_var_int(int& var, const char* env_name, int default_val, const char* description) {
+  const char* env_val = getenv(env_name);
   if (env_val) {
     var = atoi(env_val);
   } else {
@@ -86,8 +86,8 @@ static void get_var_int(int &var, const char *env_name, int default_val, const c
   loprintf("%s = %d (%s)\n", env_name, var, description);
 }
 
-static void get_var_uint32(uint32_t &var, const char *env_name, uint32_t default_val, const char *description) {
-  const char *env_val = getenv(env_name);
+static void get_var_uint32(uint32_t& var, const char* env_name, uint32_t default_val, const char* description) {
+  const char* env_val = getenv(env_name);
   if (env_val) {
     var = (uint32_t)atoll(env_val);
   } else {
@@ -96,9 +96,9 @@ static void get_var_uint32(uint32_t &var, const char *env_name, uint32_t default
   loprintf("%s = %u (%s)\n", env_name, var, description);
 }
 
-static void get_var_str(std::string &var, const char *env_name, const std::string &default_val,
-                        const char *description) {
-  const char *env_val = getenv(env_name);
+static void get_var_str(std::string& var, const char* env_name, const std::string& default_val,
+                        const char* description) {
+  const char* env_val = getenv(env_name);
   if (env_val) {
     var = std::string(env_val);
   } else {
@@ -113,7 +113,7 @@ static void get_var_str(std::string &var, const char *env_name, const std::strin
  * Parses CUTRACER_INSTRUMENT environment variable and sets up enabled types.
  * This function is called within init_config_from_env().
  */
-void init_instrumentation(const std::string &instrument_str) {
+void init_instrumentation(const std::string& instrument_str) {
   if (instrument_str.empty()) {
     return;
   }
@@ -129,7 +129,7 @@ void init_instrumentation(const std::string &instrument_str) {
   }
 }
 
-void init_analysis(const std::string &analysis_str) {
+void init_analysis(const std::string& analysis_str) {
   enabled_analysis_types.clear();
 
   if (analysis_str.empty()) {

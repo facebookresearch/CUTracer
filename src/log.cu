@@ -34,7 +34,7 @@
  * std::hash<std::string>, then formats the numeric value in hexadecimal for display/storage.
  */
 std::string compute_kernel_name_hash_hex(CUcontext ctx, CUfunction func) {
-  const char *mangled_name_raw = nvbit_get_func_name(ctx, func, true);
+  const char* mangled_name_raw = nvbit_get_func_name(ctx, func, true);
   if (!mangled_name_raw) {
     mangled_name_raw = "unknown_kernel";
   }
@@ -57,7 +57,7 @@ std::string compute_kernel_name_hash_hex(CUcontext ctx, CUfunction func) {
  * Example: "kernel_7fa21c3_iter42__Z23my_kernelPiS_..."
  */
 std::string generate_kernel_log_basename(CUcontext ctx, CUfunction func, uint32_t iteration) {
-  const char *mangled_name_raw = nvbit_get_func_name(ctx, func, true);
+  const char* mangled_name_raw = nvbit_get_func_name(ctx, func, true);
   if (!mangled_name_raw) {
     mangled_name_raw = "unknown_kernel";
   }
@@ -79,9 +79,9 @@ std::string generate_kernel_log_basename(CUcontext ctx, CUfunction func, uint32_
 /* ===== Global Variables ===== */
 
 // The main log file for the entire process run
-static FILE *g_main_log_file = NULL;
+static FILE* g_main_log_file = NULL;
 // The currently active log file for kernel traces
-static FILE *g_kernel_log_file = NULL;
+static FILE* g_kernel_log_file = NULL;
 
 /* ===== Utility Functions for Logging ===== */
 
@@ -93,7 +93,7 @@ static FILE *g_kernel_log_file = NULL;
  * @param format format string
  * @param args variable argument list
  */
-static void vfprintf_base(bool file_output, bool stdout_output, const char *format, va_list args) {
+static void vfprintf_base(bool file_output, bool stdout_output, const char* format, va_list args) {
   if (!file_output && !stdout_output) {
     return;
   }
@@ -110,21 +110,21 @@ static void vfprintf_base(bool file_output, bool stdout_output, const char *form
   }
 }
 
-void lprintf(const char *format, ...) {
+void lprintf(const char* format, ...) {
   va_list args;
   va_start(args, format);
   vfprintf_base(true, false, format, args);
   va_end(args);
 }
 
-void oprintf(const char *format, ...) {
+void oprintf(const char* format, ...) {
   va_list args;
   va_start(args, format);
   vfprintf_base(false, true, format, args);
   va_end(args);
 }
 
-void loprintf(const char *format, ...) {
+void loprintf(const char* format, ...) {
   va_list args;
   va_start(args, format);
   vfprintf_base(true, true, format, args);
@@ -136,7 +136,7 @@ void loprintf(const char *format, ...) {
   va_end(args);
 }
 
-void trace_lprintf(const char *format, ...) {
+void trace_lprintf(const char* format, ...) {
   if (!g_kernel_log_file) {
     oprintf("ERROR: Kernel trace log file not initialized before trace_lprintf\n");
     return;
@@ -175,7 +175,7 @@ void log_close_kernel_file() {
 void init_log_handle() {
   // Get current timestamp for filename
   time_t now = time(0);
-  struct tm *timeinfo = localtime(&now);
+  struct tm* timeinfo = localtime(&now);
   char timestamp[32];
   strftime(timestamp, sizeof(timestamp), "%Y%m%d_%H%M%S", timeinfo);
 

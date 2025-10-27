@@ -58,7 +58,7 @@ pthread_mutex_t mutex;
 pthread_mutex_t cuda_event_mutex;
 
 /* map to store context state */
-std::unordered_map<CUcontext, CTXstate *> ctx_state_map;
+std::unordered_map<CUcontext, CTXstate*> ctx_state_map;
 
 /* skip flag used to avoid re-entry on the nvbit_callback when issuing
  * flush_channel kernel call */
@@ -99,7 +99,7 @@ static std::map<CUfunction, uint32_t> kernel_iter_map;
  */
 bool instrument_function_if_needed(CUcontext ctx, CUfunction func) {
   assert(ctx_state_map.find(ctx) != ctx_state_map.end());
-  CTXstate *ctx_state = ctx_state_map[ctx];
+  CTXstate* ctx_state = ctx_state_map[ctx];
 
   /* Get related functions of the kernel (device function that can be
    * called by the kernel) */
@@ -112,15 +112,15 @@ bool instrument_function_if_needed(CUcontext ctx, CUfunction func) {
   /* iterate on function */
   for (auto f : related_functions) {
     // Get function name (both mangled and unmangled versions)
-    const char *unmangled_name = nvbit_get_func_name(ctx, f, false);
-    const char *mangled_name = nvbit_get_func_name(ctx, f, true);
+    const char* unmangled_name = nvbit_get_func_name(ctx, f, false);
+    const char* mangled_name = nvbit_get_func_name(ctx, f, true);
 
     // Check if function name contains any of the patterns
     bool should_instrument = true;  // Default to true if no filters specified
 
     if (!kernel_filters.empty()) {
       should_instrument = false;  // Start with false when we have filters
-      for (const auto &filter : kernel_filters) {
+      for (const auto& filter : kernel_filters) {
         if ((unmangled_name && strstr(unmangled_name, filter.c_str()) != NULL) ||
             (mangled_name && strstr(mangled_name, filter.c_str()) != NULL)) {
           should_instrument = true;
@@ -137,7 +137,7 @@ bool instrument_function_if_needed(CUcontext ctx, CUfunction func) {
                mangled_name ? mangled_name : "unknown");
     }
 
-    const std::vector<Instr *> &instrs = nvbit_get_instrs(ctx, f);
+    const std::vector<Instr*>& instrs = nvbit_get_instrs(ctx, f);
     if (verbose) {
       loprintf("Inspecting kernel %s at address 0x%lx\n", nvbit_get_func_name(ctx, f), nvbit_get_func_addr(ctx, f));
     }
@@ -169,7 +169,7 @@ bool instrument_function_if_needed(CUcontext ctx, CUfunction func) {
       /* iterate on the operands */
       for (int i = 0; i < instr->getNumOperands(); i++) {
         /* get the operand "i" */
-        const InstrType::operand_t *op = instr->getOperand(i);
+        const InstrType::operand_t* op = instr->getOperand(i);
         if (op->type == InstrType::OperandType::REG) {
           for (int reg_idx = 0; reg_idx < instr->getSize() / 4; reg_idx++) {
             reg_num_list.push_back(op->u.reg.num + reg_idx);
@@ -211,7 +211,7 @@ bool instrument_function_if_needed(CUcontext ctx, CUfunction func) {
     if (should_instrument) {
       for (std::map<int, std::string>::const_iterator it_sass = ctx_state->id_to_sass_map[f].begin();
            it_sass != ctx_state->id_to_sass_map[f].end(); ++it_sass) {
-        const char *sass_cstr = it_sass->second.c_str();
+        const char* sass_cstr = it_sass->second.c_str();
         if (strstr(sass_cstr, "CS2R") && strstr(sass_cstr, "SR_CLOCKLO")) {
           ctx_state->clock_opcode_ids[f].insert(it_sass->first);
         }
@@ -228,14 +228,14 @@ bool instrument_function_if_needed(CUcontext ctx, CUfunction func) {
 
 // Reference code from NVIDIA nvbit mem_trace tool
 /* flush channel */
-__global__ void flush_channel(ChannelDev *ch_dev) {
+__global__ void flush_channel(ChannelDev* ch_dev) {
   ch_dev->flush();
 }
 
 // Reference code from NVIDIA nvbit mem_trace tool
 void init_context_state(CUcontext ctx) {
   assert(ctx_state_map.find(ctx) != ctx_state_map.end());
-  CTXstate *ctx_state = ctx_state_map[ctx];
+  CTXstate* ctx_state = ctx_state_map[ctx];
   ctx_state->recv_thread_done = RecvThreadState::WORKING;
   cudaMallocManaged(&ctx_state->channel_dev, sizeof(ChannelDev));
   ctx_state->channel_host.init((int)ctx_state_map.size() - 1, CHANNEL_SIZE, ctx_state->channel_dev, recv_thread_fun,
@@ -264,9 +264,9 @@ void init_context_state(CUcontext ctx) {
  * @param build_graph True if the launch is part of a manual graph build.
  * @return `true` if the kernel was instrumented, `false` otherwise.
  */
-static bool enter_kernel_launch(CUcontext ctx, CUfunction func, uint64_t &kernel_launch_id, nvbit_api_cuda_t cbid,
-                                void *params, bool stream_capture = false, bool build_graph = false) {
-  CTXstate *ctx_state = ctx_state_map[ctx];
+static bool enter_kernel_launch(CUcontext ctx, CUfunction func, uint64_t& kernel_launch_id, nvbit_api_cuda_t cbid,
+                                void* params, bool stream_capture = false, bool build_graph = false) {
+  CTXstate* ctx_state = ctx_state_map[ctx];
   // no need to sync during stream capture or manual graph build, since no
   // kernel is actually launched.
   if (!stream_capture && !build_graph) {
@@ -284,7 +284,7 @@ static bool enter_kernel_launch(CUcontext ctx, CUfunction func, uint64_t &kernel
   CUDA_SAFECALL(cuFuncGetAttribute(&shmem_static_nbytes, CU_FUNC_ATTRIBUTE_SHARED_SIZE_BYTES, func));
 
   /* get function name and pc */
-  const char *func_name = nvbit_get_func_name(ctx, func);
+  const char* func_name = nvbit_get_func_name(ctx, func);
   uint64_t pc = nvbit_get_func_addr(ctx, func);
   std::string kernel_hash_hex = compute_kernel_name_hash_hex(ctx, func);
 
@@ -296,7 +296,7 @@ static bool enter_kernel_launch(CUcontext ctx, CUfunction func, uint64_t &kernel
     nvbit_set_at_launch(ctx, func, (uint64_t)kernel_launch_id);
 
     if (cbid == API_CUDA_cuLaunchKernelEx_ptsz || cbid == API_CUDA_cuLaunchKernelEx) {
-      cuLaunchKernelEx_params *p = (cuLaunchKernelEx_params *)params;
+      cuLaunchKernelEx_params* p = (cuLaunchKernelEx_params*)params;
       loprintf(
           "CUTracer: CTX 0x%016lx - LAUNCH - Kernel pc 0x%016lx - "
           "Kernel name %s - kernel hash 0x%s - kernel launch id %ld - grid size %d,%d,%d "
@@ -306,7 +306,7 @@ static bool enter_kernel_launch(CUcontext ctx, CUfunction func, uint64_t &kernel
           p->config->gridDimY, p->config->gridDimZ, p->config->blockDimX, p->config->blockDimY, p->config->blockDimZ,
           nregs, shmem_static_nbytes + p->config->sharedMemBytes, (uint64_t)p->config->hStream);
     } else {
-      cuLaunchKernel_params *p = (cuLaunchKernel_params *)params;
+      cuLaunchKernel_params* p = (cuLaunchKernel_params*)params;
       loprintf(
           "CUTracer: CTX 0x%016lx - LAUNCH - Kernel pc 0x%016lx - "
           "Kernel name %s - kernel hash 0x%s - kernel launch id %ld - grid size %d,%d,%d "
@@ -341,7 +341,7 @@ static bool enter_kernel_launch(CUcontext ctx, CUfunction func, uint64_t &kernel
 }
 
 // the function is only called for non cuda graph launch cases.
-static void leave_kernel_launch(CTXstate *ctx_state, uint64_t &grid_launch_id) {
+static void leave_kernel_launch(CTXstate* ctx_state, uint64_t& grid_launch_id) {
   // make sure user kernel finishes to avoid deadlock
   cudaDeviceSynchronize();
   /* push a flush channel kernel */
@@ -353,8 +353,8 @@ static void leave_kernel_launch(CTXstate *ctx_state, uint64_t &grid_launch_id) {
 }
 
 // Reference code from NVIDIA nvbit mem_trace tool
-void nvbit_at_cuda_event(CUcontext ctx, int is_exit, nvbit_api_cuda_t cbid, const char *name, void *params,
-                         CUresult *pStatus) {
+void nvbit_at_cuda_event(CUcontext ctx, int is_exit, nvbit_api_cuda_t cbid, const char* name, void* params,
+                         CUresult* pStatus) {
   pthread_mutex_lock(&cuda_event_mutex);
 
   /* we prevent re-entry on this callback when issuing CUDA functions inside
@@ -365,14 +365,14 @@ void nvbit_at_cuda_event(CUcontext ctx, int is_exit, nvbit_api_cuda_t cbid, cons
   }
   skip_callback_flag = true;
 
-  CTXstate *ctx_state = ctx_state_map[ctx];
+  CTXstate* ctx_state = ctx_state_map[ctx];
 
   switch (cbid) {
     // Identify all the possible CUDA launch events without stream
     // parameters, they will not get involved with cuda graph
     case API_CUDA_cuLaunch:
     case API_CUDA_cuLaunchGrid: {
-      cuLaunch_params *p = (cuLaunch_params *)params;
+      cuLaunch_params* p = (cuLaunch_params*)params;
       CUfunction func = p->f;
       if (!is_exit) {
         enter_kernel_launch(ctx, func, global_kernel_launch_id, cbid, params);
@@ -423,16 +423,16 @@ void nvbit_at_cuda_event(CUcontext ctx, int is_exit, nvbit_api_cuda_t cbid, cons
       CUstream hStream;
 
       if (cbid == API_CUDA_cuLaunchKernelEx_ptsz || cbid == API_CUDA_cuLaunchKernelEx) {
-        cuLaunchKernelEx_params *p = (cuLaunchKernelEx_params *)params;
+        cuLaunchKernelEx_params* p = (cuLaunchKernelEx_params*)params;
         func = p->f;
         hStream = p->config->hStream;
       } else if (cbid == API_CUDA_cuLaunchKernel_ptsz || cbid == API_CUDA_cuLaunchKernel ||
                  cbid == API_CUDA_cuLaunchCooperativeKernel_ptsz || cbid == API_CUDA_cuLaunchCooperativeKernel) {
-        cuLaunchKernel_params *p = (cuLaunchKernel_params *)params;
+        cuLaunchKernel_params* p = (cuLaunchKernel_params*)params;
         func = p->f;
         hStream = p->hStream;
       } else {
-        cuLaunchGridAsync_params *p = (cuLaunchGridAsync_params *)params;
+        cuLaunchGridAsync_params* p = (cuLaunchGridAsync_params*)params;
         func = p->f;
         hStream = p->hStream;
       }
@@ -457,13 +457,13 @@ void nvbit_at_cuda_event(CUcontext ctx, int is_exit, nvbit_api_cuda_t cbid, cons
       }
     } break;
     case API_CUDA_cuGraphAddKernelNode: {
-      cuGraphAddKernelNode_params *p = (cuGraphAddKernelNode_params *)params;
+      cuGraphAddKernelNode_params* p = (cuGraphAddKernelNode_params*)params;
       CUfunction func = p->nodeParams->func;
 
       if (!is_exit) {
         // cuGraphAddKernelNode_params->nodeParams is the same as
         // cuLaunchKernel_params up to sharedMemBytes
-        enter_kernel_launch(ctx, func, global_kernel_launch_id, cbid, (void *)p->nodeParams, false, true);
+        enter_kernel_launch(ctx, func, global_kernel_launch_id, cbid, (void*)p->nodeParams, false, true);
       }
     } break;
     case API_CUDA_cuGraphLaunch: {
@@ -471,7 +471,7 @@ void nvbit_at_cuda_event(CUcontext ctx, int is_exit, nvbit_api_cuda_t cbid, cons
       // Wait until the graph is completed using
       // cudaStreamSynchronize()
       if (is_exit) {
-        cuGraphLaunch_params *p = (cuGraphLaunch_params *)params;
+        cuGraphLaunch_params* p = (cuGraphLaunch_params*)params;
 
         CUDA_SAFECALL(cudaStreamSynchronize(p->hStream));
         CUDA_CHECK_LAST_ERROR();
@@ -505,7 +505,7 @@ void nvbit_at_ctx_init(CUcontext ctx) {
     printf("MEMTRACE: STARTING CONTEXT %p\n", ctx);
   }
   assert(ctx_state_map.find(ctx) == ctx_state_map.end());
-  CTXstate *ctx_state = new CTXstate;
+  CTXstate* ctx_state = new CTXstate;
   ctx_state_map[ctx] = ctx_state;
   pthread_mutex_unlock(&mutex);
 }
@@ -519,7 +519,7 @@ void nvbit_at_ctx_term(CUcontext ctx) {
   }
   /* get context state from map */
   assert(ctx_state_map.find(ctx) != ctx_state_map.end());
-  CTXstate *ctx_state = ctx_state_map[ctx];
+  CTXstate* ctx_state = ctx_state_map[ctx];
 
   /* Notify receiver thread and wait for receiver thread to
    * notify back */
@@ -548,7 +548,7 @@ void nvbit_at_ctx_term(CUcontext ctx) {
 // Reference code from NVIDIA nvbit mem_trace tool
 void nvbit_at_graph_node_launch(CUcontext ctx, CUfunction func, CUstream stream, uint64_t launch_handle) {
   func_config_t config = {0};
-  const char *func_name = nvbit_get_func_name(ctx, func);
+  const char* func_name = nvbit_get_func_name(ctx, func);
   uint64_t pc = nvbit_get_func_addr(ctx, func);
 
   pthread_mutex_lock(&mutex);

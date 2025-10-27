@@ -17,30 +17,30 @@
 #include "cuda.h"
 
 // Forward declarations - use void* to avoid conflicts with CUDA types
-typedef void *CUcontext_ptr;
-typedef void *CUfunction_ptr;
+typedef void* CUcontext_ptr;
+typedef void* CUfunction_ptr;
 
 /* ===== Logging Functions ===== */
 
 /**
  * lprintf - print to the currently active log file only (log print)
  */
-void lprintf(const char *format, ...);
+void lprintf(const char* format, ...);
 
 /**
  * oprintf - print to stdout only (output print)
  */
-void oprintf(const char *format, ...);
+void oprintf(const char* format, ...);
 
 /**
  * loprintf - print to the currently active log file and stdout (log and output print)
  */
-void loprintf(const char *format, ...);
+void loprintf(const char* format, ...);
 
 /**
  * trace_lprintf - print to the kernel trace log file only
  */
-void trace_lprintf(const char *format, ...);
+void trace_lprintf(const char* format, ...);
 
 /* ===== File Management Functions ===== */
 

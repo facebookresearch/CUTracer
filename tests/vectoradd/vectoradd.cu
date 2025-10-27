@@ -16,7 +16,7 @@
   }
 
 // CUDA kernel. Each thread takes care of one element of c
-__global__ void vecAdd(double *a, double *b, double *c, int n) {
+__global__ void vecAdd(double* a, double* b, double* c, int n) {
   // Get our global thread ID
   auto id = blockIdx.x * blockDim.x + threadIdx.x;
 
@@ -24,30 +24,30 @@ __global__ void vecAdd(double *a, double *b, double *c, int n) {
   if (id < n) c[id] = a[id] + b[id];
 }
 
-int main(int argc, char *argv[]) {
+int main(int argc, char* argv[]) {
   // Size of vectors
   int n = 1024;
   if (argc > 1) n = atoi(argv[1]);
 
   // Host input vectors
-  double *h_a;
-  double *h_b;
+  double* h_a;
+  double* h_b;
   // Host output vector
-  double *h_c;
+  double* h_c;
 
   // Device input vectors
-  double *d_a;
-  double *d_b;
+  double* d_a;
+  double* d_b;
   // Device output vector
-  double *d_c;
+  double* d_c;
 
   // Size, in bytes, of each vector
   size_t bytes = n * sizeof(double);
 
   // Allocate memory for each vector on host
-  h_a = (double *)malloc(bytes);
-  h_b = (double *)malloc(bytes);
-  h_c = (double *)malloc(bytes);
+  h_a = (double*)malloc(bytes);
+  h_b = (double*)malloc(bytes);
+  h_c = (double*)malloc(bytes);
 
   // Allocate memory for each vector on GPU
   cudaMalloc(&d_a, bytes);

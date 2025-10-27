@@ -33,12 +33,12 @@
 #define HANG_CHECK_THROTTLE_SECS 1
 
 extern pthread_mutex_t mutex;
-extern std::unordered_map<CUcontext, CTXstate *> ctx_state_map;
+extern std::unordered_map<CUcontext, CTXstate*> ctx_state_map;
 extern std::map<uint64_t, std::pair<CUcontext, CUfunction>> kernel_launch_to_func_map;
 extern std::map<uint64_t, uint32_t> kernel_launch_to_iter_map;
 
 // Forward declaration for helper defined below in this file
-std::string extract_instruction_name(const std::string &sass_line);
+std::string extract_instruction_name(const std::string& sass_line);
 
 /**
  * Print one instruction line in the exact same format as loop body entries.
@@ -70,11 +70,11 @@ std::string extract_instruction_name(const std::string &sass_line);
  *   widths across the intended set of rows (entire loop body, or just the last
  *   single record) and pass them here to ensure consistent alignment.
  */
-static inline void print_instruction_line(size_t index, const TraceRecordMerged &instr,
-                                          const std::map<int, std::string> *sass_map_for_func, int pc_dec_width,
+static inline void print_instruction_line(size_t index, const TraceRecordMerged& instr,
+                                          const std::map<int, std::string>* sass_map_for_func, int pc_dec_width,
                                           int hex_nibbles_max) {
   uint64_t pc_val = instr.reg.pc;
-  const char *sass_cstr = "UNKNOWN";
+  const char* sass_cstr = "UNKNOWN";
   if (sass_map_for_func && sass_map_for_func->count(instr.reg.opcode_id)) {
     sass_cstr = sass_map_for_func->at(instr.reg.opcode_id).c_str();
   }
@@ -110,11 +110,11 @@ static inline void print_instruction_line(size_t index, const TraceRecordMerged 
  *   For multi-row loop bodies, prefer computing widths once across all rows and
  *   calling print_instruction_line_like_loop per row.
  */
-static inline void print_last_instruction_line(const WarpLoopState *loop_state,
-                                               const std::map<int, std::string> *sass_map_for_func) {
+static inline void print_last_instruction_line(const WarpLoopState* loop_state,
+                                               const std::map<int, std::string>* sass_map_for_func) {
   uint64_t last_pc_val = 0;
   bool last_has_mem = false;
-  const char *last_sass_cstr = "UNKNOWN";
+  const char* last_sass_cstr = "UNKNOWN";
 
   if (loop_state && loop_state->filled > 0 && sass_map_for_func) {
     int idx_last = (loop_state->head + (int)loop_state->filled + PC_HISTORY_LEN - 1) % PC_HISTORY_LEN;
@@ -157,20 +157,20 @@ static inline void print_last_instruction_line(const WarpLoopState *loop_state,
   }
 }
 
-static inline bool matches_barrier_defer_blocking(const std::string &mnemonic) {
+static inline bool matches_barrier_defer_blocking(const std::string& mnemonic) {
   if (mnemonic == "BAR.SYNC.DEFER_BLOCKING") return true;
   // Conservative fallback: prefix BAR.SYNC and contains .DEFER_BLOCKING
   if (mnemonic.rfind("BAR.SYNC", 0) == 0 && mnemonic.find(".DEFER_BLOCKING") != std::string::npos) return true;
   return false;
 }
 
-static bool is_barrier_defer_blocking_for_opcode(CTXstate *ctx_state, CUfunction func, int opcode_id) {
+static bool is_barrier_defer_blocking_for_opcode(CTXstate* ctx_state, CUfunction func, int opcode_id) {
   if (!ctx_state) return false;
   if (!ctx_state->id_to_sass_map.count(func)) return false;
-  const std::map<int, std::string> &sass_map = ctx_state->id_to_sass_map[func];
+  const std::map<int, std::string>& sass_map = ctx_state->id_to_sass_map[func];
   std::map<int, std::string>::const_iterator it = sass_map.find(opcode_id);
   if (it == sass_map.end()) return false;
-  const std::string &sass_line = it->second;
+  const std::string& sass_line = it->second;
   std::string mnemonic = extract_instruction_name(sass_line);
   return matches_barrier_defer_blocking(mnemonic);
 }
@@ -186,7 +186,7 @@ static bool is_barrier_defer_blocking_for_opcode(CTXstate *ctx_state, CUfunction
  * @param sass_line The full SASS instruction line.
  * @return The extracted instruction mnemonic as a string.
  */
-std::string extract_instruction_name(const std::string &sass_line) {
+std::string extract_instruction_name(const std::string& sass_line) {
   // SASS format examples:
   // CS2R.32 R7, SR_CLOCKLO ;
   // @!P0 IMAD.MOV.U32 R6, RZ, RZ, 0x800000 ;
@@ -246,9 +246,9 @@ std::string extract_instruction_name(const std::string &sass_line) {
  * @param completed_histograms A vector where histograms of completed regions are
  * stored.
  */
-void process_instruction_histogram(const opcode_only_t *ri, CTXstate *ctx_state,
-                                   std::unordered_map<int, WarpState> &warp_states,
-                                   std::vector<RegionHistogram> &completed_histograms) {
+void process_instruction_histogram(const opcode_only_t* ri, CTXstate* ctx_state,
+                                   std::unordered_map<int, WarpState>& warp_states,
+                                   std::vector<RegionHistogram>& completed_histograms) {
   // Get current function from kernel launch ID to find the correct SASS maps.
   std::map<uint64_t, std::pair<CUcontext, CUfunction>>::iterator func_iter =
       kernel_launch_to_func_map.find(ri->kernel_launch_id);
@@ -259,13 +259,13 @@ void process_instruction_histogram(const opcode_only_t *ri, CTXstate *ctx_state,
   CUfunction current_func = func_iter->second.second;
 
   // Get clock opcode IDs for this function, which mark region boundaries.
-  const std::unordered_set<int> *clock_opcode_ids = nullptr;
+  const std::unordered_set<int>* clock_opcode_ids = nullptr;
   if (ctx_state->clock_opcode_ids.count(current_func)) {
     clock_opcode_ids = &ctx_state->clock_opcode_ids.at(current_func);
   }
 
   // Get SASS mapping for this function
-  const std::map<int, std::string> *sass_map_for_func = nullptr;
+  const std::map<int, std::string>* sass_map_for_func = nullptr;
   if (ctx_state->id_to_sass_map.count(current_func)) {
     sass_map_for_func = &ctx_state->id_to_sass_map.at(current_func);
   }
@@ -275,7 +275,7 @@ void process_instruction_histogram(const opcode_only_t *ri, CTXstate *ctx_state,
   }
 
   int warp_id = ri->warp_id;
-  WarpState &current_state = warp_states[warp_id];
+  WarpState& current_state = warp_states[warp_id];
   bool is_clock_instruction = clock_opcode_ids->count(ri->opcode_id) > 0;
 
   // This block implements the start/stop logic for regions.
@@ -299,7 +299,7 @@ void process_instruction_histogram(const opcode_only_t *ri, CTXstate *ctx_state,
   // If collection is active, record the current instruction.
   if (current_state.is_collecting && sass_map_for_func->count(ri->opcode_id)) {
     // Extract the base instruction name from the full SASS string.
-    const std::string &sass_line = sass_map_for_func->at(ri->opcode_id);
+    const std::string& sass_line = sass_map_for_func->at(ri->opcode_id);
     std::string instruction_name = extract_instruction_name(sass_line);
     current_state.histogram[instruction_name]++;
   }
@@ -316,7 +316,7 @@ void process_instruction_histogram(const opcode_only_t *ri, CTXstate *ctx_state,
  * @param histograms A vector containing all the completed region histograms for
  * that kernel.
  */
-void dump_previous_kernel_data(uint64_t kernel_launch_id, const std::vector<RegionHistogram> &histograms) {
+void dump_previous_kernel_data(uint64_t kernel_launch_id, const std::vector<RegionHistogram>& histograms) {
   if (histograms.empty()) {
     return;  // Nothing to dump.
   }
@@ -348,7 +348,7 @@ void dump_previous_kernel_data(uint64_t kernel_launch_id, const std::vector<Regi
  * @param histograms The histogram data to be written to the file.
  */
 void dump_histograms_to_csv(CUcontext ctx, CUfunction func, uint32_t iteration,
-                            const std::vector<RegionHistogram> &histograms) {
+                            const std::vector<RegionHistogram>& histograms) {
   if (histograms.empty()) {
     return;  // Nothing to dump.
   }
@@ -356,7 +356,7 @@ void dump_histograms_to_csv(CUcontext ctx, CUfunction func, uint32_t iteration,
   std::string basename = generate_kernel_log_basename(ctx, func, iteration);
   std::string csv_filename = basename + "_hist.csv";
 
-  FILE *fp = fopen(csv_filename.c_str(), "w");
+  FILE* fp = fopen(csv_filename.c_str(), "w");
   if (!fp) {
     oprintf("ERROR: Could not open histogram file %s\n", csv_filename.c_str());
     return;
@@ -365,9 +365,9 @@ void dump_histograms_to_csv(CUcontext ctx, CUfunction func, uint32_t iteration,
   // Header for the CSV file.
   fprintf(fp, "warp_id,region_id,instruction,count\n");
   // Iterate through each completed region and write its histogram data.
-  for (const RegionHistogram &region_result : histograms) {
-    for (const std::pair<const std::string, int> &pair : region_result.histogram) {
-      const std::string &instruction_name = pair.first;
+  for (const RegionHistogram& region_result : histograms) {
+    for (const std::pair<const std::string, int>& pair : region_result.histogram) {
+      const std::string& instruction_name = pair.first;
       int count = pair.second;
       fprintf(fp, "%d,%d,\"%s\",%d\n", region_result.warp_id, region_result.region_id, instruction_name.c_str(), count);
     }
@@ -386,14 +386,14 @@ void dump_histograms_to_csv(CUcontext ctx, CUfunction func, uint32_t iteration,
  * @param header Pointer to the message header containing the message type
  * @return The kernel launch ID for the message, or 0 if the message type is unknown
  */
-static uint64_t get_kernel_launch_id(const message_header_t *header) {
+static uint64_t get_kernel_launch_id(const message_header_t* header) {
   switch (header->type) {
     case MSG_TYPE_REG_INFO:
-      return ((const reg_info_t *)header)->kernel_launch_id;
+      return ((const reg_info_t*)header)->kernel_launch_id;
     case MSG_TYPE_OPCODE_ONLY:
-      return ((const opcode_only_t *)header)->kernel_launch_id;
+      return ((const opcode_only_t*)header)->kernel_launch_id;
     case MSG_TYPE_MEM_ACCESS:
-      return ((const mem_access_t *)header)->kernel_launch_id;
+      return ((const mem_access_t*)header)->kernel_launch_id;
     default:
       return 0;  // Invalid/unknown message type - no kernel ID available
   }
@@ -420,8 +420,8 @@ static uint64_t get_kernel_launch_id(const message_header_t *header) {
  *                   period length. If no period is found, it's set to 0.
  * @return A 64-bit canonical signature of the loop, or 0 if no loop is detected.
  */
-static uint64_t compute_canonical_signature(const std::vector<TraceRecordMerged> &history, int ring_size, uint8_t head,
-                                            uint8_t &out_period) {
+static uint64_t compute_canonical_signature(const std::vector<TraceRecordMerged>& history, int ring_size, uint8_t head,
+                                            uint8_t& out_period) {
   // Reconstruct linear PC sequence in chronological order (oldest -> newest).
   uint64_t pcs[PC_HISTORY_LEN];
   for (int i = 0; i < ring_size; ++i) {
@@ -504,8 +504,8 @@ static uint64_t compute_canonical_signature(const std::vector<TraceRecordMerged>
  * @param key The `WarpKey` identifying the warp to be updated.
  * @param ri Pointer to the `reg_info_t` packet for the current instruction.
  */
-static void update_loop_state(CTXstate *ctx_state, const WarpKey &key, const reg_info_t *ri) {
-  WarpLoopState &state = ctx_state->loop_states[key];
+static void update_loop_state(CTXstate* ctx_state, const WarpKey& key, const reg_info_t* ri) {
+  WarpLoopState& state = ctx_state->loop_states[key];
   // One-time buffer allocation per warp
   if (state.history.size() != PC_HISTORY_LEN) {
     state.history.assign(PC_HISTORY_LEN, TraceRecordMerged());
@@ -514,13 +514,13 @@ static void update_loop_state(CTXstate *ctx_state, const WarpKey &key, const reg
   }
 
   // Write the incoming reg record into ring buffer
-  TraceRecordMerged &slot = state.history[state.head];
+  TraceRecordMerged& slot = state.history[state.head];
   slot.reg = *ri;
   slot.has_mem = false;  // will be flipped if we find a matching pending mem
   memset(slot.mem_addrs, 0, sizeof(slot.mem_addrs));
 
   // Try to match any pending mem for this warp (mem may arrive before reg)
-  auto &pending = ctx_state->pending_mem_by_warp[key];
+  auto& pending = ctx_state->pending_mem_by_warp[key];
   if (!pending.empty()) {
     // Find first matching mem by pc/opcode
     for (auto it = pending.begin(); it != pending.end(); ++it) {
@@ -582,7 +582,7 @@ static void update_loop_state(CTXstate *ctx_state, const WarpKey &key, const reg
  *
  * @param ctx_state Pointer to the state for the current CUDA context.
  */
-static void clear_deadlock_state(CTXstate *ctx_state) {
+static void clear_deadlock_state(CTXstate* ctx_state) {
   ctx_state->loop_states.clear();
   ctx_state->active_warps.clear();
   ctx_state->pending_mem_by_warp.clear();
@@ -603,7 +603,7 @@ static void clear_deadlock_state(CTXstate *ctx_state) {
  * @param ctx_state Pointer to the state for the current CUDA context
  * @param current_kernel_launch_id The current kernel launch ID for context
  */
-static void print_warp_status_summary(CTXstate *ctx_state, uint64_t current_kernel_launch_id) {
+static void print_warp_status_summary(CTXstate* ctx_state, uint64_t current_kernel_launch_id) {
   if (ctx_state->active_warps.empty()) {
     loprintf("==> WARP STATUS: No active warps for kernel_launch_id=%lu\n", current_kernel_launch_id);
     return;
@@ -616,7 +616,7 @@ static void print_warp_status_summary(CTXstate *ctx_state, uint64_t current_kern
   loprintf("    -----------------------------------------------------------------------\n");
 
   // Resolve SASS map for the current function, if available
-  const std::map<int, std::string> *sass_map_for_func = nullptr;
+  const std::map<int, std::string>* sass_map_for_func = nullptr;
   {
     std::map<uint64_t, std::pair<CUcontext, CUfunction>>::iterator func_iter =
         kernel_launch_to_func_map.find(current_kernel_launch_id);
@@ -628,7 +628,7 @@ static void print_warp_status_summary(CTXstate *ctx_state, uint64_t current_kern
     }
   }
 
-  for (const auto &warp_key : ctx_state->active_warps) {
+  for (const auto& warp_key : ctx_state->active_warps) {
     // Basic warp info
     loprintf("    Warp%d[%d,%d,%d]: ", warp_key.warp_id, warp_key.cta_id_x, warp_key.cta_id_y, warp_key.cta_id_z);
 
@@ -636,7 +636,7 @@ static void print_warp_status_summary(CTXstate *ctx_state, uint64_t current_kern
     auto loop_iter = ctx_state->loop_states.find(warp_key);
     bool is_looping = false;
     if (loop_iter != ctx_state->loop_states.end()) {
-      const WarpLoopState &loop_state = loop_iter->second;
+      const WarpLoopState& loop_state = loop_iter->second;
       if (loop_state.loop_flag) {
         is_looping = true;
         time_t last_seen_secs = 0;
@@ -703,7 +703,7 @@ static void print_warp_status_summary(CTXstate *ctx_state, uint64_t current_kern
 
     // Print loop body details if warp is in a confirmed loop
     if (loop_iter != ctx_state->loop_states.end() && loop_iter->second.loop_flag) {
-      const WarpLoopState &loop_state = loop_iter->second;
+      const WarpLoopState& loop_state = loop_iter->second;
       if (!loop_state.current_loop.instructions.empty()) {
         loprintf("      Loop Body (%d instructions):\n", loop_state.current_loop.period);
         // Pre-compute alignment for PC/Offset columns across the loop body
@@ -739,7 +739,7 @@ static void print_warp_status_summary(CTXstate *ctx_state, uint64_t current_kern
         for (size_t i = 0;
              i < static_cast<size_t>(loop_state.current_loop.period) && i < loop_state.current_loop.instructions.size();
              ++i) {
-          const auto &instr = loop_state.current_loop.instructions[i];
+          const auto& instr = loop_state.current_loop.instructions[i];
           print_instruction_line(i, instr, sass_map_for_func, pc_dec_width, hex_nibbles_max);
         }
       }
@@ -752,7 +752,7 @@ static void print_warp_status_summary(CTXstate *ctx_state, uint64_t current_kern
 // The check is throttled to run at most once every HANG_CHECK_THROTTLE_SECS.
 // If all warps are looping and the condition persists for several checks, it terminates the process.
 // Before checking, it prunes warps that are candidates for exiting and have been inactive.
-static void check_kernel_hang(CTXstate *ctx_state, uint64_t current_kernel_launch_id) {
+static void check_kernel_hang(CTXstate* ctx_state, uint64_t current_kernel_launch_id) {
   time_t now = time(nullptr);
   if (now - ctx_state->last_hang_check_time < HANG_CHECK_THROTTLE_SECS) {  // Throttle to configured interval
     return;
@@ -766,7 +766,7 @@ static void check_kernel_hang(CTXstate *ctx_state, uint64_t current_kernel_launc
   // Cleanup exit-candidate warps before evaluating loop state
   std::vector<WarpKey> to_remove;
   to_remove.reserve(ctx_state->active_warps.size());
-  for (const WarpKey &key : ctx_state->active_warps) {
+  for (const WarpKey& key : ctx_state->active_warps) {
     auto itExit = ctx_state->exit_candidate_since_by_warp.find(key);
     if (itExit == ctx_state->exit_candidate_since_by_warp.end()) continue;
     time_t exit_since = itExit->second;
@@ -779,7 +779,7 @@ static void check_kernel_hang(CTXstate *ctx_state, uint64_t current_kernel_launc
     }
   }
   if (!to_remove.empty()) {
-    for (const WarpKey &key : to_remove) {
+    for (const WarpKey& key : to_remove) {
       ctx_state->active_warps.erase(key);
       ctx_state->loop_states.erase(key);
       ctx_state->pending_mem_by_warp.erase(key);
@@ -792,7 +792,7 @@ static void check_kernel_hang(CTXstate *ctx_state, uint64_t current_kernel_launc
   size_t barrier_cnt = 0;
   size_t progressing_cnt = 0;
   bool candidate_hang = false;
-  for (const WarpKey &warp_key : ctx_state->active_warps) {
+  for (const WarpKey& warp_key : ctx_state->active_warps) {
     bool is_looping = false;
     {
       std::map<WarpKey, WarpLoopState>::const_iterator it = ctx_state->loop_states.find(warp_key);
@@ -883,17 +883,17 @@ static void check_kernel_hang(CTXstate *ctx_state, uint64_t current_kernel_launc
  * launched.
  * @return void* Always returns NULL.
  */
-void *recv_thread_fun(void *args) {
+void* recv_thread_fun(void* args) {
   CUcontext ctx = (CUcontext)args;
 
   pthread_mutex_lock(&mutex);
   /* get context state from map */
   assert(ctx_state_map.find(ctx) != ctx_state_map.end());
-  CTXstate *ctx_state = ctx_state_map[ctx];
+  CTXstate* ctx_state = ctx_state_map[ctx];
 
-  ChannelHost *ch_host = &ctx_state->channel_host;
+  ChannelHost* ch_host = &ctx_state->channel_host;
   pthread_mutex_unlock(&mutex);
-  char *recv_buffer = (char *)malloc(CHANNEL_SIZE);
+  char* recv_buffer = (char*)malloc(CHANNEL_SIZE);
 
   // Per-thread, per-context state for histogram analysis.
   std::unordered_map<int, WarpState> warp_states;
@@ -911,8 +911,8 @@ void *recv_thread_fun(void *args) {
       uint32_t num_processed_bytes = 0;
       while (num_processed_bytes < num_recv_bytes) {
         // First read the message header to determine the message type
-        message_header_t *header = (message_header_t *)&recv_buffer[num_processed_bytes];
-        const char *sass_str = "N/A";
+        message_header_t* header = (message_header_t*)&recv_buffer[num_processed_bytes];
+        const char* sass_str = "N/A";
 
         uint64_t current_launch_id = get_kernel_launch_id(header);
         bool is_new_kernel = false;
@@ -922,7 +922,7 @@ void *recv_thread_fun(void *args) {
             // Cleanup for the previous kernel
             if (is_analysis_type_enabled(AnalysisType::PROTON_INSTR_HISTOGRAM)) {
               // Dump any remaining histograms for warps that were collecting
-              for (auto &pair : warp_states) {
+              for (auto& pair : warp_states) {
                 if (pair.second.is_collecting && !pair.second.histogram.empty()) {
                   local_completed_histograms.push_back({pair.first, pair.second.region_counter, pair.second.histogram});
                 }
@@ -939,7 +939,7 @@ void *recv_thread_fun(void *args) {
         }
 
         if (header->type == MSG_TYPE_REG_INFO) {
-          reg_info_t *ri = (reg_info_t *)&recv_buffer[num_processed_bytes];
+          reg_info_t* ri = (reg_info_t*)&recv_buffer[num_processed_bytes];
 
           if (is_analysis_type_enabled(AnalysisType::DEADLOCK_DETECTION)) {
             WarpKey key = {ri->cta_id_x, ri->cta_id_y, ri->cta_id_z, ri->warp_id};
@@ -996,14 +996,14 @@ void *recv_thread_fun(void *args) {
 
         } else if (header->type == MSG_TYPE_OPCODE_ONLY) {
           if (is_analysis_type_enabled(AnalysisType::PROTON_INSTR_HISTOGRAM)) {
-            opcode_only_t *oi = (opcode_only_t *)&recv_buffer[num_processed_bytes];
+            opcode_only_t* oi = (opcode_only_t*)&recv_buffer[num_processed_bytes];
 
             process_instruction_histogram(oi, ctx_state, warp_states, local_completed_histograms);
           }
           num_processed_bytes += sizeof(opcode_only_t);
 
         } else if (header->type == MSG_TYPE_MEM_ACCESS) {
-          mem_access_t *mem = (mem_access_t *)&recv_buffer[num_processed_bytes];
+          mem_access_t* mem = (mem_access_t*)&recv_buffer[num_processed_bytes];
 
           // Get SASS string for trace output.
           std::map<uint64_t, std::pair<CUcontext, CUfunction>>::iterator func_iter =
@@ -1053,7 +1053,7 @@ void *recv_thread_fun(void *args) {
   // Dump data for the very last kernel if it exists.
   if (last_seen_kernel_launch_id != UINT64_MAX) {
     // Dump any remaining histograms for warps that were still collecting.
-    for (const std::pair<const int, WarpState> &pair : warp_states) {
+    for (const std::pair<const int, WarpState>& pair : warp_states) {
       if (pair.second.is_collecting && !pair.second.histogram.empty()) {
         local_completed_histograms.push_back({pair.first, pair.second.region_counter, pair.second.histogram});
       }
