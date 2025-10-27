@@ -328,7 +328,7 @@ static bool enter_kernel_launch(CUcontext ctx, CUfunction func, uint64_t& kernel
     // Store kernel dimensions for warp statistics tracking
     KernelDimensions dims;
     if (cbid == API_CUDA_cuLaunchKernelEx_ptsz || cbid == API_CUDA_cuLaunchKernelEx) {
-      cuLaunchKernelEx_params *p = (cuLaunchKernelEx_params *)params;
+      cuLaunchKernelEx_params* p = (cuLaunchKernelEx_params*)params;
       dims.gridDimX = p->config->gridDimX;
       dims.gridDimY = p->config->gridDimY;
       dims.gridDimZ = p->config->gridDimZ;
@@ -336,7 +336,7 @@ static bool enter_kernel_launch(CUcontext ctx, CUfunction func, uint64_t& kernel
       dims.blockDimY = p->config->blockDimY;
       dims.blockDimZ = p->config->blockDimZ;
     } else {
-      cuLaunchKernel_params *p = (cuLaunchKernel_params *)params;
+      cuLaunchKernel_params* p = (cuLaunchKernel_params*)params;
       dims.gridDimX = p->gridDimX;
       dims.gridDimY = p->gridDimY;
       dims.gridDimZ = p->gridDimZ;
