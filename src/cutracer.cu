@@ -70,6 +70,7 @@ uint64_t global_kernel_launch_id = 0;
 // Global mapping tables for kernel launch tracking
 std::map<uint64_t, std::pair<CUcontext, CUfunction>> kernel_launch_to_func_map;
 std::map<uint64_t, uint32_t> kernel_launch_to_iter_map;
+std::map<uint64_t, KernelDimensions> kernel_launch_to_dimensions_map;
 
 // map to store the iteration count for each kernel
 static std::map<CUfunction, uint32_t> kernel_iter_map;
@@ -323,6 +324,27 @@ static bool enter_kernel_launch(CUcontext ctx, CUfunction func, uint64_t& kernel
     uint32_t current_iter = kernel_iter_map[func];
     kernel_launch_to_func_map[kernel_launch_id] = {ctx, func};
     kernel_launch_to_iter_map[kernel_launch_id] = current_iter;
+
+    // Store kernel dimensions for warp statistics tracking
+    KernelDimensions dims;
+    if (cbid == API_CUDA_cuLaunchKernelEx_ptsz || cbid == API_CUDA_cuLaunchKernelEx) {
+      cuLaunchKernelEx_params* p = (cuLaunchKernelEx_params*)params;
+      dims.gridDimX = p->config->gridDimX;
+      dims.gridDimY = p->config->gridDimY;
+      dims.gridDimZ = p->config->gridDimZ;
+      dims.blockDimX = p->config->blockDimX;
+      dims.blockDimY = p->config->blockDimY;
+      dims.blockDimZ = p->config->blockDimZ;
+    } else {
+      cuLaunchKernel_params* p = (cuLaunchKernel_params*)params;
+      dims.gridDimX = p->gridDimX;
+      dims.gridDimY = p->gridDimY;
+      dims.gridDimZ = p->gridDimZ;
+      dims.blockDimX = p->blockDimX;
+      dims.blockDimY = p->blockDimY;
+      dims.blockDimZ = p->blockDimZ;
+    }
+    kernel_launch_to_dimensions_map[kernel_launch_id] = dims;
 
     // increment kernel launch id for next launch
     // kernel id can be changed here, since nvbit_set_at_launch() has copied

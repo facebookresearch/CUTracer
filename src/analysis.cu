@@ -36,6 +36,7 @@ extern pthread_mutex_t mutex;
 extern std::unordered_map<CUcontext, CTXstate*> ctx_state_map;
 extern std::map<uint64_t, std::pair<CUcontext, CUfunction>> kernel_launch_to_func_map;
 extern std::map<uint64_t, uint32_t> kernel_launch_to_iter_map;
+extern std::map<uint64_t, KernelDimensions> kernel_launch_to_dimensions_map;
 
 // Forward declaration for helper defined below in this file
 std::string extract_instruction_name(const std::string& sass_line);
@@ -332,6 +333,7 @@ void dump_previous_kernel_data(uint64_t kernel_launch_id, const std::vector<Regi
     // Clean up mapping tables to free memory for subsequent kernels.
     kernel_launch_to_func_map.erase(kernel_launch_id);
     kernel_launch_to_iter_map.erase(kernel_launch_id);
+    kernel_launch_to_dimensions_map.erase(kernel_launch_id);
   }
 }
 
@@ -581,14 +583,20 @@ static void update_loop_state(CTXstate* ctx_state, const WarpKey& key, const reg
  * and pending memory operations.
  *
  * @param ctx_state Pointer to the state for the current CUDA context.
+ * @param kernel_launch_id The kernel launch ID to clear tracking data for (0 to skip).
  */
-static void clear_deadlock_state(CTXstate* ctx_state) {
+static void clear_deadlock_state(CTXstate* ctx_state, uint64_t kernel_launch_id = 0) {
   ctx_state->loop_states.clear();
   ctx_state->active_warps.clear();
   ctx_state->pending_mem_by_warp.clear();
   ctx_state->last_seen_time_by_warp.clear();
   ctx_state->exit_candidate_since_by_warp.clear();
   ctx_state->last_is_defer_blocking_by_warp.clear();
+
+  // Clear kernel warp tracking for the specified kernel
+  if (kernel_launch_id != 0) {
+    ctx_state->kernel_warp_tracking.erase(kernel_launch_id);
+  }
 }
 
 /**
@@ -604,12 +612,107 @@ static void clear_deadlock_state(CTXstate* ctx_state) {
  * @param current_kernel_launch_id The current kernel launch ID for context
  */
 static void print_warp_status_summary(CTXstate* ctx_state, uint64_t current_kernel_launch_id) {
+  time_t now = time(nullptr);
+
+  // Print warp statistics if available
+  if (ctx_state->kernel_warp_tracking.count(current_kernel_launch_id)) {
+    const KernelWarpStats& stats = ctx_state->kernel_warp_tracking[current_kernel_launch_id];
+    size_t total_warps = stats.total_warps;
+    size_t seen_warps = stats.all_seen_warps.size();
+    size_t finished_warps = stats.finished_warps.size();
+    size_t active_warps = ctx_state->active_warps.size();
+
+    // Collect warp IDs in different categories
+    std::set<int> finished_warp_ids;
+    std::set<int> active_warp_ids;
+    std::set<int> never_executed_warp_ids;
+
+    for (const WarpKey& key : stats.finished_warps) {
+      finished_warp_ids.insert(key.warp_id);
+    }
+    for (const WarpKey& key : ctx_state->active_warps) {
+      active_warp_ids.insert(key.warp_id);
+    }
+
+    // Calculate never executed warps (all possible warp IDs minus those we've seen)
+    std::set<int> all_seen_warp_ids;
+    for (const WarpKey& key : stats.all_seen_warps) {
+      all_seen_warp_ids.insert(key.warp_id);
+    }
+
+    // Determine max warp ID based on total warps
+    for (uint32_t wid = 0; wid < total_warps; wid++) {
+      if (all_seen_warp_ids.count(wid) == 0) {
+        never_executed_warp_ids.insert(wid);
+      }
+    }
+
+    size_t never_executed = never_executed_warp_ids.size();
+
+    loprintf("==> WARP STATISTICS for kernel_launch_id=%lu:\n", current_kernel_launch_id);
+    loprintf("    Grid: <%u,%u,%u>, Block: <%u,%u,%u>\n", stats.dimensions.gridDimX, stats.dimensions.gridDimY,
+             stats.dimensions.gridDimZ, stats.dimensions.blockDimX, stats.dimensions.blockDimY,
+             stats.dimensions.blockDimZ);
+    loprintf("\n");
+    loprintf("    Summary:\n");
+    loprintf("      Total warps:           %5zu (100.0%%)\n", total_warps);
+    loprintf("      Finished warps:        %5zu (%5.1f%%)\n", finished_warps,
+             total_warps > 0 ? 100.0 * finished_warps / total_warps : 0.0);
+    loprintf("      Active warps:          %5zu (%5.1f%%)\n", active_warps,
+             total_warps > 0 ? 100.0 * active_warps / total_warps : 0.0);
+    loprintf("      Never executed warps:  %5zu (%5.1f%%)\n", never_executed,
+             total_warps > 0 ? 100.0 * never_executed / total_warps : 0.0);
+
+    // Helper lambda to format ranges from a set of IDs
+    auto format_ranges = [](const std::set<int>& ids) -> std::string {
+      if (ids.empty()) return "none";
+
+      std::string result;
+      auto it = ids.begin();
+      int range_start = *it;
+      int range_end = *it;
+
+      for (++it; it != ids.end(); ++it) {
+        if (*it == range_end + 1) {
+          // Continue current range
+          range_end = *it;
+        } else {
+          // End current range and start new one
+          if (!result.empty()) result += ", ";
+          if (range_start == range_end) {
+            result += std::to_string(range_start);
+          } else {
+            result += std::to_string(range_start) + "-" + std::to_string(range_end);
+          }
+          range_start = range_end = *it;
+        }
+      }
+
+      // Add final range
+      if (!result.empty()) result += ", ";
+      if (range_start == range_end) {
+        result += std::to_string(range_start);
+      } else {
+        result += std::to_string(range_start) + "-" + std::to_string(range_end);
+      }
+
+      return result;
+    };
+
+    loprintf("\n");
+    loprintf("    Warp ID Ranges:\n");
+    loprintf("      Finished:       %s\n", format_ranges(finished_warp_ids).c_str());
+    loprintf("      Active:         %s\n", format_ranges(active_warp_ids).c_str());
+    loprintf("      Never executed: %s\n", format_ranges(never_executed_warp_ids).c_str());
+
+    loprintf("    -----------------------------------------------------------------------\n");
+  }
+
   if (ctx_state->active_warps.empty()) {
     loprintf("==> WARP STATUS: No active warps for kernel_launch_id=%lu\n", current_kernel_launch_id);
     return;
   }
 
-  time_t now = time(nullptr);
   loprintf("==> WARP STATUS SUMMARY for kernel_launch_id=%lu (%zu active warps):\n", current_kernel_launch_id,
            ctx_state->active_warps.size());
   loprintf("    Format: WarpID[CTA_x,y,z] - LoopStatus - Activity\n");
@@ -780,6 +883,11 @@ static void check_kernel_hang(CTXstate* ctx_state, uint64_t current_kernel_launc
   }
   if (!to_remove.empty()) {
     for (const WarpKey& key : to_remove) {
+      // Track this warp as finished before removing it from active_warps
+      if (ctx_state->kernel_warp_tracking.count(current_kernel_launch_id)) {
+        ctx_state->kernel_warp_tracking[current_kernel_launch_id].finished_warps.insert(key);
+      }
+
       ctx_state->active_warps.erase(key);
       ctx_state->loop_states.erase(key);
       ctx_state->pending_mem_by_warp.erase(key);
@@ -932,10 +1040,26 @@ void* recv_thread_fun(void* args) {
               warp_states.clear();
             }
             if (is_analysis_type_enabled(AnalysisType::DEADLOCK_DETECTION)) {
-              clear_deadlock_state(ctx_state);
+              clear_deadlock_state(ctx_state, last_seen_kernel_launch_id);
             }
           }
           last_seen_kernel_launch_id = current_launch_id;
+
+          // Initialize kernel warp tracking for the new kernel
+          if (is_analysis_type_enabled(AnalysisType::DEADLOCK_DETECTION)) {
+            if (kernel_launch_to_dimensions_map.count(current_launch_id)) {
+              KernelDimensions& dims = kernel_launch_to_dimensions_map[current_launch_id];
+              KernelWarpStats& stats = ctx_state->kernel_warp_tracking[current_launch_id];
+              stats.dimensions = dims;
+
+              // Calculate total warps: grid_size * warps_per_block
+              // Each block has (blockDim.x * blockDim.y * blockDim.z + 31) / 32 warps
+              uint32_t threads_per_block = dims.blockDimX * dims.blockDimY * dims.blockDimZ;
+              uint32_t warps_per_block = (threads_per_block + 31) / 32;
+              uint32_t total_blocks = dims.gridDimX * dims.gridDimY * dims.gridDimZ;
+              stats.total_warps = total_blocks * warps_per_block;
+            }
+          }
         }
 
         if (header->type == MSG_TYPE_REG_INFO) {
@@ -949,6 +1073,12 @@ void* recv_thread_fun(void* args) {
             ctx_state->active_warps.insert(key);
             // Update last seen time for this warp
             ctx_state->last_seen_time_by_warp[key] = time(nullptr);
+
+            // Track this warp in the kernel's all_seen_warps set
+            if (ctx_state->kernel_warp_tracking.count(ri->kernel_launch_id)) {
+              ctx_state->kernel_warp_tracking[ri->kernel_launch_id].all_seen_warps.insert(key);
+            }
+
             update_loop_state(ctx_state, key, ri);
 
             // Determine if current instruction is BAR.SYNC.DEFER_BLOCKING
