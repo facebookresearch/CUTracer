@@ -145,6 +145,44 @@ struct RegionHistogram {
 };
 
 /**
+ * @brief Grid and block dimensions for a kernel launch.
+ */
+struct KernelDimensions {
+  unsigned int gridDimX;
+  unsigned int gridDimY;
+  unsigned int gridDimZ;
+  unsigned int blockDimX;
+  unsigned int blockDimY;
+  unsigned int blockDimZ;
+};
+
+/**
+ * @brief Tracks warp statistics for a single kernel launch.
+ *
+ * This structure maintains complete information about all warps in a kernel:
+ * - Total number of warps (calculated from grid/block dimensions)
+ * - All warps ever seen executing
+ * - Warps that have finished execution
+ * - Currently active warps (maintained elsewhere in CTXstate)
+ */
+struct KernelWarpStats {
+  // Total number of warps in this kernel launch
+  uint32_t total_warps;
+
+  // Grid and block dimensions
+  KernelDimensions dimensions;
+
+  // All warps that have ever been observed executing
+  std::unordered_set<WarpKey, WarpKey::Hash> all_seen_warps;
+
+  // Warps that were once active but have finished
+  std::unordered_set<WarpKey, WarpKey::Hash> finished_warps;
+
+  KernelWarpStats() : total_warps(0) {
+  }
+};
+
+/**
  * @brief Stores the completed instruction histogram for a specific region of a
  * warp.
  */
@@ -186,6 +224,9 @@ struct CTXstate {
   // Deadlock handling
   int deadlock_consecutive_hits = 0;
   bool deadlock_termination_initiated = false;
+
+  // Warp statistics tracking per kernel launch
+  std::unordered_map<uint64_t, KernelWarpStats> kernel_warp_tracking;
 };
 
 // =================================================================================
