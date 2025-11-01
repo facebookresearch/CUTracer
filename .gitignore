@@ -64,12 +64,12 @@ nvbit_release/
 
 *.log
 third_party/nvbit
+third_party/nlohmann
 
 tests/vectoradd/vectoradd
 .cache/
 compile_commands.json
 
-# CSV files
 *.csv
 *.chrome_trace
 *.llir

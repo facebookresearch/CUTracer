@@ -43,10 +43,10 @@ INCLUDE_DIR := include/
 
 # NVBIT settings
 NVBIT_PATH=./third_party/nvbit/core
-INCLUDES=-I$(NVBIT_PATH) -I./$(INCLUDE_DIR)
+INCLUDES=-I$(NVBIT_PATH) -I./$(INCLUDE_DIR) -I./third_party
 
 # Libraries
-LIBS=-L$(NVBIT_PATH) -lnvbit
+LIBS=-L$(NVBIT_PATH) -lnvbit -lzstd
 NVCC_PATH=-L $(subst bin/nvcc,lib64,$(shell which nvcc | tr -s /))
 
 # Identify inject_funcs.cu specifically
@@ -55,10 +55,14 @@ INJECT_FUNCS_OBJ := $(OBJ_DIR)inject_funcs.o
 
 # Source files (excluding inject_funcs.cu)
 CU_SRCS := $(filter-out $(INJECT_FUNCS_SRC),$(wildcard $(SRC_DIR)*.cu))
-REGULAR_OBJS := $(patsubst $(SRC_DIR)%.cu,$(OBJ_DIR)%.o,$(CU_SRCS))
+CPP_SRCS := $(wildcard $(SRC_DIR)*.cpp)
 
-# All objects (regular + inject_funcs)
-OBJS := $(REGULAR_OBJS) $(INJECT_FUNCS_OBJ)
+# Object files
+REGULAR_OBJS := $(patsubst $(SRC_DIR)%.cu,$(OBJ_DIR)%.o,$(CU_SRCS))
+CPP_OBJS := $(patsubst $(SRC_DIR)%.cpp,$(OBJ_DIR)%.o,$(CPP_SRCS))
+
+# All objects (regular + inject_funcs + cpp)
+OBJS := $(REGULAR_OBJS) $(INJECT_FUNCS_OBJ) $(CPP_OBJS)
 
 # Architecture
 ARCH?=all
@@ -78,8 +82,8 @@ $(LIB_DIR):
 	mkdir -p $@
 
 # Linking rule
-$(NVBIT_TOOL): $(REGULAR_OBJS) $(INJECT_FUNCS_OBJ) $(NVBIT_PATH)/libnvbit.a
-	$(NVCC) -arch=$(ARCH) $(DEBUG_FLAGS) $(REGULAR_OBJS) $(INJECT_FUNCS_OBJ) $(LIBS) $(NVCC_PATH) -lcuda -lcudart_static -shared -o $@
+$(NVBIT_TOOL): $(OBJS) $(NVBIT_PATH)/libnvbit.a
+	$(NVCC) -arch=$(ARCH) $(DEBUG_FLAGS) $(OBJS) $(LIBS) $(NVCC_PATH) -lcuda -lcudart_static -shared -o $@
 
 # Compilation rule for regular CUDA files (excluding inject_funcs.cu)
 $(REGULAR_OBJS): $(OBJ_DIR)%.o: $(SRC_DIR)%.cu
@@ -88,6 +92,10 @@ $(REGULAR_OBJS): $(OBJ_DIR)%.o: $(SRC_DIR)%.cu
 # Special rule for inject_funcs.cu
 $(INJECT_FUNCS_OBJ): $(INJECT_FUNCS_SRC)
 	$(NVCC) $(INCLUDES) $(MAXRREGCOUNT_FLAG) -Xptxas -astoolspatch --keep-device-functions -arch=$(ARCH) -Xcompiler -Wall -Xcompiler -fPIC -c $< -o $@
+
+# Compilation rule for C++ files
+$(OBJ_DIR)%.o: $(SRC_DIR)%.cpp
+	$(CXX) -std=c++11 $(INCLUDES) -Wall $(DEBUG_FLAGS) -fPIC -c $< -o $@
 
 clean:
 	rm -rf $(OBJ_DIR) $(LIB_DIR)

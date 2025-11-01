@@ -66,3 +66,9 @@ void init_instrumentation(const std::string& instrument_str);
 
 // Initialize analysis configuration
 void init_analysis(const std::string& analysis_str);
+
+// Trace format configuration
+// 0 = text format (default)
+// 1 = NDJSON+Zstd (compressed JSON)
+// 2 = NDJSON only (uncompressed JSON, good for debugging)
+extern int trace_format_ndjson;
