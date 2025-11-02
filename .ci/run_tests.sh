@@ -29,6 +29,9 @@ export CUDA_HOME="${CUDA_HOME:-/usr/local/cuda}"
 export PATH="${CUDA_HOME}/bin:$PATH"
 export LD_LIBRARY_PATH="${CUDA_HOME}/lib64:$LD_LIBRARY_PATH"
 
+# Setup Python environment
+export PYTHONPATH="$PROJECT_ROOT/python:$PYTHONPATH"
+
 # Activate conda environment
 if [ -f "/opt/miniconda3/etc/profile.d/conda.sh" ]; then
   echo "🐍 Activating conda environment..."
@@ -36,6 +39,10 @@ if [ -f "/opt/miniconda3/etc/profile.d/conda.sh" ]; then
   conda activate $CONDA_ENV
   conda install -y -c conda-forge libstdcxx-ng=15.1.0
   pip install pandas
+
+  # Install cutracer Python package dependencies
+  echo "📦 Installing cutracer Python package dependencies..."
+  pip install jsonschema>=4.0.0
 else
   echo "⚠️ Conda activation script not found, skipping."
 fi
@@ -202,6 +209,162 @@ test_vectoradd() {
 
   echo "✅ All CUTracer output validation passed!"
   return 0
+}
+
+# Function to test trace formats (mode 0 and mode 2)
+test_trace_formats() {
+  echo "🧪 Testing all trace formats (Unified TraceWriter Implementation)..."
+  cd "$PROJECT_ROOT/tests/vectoradd"
+
+  # Initialize result tracking variables
+  local mode0_status="pending"
+  local mode2_status="pending"
+  local mode0_file=""
+  local mode2_file=""
+  local mode0_record_count=0
+  local mode2_record_count=0
+
+  # Clean up old trace files
+  rm -f *.log *.ndjson
+
+  # ===== Test Mode 0 (Text Format) =====
+  echo ""
+  echo "  📝 Testing Mode 0 (Text Format)..."
+
+  if ! TRACE_FORMAT_NDJSON=0 \
+       CUDA_INJECTION64_PATH="$PROJECT_ROOT/lib/cutracer.so" \
+       CUTRACER_INSTRUMENT=reg_trace \
+       ./vectoradd >mode0_run.log 2>&1; then
+    echo "    ❌ Mode 0 execution failed"
+    mode0_status="failed"
+  else
+    # Find generated .log file
+    mode0_file=$(ls -1t kernel_*vecAdd*.log 2>/dev/null | head -n 1)
+    if [ -z "$mode0_file" ]; then
+      echo "    ❌ No .log file generated"
+      mode0_status="failed"
+    else
+      echo "    ✅ Found: $mode0_file"
+
+      # Validate using Python module
+      echo "    🔍 Validating text format..."
+      if python3 "$PROJECT_ROOT/scripts/validate_trace.py" --no-color text "$mode0_file" >mode0_validation.log 2>&1; then
+        mode0_status="passed"
+        # Count records by counting CTX lines (each trace record starts with "CTX")
+        mode0_record_count=$(grep -c "^CTX" "$mode0_file" 2>/dev/null | tr -d '\n' || echo "0")
+        # Ensure it's a clean number (remove any whitespace/newlines)
+        mode0_record_count=$(echo "$mode0_record_count" | tr -d '[:space:]')
+        echo "    ✅ Mode 0 validation passed"
+        echo "       Records: $mode0_record_count"
+        echo "       File size: $(stat -f%z "$mode0_file" 2>/dev/null || stat -c%s "$mode0_file") bytes"
+      else
+        echo "    ❌ Mode 0 validation failed"
+        echo "    === Validation errors ==="
+        cat mode0_validation.log
+        mode0_status="failed"
+      fi
+    fi
+  fi
+
+  # ===== Test Mode 2 (NDJSON Format) =====
+  echo ""
+  echo "  📊 Testing Mode 2 (NDJSON Format)..."
+
+  # Clean old ndjson files
+  rm -f *.ndjson
+
+  if ! TRACE_FORMAT_NDJSON=2 \
+       CUDA_INJECTION64_PATH="$PROJECT_ROOT/lib/cutracer.so" \
+       CUTRACER_INSTRUMENT=reg_trace \
+       ./vectoradd >mode2_run.log 2>&1; then
+    echo "    ❌ Mode 2 execution failed"
+    mode2_status="failed"
+  else
+    # Find generated .ndjson file
+    mode2_file=$(ls -1t kernel_*vecAdd*.ndjson 2>/dev/null | head -n 1)
+    if [ -z "$mode2_file" ]; then
+      echo "    ❌ No .ndjson file generated"
+      mode2_status="failed"
+    else
+      echo "    ✅ Found: $mode2_file"
+
+      # Validate using Python module
+      echo "    🔍 Validating JSON format..."
+      if python3 "$PROJECT_ROOT/scripts/validate_trace.py" --no-color json "$mode2_file" >mode2_validation.log 2>&1; then
+        mode2_status="passed"
+        mode2_record_count=$(wc -l < "$mode2_file" 2>/dev/null || echo 0)
+        echo "    ✅ Mode 2 validation passed"
+        echo "       Records: $mode2_record_count"
+        echo "       File size: $(stat -f%z "$mode2_file" 2>/dev/null || stat -c%s "$mode2_file") bytes"
+
+        # Show first record (formatted)
+        echo "       First record (formatted):"
+        head -1 "$mode2_file" | python3 -m json.tool | head -20 | sed 's/^/         /'
+      else
+        echo "    ❌ Mode 2 validation failed"
+        echo "    === Validation errors ==="
+        cat mode2_validation.log
+        mode2_status="failed"
+      fi
+    fi
+  fi
+
+  # ===== Cross-Format Validation =====
+  echo ""
+  echo "  🔄 Validating cross-format consistency..."
+
+  if [ "$mode0_status" = "passed" ] && [ "$mode2_status" = "passed" ]; then
+    # Compare record counts
+    echo "    📊 Comparing record counts..."
+    echo "       Mode 0: $mode0_record_count records"
+    echo "       Mode 2: $mode2_record_count records"
+
+    if [ "$mode0_record_count" -gt 0 ]; then
+      # Calculate difference and tolerance (10%)
+      local diff=$((mode2_record_count - mode0_record_count))
+      local abs_diff=${diff#-}  # Absolute value
+      local tolerance=$((mode0_record_count / 10))
+
+      echo "       Difference: $diff (tolerance: ±$tolerance)"
+
+      if [ "$abs_diff" -le "$tolerance" ]; then
+        echo "    ✅ Record counts are consistent"
+      else
+        echo "    ⚠️  WARNING: Record count difference exceeds tolerance"
+      fi
+    else
+      echo "    ⚠️  WARNING: Mode 0 has zero records, cannot compare"
+    fi
+
+    # Run comprehensive comparison using Python module
+    echo "    🔍 Running comprehensive format comparison..."
+    if python3 "$PROJECT_ROOT/scripts/validate_trace.py" --no-color compare "$mode0_file" "$mode2_file" >compare_result.log 2>&1; then
+      echo "    ✅ Format comparison passed"
+    else
+      echo "    ⚠️  Format comparison found differences:"
+      cat compare_result.log
+    fi
+  else
+    echo "    ⏭️  Skipping cross-format validation (one or more formats failed)"
+  fi
+
+  # ===== Final Report =====
+  echo ""
+  echo "  ═══════════════════════════════════════════"
+  echo "  📋 Test Summary"
+  echo "  ═══════════════════════════════════════════"
+  echo "  Mode 0 (Text):   $mode0_status"
+  echo "  Mode 2 (NDJSON): $mode2_status"
+  echo "  ═══════════════════════════════════════════"
+
+  # Determine overall result
+  if [ "$mode0_status" = "passed" ] && [ "$mode2_status" = "passed" ]; then
+    echo "  ✅ All trace format tests passed!"
+    return 0
+  else
+    echo "  ❌ Some trace format tests failed"
+    return 1
+  fi
 }
 
 test_py_add_with_kernel_filters() {
@@ -453,6 +616,9 @@ case "$TEST_TYPE" in
   ;;
 "vectoradd")
   build_vectoradd && test_vectoradd && test_py_add_with_kernel_filters
+  ;;
+"trace-formats")
+  build_vectoradd && test_trace_formats
   ;;
 "proton")
   test_proton
