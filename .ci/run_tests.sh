@@ -219,19 +219,24 @@ test_trace_formats() {
 
   # Initialize result tracking variables
   local mode0_status="pending"
+  local mode1_status="pending"
   local mode2_status="pending"
   local mode0_file=""
+  local mode1_file=""
   local mode2_file=""
   local mode0_reg_count=0
   local mode0_mem_count=0
   local mode0_total_count=0
+  local mode1_reg_count=0
+  local mode1_mem_count=0
+  local mode1_total_count=0
   local mode2_reg_count=0
   local mode2_mem_count=0
   local mode2_total_count=0
   local cross_validation_status="pending"
 
   # Clean up old trace files
-  rm -f *.log *.ndjson
+  rm -f *.log *.ndjson *.ndjson.zstd
 
   # ===== Test Mode 0 (Text Format) =====
   echo ""
@@ -337,6 +342,84 @@ test_trace_formats() {
     fi
   fi
 
+  # ===== Test Mode 1 (NDJSON + Zstd Compression) =====
+  echo ""
+  echo "  📦 Testing Mode 1 (NDJSON + Zstd)..."
+
+  # Clean old zstd files
+  rm -f *.ndjson.zstd mode1_decompressed.ndjson
+
+  if ! TRACE_FORMAT_NDJSON=1 \
+       CUDA_INJECTION64_PATH="$PROJECT_ROOT/lib/cutracer.so" \
+       CUTRACER_INSTRUMENT=reg_trace,mem_trace \
+       ./vectoradd >mode1_run.log 2>&1; then
+    echo "    ❌ Mode 1 execution failed"
+    mode1_status="failed"
+  else
+    # Find generated .ndjson.zstd file
+    mode1_file=$(ls -1t kernel_*vecAdd*.ndjson.zstd 2>/dev/null | head -n 1)
+    if [ -z "$mode1_file" ]; then
+      echo "    ❌ No .ndjson.zstd file generated"
+      mode1_status="failed"
+    else
+      echo "    ✅ Found: $mode1_file"
+
+      # Get compressed file size
+      local compressed_size=$(stat -c%s "$mode1_file" 2>/dev/null || stat -f%z "$mode1_file")
+      echo "       Compressed file size: $compressed_size bytes"
+
+      # Decompress for validation
+      echo "    🔓 Decompressing..."
+      if ! zstd -d "$mode1_file" -o mode1_decompressed.ndjson --force >mode1_decomp.log 2>&1; then
+        echo "    ❌ Decompression failed"
+        echo "    === Decompression errors ==="
+        cat mode1_decomp.log
+        mode1_status="failed"
+      else
+        # Get decompressed file size
+        local decompressed_size=$(stat -c%s mode1_decompressed.ndjson 2>/dev/null || stat -f%z mode1_decompressed.ndjson)
+
+        # Calculate compression ratio
+        local ratio=$(awk "BEGIN {printf \"%.1f\", ($decompressed_size / $compressed_size)}")
+
+        echo "    ✅ Decompression successful"
+        echo "       Decompressed size: $decompressed_size bytes"
+        echo "       Compression ratio: ${ratio}x"
+
+        # Validate decompressed JSON
+        echo "    🔍 Validating JSON format..."
+        if python3 "$PROJECT_ROOT/scripts/validate_trace.py" --no-color json mode1_decompressed.ndjson >mode1_validation.log 2>&1; then
+          mode1_status="passed"
+
+          # Count each trace type separately
+          mode1_reg_count=$(grep -c '"type":"reg_trace"' mode1_decompressed.ndjson 2>/dev/null | tr -d '[:space:]')
+          mode1_mem_count=$(grep -c '"type":"mem_trace"' mode1_decompressed.ndjson 2>/dev/null | tr -d '[:space:]')
+          mode1_total_count=$(wc -l < mode1_decompressed.ndjson 2>/dev/null | tr -d '[:space:]')
+
+          echo "    ✅ Mode 1 validation passed"
+          echo "       📊 Record breakdown:"
+          echo "          reg_trace:  $mode1_reg_count records"
+          echo "          mem_trace:  $mode1_mem_count records"
+          echo "          Total:      $mode1_total_count records"
+
+          # Show first record of each type (formatted)
+          echo "       First reg_trace record (formatted):"
+          grep '"type":"reg_trace"' mode1_decompressed.ndjson | head -1 | python3 -m json.tool | head -20 | sed 's/^/         /'
+
+          if [ "$mode1_mem_count" -gt 0 ]; then
+            echo "       First mem_trace record (formatted):"
+            grep '"type":"mem_trace"' mode1_decompressed.ndjson | head -1 | python3 -m json.tool | head -20 | sed 's/^/         /'
+          fi
+        else
+          echo "    ❌ Mode 1 validation failed"
+          echo "    === Validation errors ==="
+          cat mode1_validation.log
+          mode1_status="failed"
+        fi
+      fi
+    fi
+  fi
+
   # ===== Cross-Format Validation =====
   echo ""
   echo "  🔄 Validating cross-format consistency..."
@@ -418,18 +501,59 @@ test_trace_formats() {
     cross_validation_status="skipped"
   fi
 
+  # Add Mode 1 to cross-validation if passed
+  if [ "$mode1_status" = "passed" ]; then
+    echo ""
+    echo "  🔄 Validating Mode 1 vs Mode 2 consistency..."
+    echo "     Mode 1 breakdown: reg=$mode1_reg_count, mem=$mode1_mem_count, total=$mode1_total_count"
+    echo "     Mode 2 breakdown: reg=$mode2_reg_count, mem=$mode2_mem_count, total=$mode2_total_count"
+
+    if [ "$mode1_total_count" -eq "$mode2_total_count" ]; then
+      echo "     ✅ Mode 1 and Mode 2 record counts match"
+    else
+      echo "     ❌ ERROR: Mode 1 vs Mode 2 record count mismatch (mode1=$mode1_total_count, mode2=$mode2_total_count) - exact match required"
+      cross_validation_status="failed"
+    fi
+
+    # Compare by type
+    if [ "$mode1_reg_count" -eq "$mode2_reg_count" ] && [ "$mode1_mem_count" -eq "$mode2_mem_count" ]; then
+      echo "     ✅ reg_trace and mem_trace counts match between Mode 1 and Mode 2"
+    else
+      echo "     ❌ ERROR: Type-specific counts differ between Mode 1 and Mode 2 (reg: mode1=$mode1_reg_count vs mode2=$mode2_reg_count, mem: mode1=$mode1_mem_count vs mode2=$mode2_mem_count) - exact match required"
+      cross_validation_status="failed"
+    fi
+
+    # Calculate and display compression statistics
+    if [ -n "$mode1_file" ] && [ -n "$mode2_file" ]; then
+      local mode1_size=$(stat -c%s "$mode1_file" 2>/dev/null || stat -f%z "$mode1_file")
+      local mode2_size=$(stat -c%s "$mode2_file" 2>/dev/null || stat -f%z "$mode2_file")
+      local ratio=$(awk "BEGIN {printf \"%.1f\", ($mode2_size / $mode1_size)}")
+      local saved_bytes=$((mode2_size - mode1_size))
+      local saved_percent=$(awk "BEGIN {printf \"%.1f\", (100.0 * $saved_bytes / $mode2_size)}")
+
+      echo ""
+      echo "  📊 Compression Statistics:"
+      echo "     Mode 2 (uncompressed): $(numfmt --to=iec-i --suffix=B $mode2_size 2>/dev/null || echo "$mode2_size bytes")"
+      echo "     Mode 1 (compressed):   $(numfmt --to=iec-i --suffix=B $mode1_size 2>/dev/null || echo "$mode1_size bytes")"
+      echo "     Compression ratio:     ${ratio}x"
+      echo "     Space saved:           $(numfmt --to=iec-i --suffix=B $saved_bytes 2>/dev/null || echo "$saved_bytes bytes") (${saved_percent}%)"
+    fi
+  fi
+
   # ===== Final Report =====
   echo ""
   echo "  ═══════════════════════════════════════════"
   echo "  📋 Test Summary"
   echo "  ═══════════════════════════════════════════"
   echo "  Mode 0 (Text):          $mode0_status"
+  echo "  Mode 1 (NDJSON+Zstd):   $mode1_status"
   echo "  Mode 2 (NDJSON):        $mode2_status"
   echo "  Cross-Validation:       $cross_validation_status"
   echo "  ═══════════════════════════════════════════"
 
-  # Determine overall result - all three must pass
+  # Determine overall result - all four must pass
   if [ "$mode0_status" = "passed" ] && \
+     [ "$mode1_status" = "passed" ] && \
      [ "$mode2_status" = "passed" ] && \
      [ "$cross_validation_status" = "passed" ]; then
     echo "  ✅ All trace format tests passed!"
