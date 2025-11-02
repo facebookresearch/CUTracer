@@ -72,7 +72,10 @@ CUDA_INJECTION64_PATH=~/CUTracer/lib/cutracer.so \
 -   `KERNEL_FILTERS`: comma-separated substrings matching unmangled or mangled kernel names
 -   `INSTR_BEGIN`, `INSTR_END`: static instruction index gate during instrumentation
 -   `TOOL_VERBOSE`: 0/1/2
--   `TRACE_FORMAT_NDJSON`: trace output format (0=text [default], 1=NDJSON+Zstd, 2=NDJSON only)
+-   `TRACE_FORMAT_NDJSON`: trace output format
+    -   **1** (default): NDJSON+Zstd compressed (`.ndjson.zstd`, ~12x compression, 92% space savings)
+    -   0: Plain text (`.log`, legacy format, verbose)
+    -   2: NDJSON uncompressed (`.ndjson`, for debugging)
 
 Note: The tool sets `CUDA_MANAGED_FORCE_DEVICE_ALLOC=1` to simplify channel memory handling.
 

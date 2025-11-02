@@ -161,7 +161,10 @@ test_vectoradd() {
   # Clean up old logs to ensure a fresh run
   rm -f *.log
 
-  if ! CUDA_INJECTION64_PATH="$PROJECT_ROOT/lib/cutracer.so" CUTRACER_INSTRUMENT=reg_trace ./vectoradd >cutracer_output.log 2>&1; then
+  if ! TRACE_FORMAT_NDJSON=0 \
+       CUDA_INJECTION64_PATH="$PROJECT_ROOT/lib/cutracer.so" \
+       CUTRACER_INSTRUMENT=reg_trace \
+       ./vectoradd >cutracer_output.log 2>&1; then
     exit_code=$?
     echo "❌ CUTracer test failed with exit code: $exit_code"
     echo "     === CUTracer Output ==="
@@ -572,7 +575,11 @@ test_py_add_with_kernel_filters() {
   rm -f *.log
 
   # Run the test with KERNEL_FILTERS enabled
-  if ! CUDA_INJECTION64_PATH=$PROJECT_ROOT/lib/cutracer.so CUTRACER_INSTRUMENT=reg_trace KERNEL_FILTERS=vectorized_elementwise_kernel python ./test_add.py >py_add_output.log 2>&1; then
+  if ! TRACE_FORMAT_NDJSON=0 \
+       CUDA_INJECTION64_PATH=$PROJECT_ROOT/lib/cutracer.so \
+       CUTRACER_INSTRUMENT=reg_trace \
+       KERNEL_FILTERS=vectorized_elementwise_kernel \
+       python ./test_add.py >py_add_output.log 2>&1; then
     echo "❌ Python script test_add.py failed to execute."
     echo "     === Python script output ==="
     cat py_add_output.log
@@ -633,7 +640,11 @@ test_proton() {
 
   # First run: Execute with CUTracer to generate instruction histogram and tracer log.
   # We are using KERNEL_FILTERS to only trace 'add_kernel'.
-  if ! CUDA_INJECTION64_PATH=$PROJECT_ROOT/lib/cutracer.so CUTRACER_ANALYSIS=proton_instr_histogram KERNEL_FILTERS=add_kernel python ./vector-add-instrumented.py >proton_instr_output.log 2>&1; then
+  if ! TRACE_FORMAT_NDJSON=0 \
+       CUDA_INJECTION64_PATH=$PROJECT_ROOT/lib/cutracer.so \
+       CUTRACER_ANALYSIS=proton_instr_histogram \
+       KERNEL_FILTERS=add_kernel \
+       python ./vector-add-instrumented.py >proton_instr_output.log 2>&1; then
     echo "❌ Proton test (step 1: kernel filter run) failed to execute."
     echo "     === Proton test (kernel filter) output ==="
     cat proton_instr_output.log
@@ -758,7 +769,12 @@ test_hang_test() {
   fi
 
   # Run with CUTracer deadlock detection and a timeout guard
-  if ! timeout "$TIMEOUT" env CUDA_INJECTION64_PATH="$PROJECT_ROOT/lib/cutracer.so" CUTRACER_ANALYSIS=deadlock_detection KERNEL_FILTERS=add_kernel python "./test_hang.py" >hang_output.log 2>&1; then
+  if ! timeout "$TIMEOUT" env \
+       TRACE_FORMAT_NDJSON=0 \
+       CUDA_INJECTION64_PATH="$PROJECT_ROOT/lib/cutracer.so" \
+       CUTRACER_ANALYSIS=deadlock_detection \
+       KERNEL_FILTERS=add_kernel \
+       python "./test_hang.py" >hang_output.log 2>&1; then
     exit_code=$?
     echo "     === Hang test output ==="
     cat hang_output.log

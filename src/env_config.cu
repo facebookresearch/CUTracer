@@ -218,7 +218,7 @@ void init_config_from_env() {
   init_instrumentation(instrument_str);
 
   // Trace format configuration
-  get_var_int(trace_format_ndjson, "TRACE_FORMAT_NDJSON", 0, "Trace format: 0=text, 1=NDJSON+Zstd, 2=NDJSON only");
+  get_var_int(trace_format_ndjson, "TRACE_FORMAT_NDJSON", 1, "Trace format: 0=text, 1=NDJSON+Zstd, 2=NDJSON only");
 
   // Validate trace format range
   if (trace_format_ndjson < 0 || trace_format_ndjson > 2) {
