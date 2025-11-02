@@ -1,6 +1,37 @@
 # Prerequisites
 *.d
 
+
+# Python specific
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+*.pdb
+*.egg
+*.egg-info/
+dist/
+build/
+pip-wheel-metadata/
+*.manifest
+*.spec
+*.coverage
+.coverage.*
+.cache
+.pytest_cache/
+.tox/
+.mypy_cache/
+.dmypy.json
+.pyre/
+.pytype/
+*.ipynb_checkpoints
+*.ipynb
+.env/
+.venv/
+env/
+venv/
+# End of Python specific
+
 # Compiled Object files
 *.slo
 *.lo
@@ -77,3 +108,4 @@ compile_commands.json
 *.ttgir
 *.ptx
 *.sass
+*.ndjson

@@ -21,6 +21,9 @@
 /* for channel */
 #include "utils/channel.hpp"
 
+// Forward declaration for TraceWriter (defined in trace_writer.h)
+class TraceWriter;
+
 /* Channel buffer size */
 #define CHANNEL_SIZE (1l << 20)
 
@@ -227,6 +230,13 @@ struct CTXstate {
 
   // Warp statistics tracking per kernel launch
   std::unordered_map<uint64_t, KernelWarpStats> kernel_warp_tracking;
+
+  // TraceWriter for JSON output (mode 1/2), nullptr if mode 0 (text)
+  TraceWriter* trace_writer = nullptr;
+
+  // Per-kernel trace index counter (monotonically increasing)
+  // Maps kernel_launch_id -> current trace_index
+  std::unordered_map<uint64_t, uint64_t> trace_index_by_kernel;
 };
 
 // =================================================================================
