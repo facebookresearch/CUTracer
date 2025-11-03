@@ -78,3 +78,22 @@ rm -f "$TEMP_FILE"
 rm -rf "$TEMP_DIR"
 
 echo "NVBit $VERSION has been successfully installed to third_party/nvbit directory."
+
+# Install nlohmann/json
+echo ""
+echo "Downloading nlohmann/json..."
+JSON_VERSION="v3.11.3"
+JSON_URL="https://github.com/nlohmann/json/releases/download/${JSON_VERSION}/json.hpp"
+
+mkdir -p third_party/nlohmann
+curl -L -o third_party/nlohmann/json.hpp "$JSON_URL"
+
+if [ $? -eq 0 ]; then
+    echo "nlohmann/json ${JSON_VERSION} has been successfully installed."
+else
+    echo "Error: Failed to download nlohmann/json."
+    exit 1
+fi
+
+echo ""
+echo "All third-party dependencies have been successfully installed."

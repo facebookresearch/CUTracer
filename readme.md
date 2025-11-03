@@ -12,23 +12,51 @@ CUTracer is an NVBit-based CUDA binary instrumentation tool. It cleanly separate
 -   CUDA Graph and stream-capture aware flows
 -   Deterministic kernel log file naming and CSV outputs
 
-## Quickstart
+## Requirements
 
-1. Install third-party dependency (NVBit):
+All requirements are aligned with NVBit.
+
+Unique requirements:
+- **libzstd**: Required for trace compression
+
+## Installation
+
+1. Clone the repository:
 
 ```bash
 git clone git@github.com:facebookresearch/CUTracer.git
 cd CUTracer
+```
+
+2. Install system dependencies (libzstd):
+
+```bash
+# Ubuntu/Debian
+sudo apt-get install libzstd-dev
+
+# CentOS/RHEL
+sudo dnf install libzstd-devel
+```
+
+3. Download third-party dependencies:
+
+```bash
 ./install_third_party.sh
 ```
 
-2. Build the tool:
+This will download:
+- NVBit (NVIDIA Binary Instrumentation Tool)
+- nlohmann/json (JSON library for C++)
+
+4. Build the tool:
 
 ```bash
 make -j$(nproc)
 ```
 
-3. Run your CUDA app with CUTracer (example: No instrumentation):
+## Quickstart
+
+Run your CUDA app with CUTracer (example: No instrumentation):
 
 ```bash
 CUDA_INJECTION64_PATH=~/CUTracer/lib/cutracer.so \
@@ -44,6 +72,7 @@ CUDA_INJECTION64_PATH=~/CUTracer/lib/cutracer.so \
 -   `KERNEL_FILTERS`: comma-separated substrings matching unmangled or mangled kernel names
 -   `INSTR_BEGIN`, `INSTR_END`: static instruction index gate during instrumentation
 -   `TOOL_VERBOSE`: 0/1/2
+-   `TRACE_FORMAT_NDJSON`: trace output format (0=text [default], 1=NDJSON+Zstd, 2=NDJSON only)
 
 Note: The tool sets `CUDA_MANAGED_FORCE_DEVICE_ALLOC=1` to simplify channel memory handling.
 
