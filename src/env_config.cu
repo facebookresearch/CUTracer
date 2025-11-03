@@ -25,6 +25,9 @@ std::unordered_set<InstrumentType> enabled_instrument_types;
 // enabled analysis types
 std::unordered_set<AnalysisType> enabled_analysis_types;
 
+// Trace format configuration variable
+int trace_format_ndjson;
+
 /**
  * @brief Parses a comma-separated string of kernel name filters for substring matching.
  *
@@ -213,6 +216,15 @@ void init_config_from_env() {
   init_analysis(analysis_str);
   // Initialize instrumentation from user settings
   init_instrumentation(instrument_str);
+
+  // Trace format configuration
+  get_var_int(trace_format_ndjson, "TRACE_FORMAT_NDJSON", 0, "Trace format: 0=text, 1=NDJSON+Zstd, 2=NDJSON only");
+
+  // Validate trace format range
+  if (trace_format_ndjson < 0 || trace_format_ndjson > 2) {
+    printf("WARNING: Invalid TRACE_FORMAT_NDJSON=%d. Using default=0 (text).\n", trace_format_ndjson);
+    trace_format_ndjson = 0;
+  }
 
   std::string pad(100, '-');
   loprintf("%s\n", pad.c_str());

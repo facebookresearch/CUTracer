@@ -24,4 +24,9 @@ else
     exit 1
 fi
 
+# Install zstd library for compression support
+echo "📦 Installing zstd library..."
+sudo apt-get update && sudo apt-get install -y libzstd-dev
+echo "✅ zstd installed"
+
 echo "Setup completed successfully!"
