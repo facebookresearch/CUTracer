@@ -36,6 +36,7 @@
 
 /* env config */
 #include "env_config.h"
+#include "trace_writer.h"
 
 /* logging functionality */
 #include "log.h"
@@ -352,10 +353,22 @@ static bool enter_kernel_launch(CUcontext ctx, CUfunction func, uint64_t& kernel
     kernel_launch_id++;
   }
 
-  // This open should be done before enabling instrumented code to run,
-  // otherwise the log file will not be created.
+  // Create TraceWriter for all trace modes (0/1/2)
+  // Note: log_open_kernel_file() has been removed - TraceWriter now handles all trace output
   if (should_instrument) {
-    log_open_kernel_file(ctx, func, kernel_iter_map[func]++);
+    if (!ctx_state->trace_writer) {
+      std::string base_filename = generate_kernel_log_basename(ctx, func, kernel_iter_map[func]++);
+      ctx_state->trace_writer = new TraceWriter(base_filename, trace_format_ndjson);
+
+      // Initialize trace_index for this kernel
+      if (!stream_capture && !build_graph) {
+        ctx_state->trace_index_by_kernel[kernel_launch_id - 1] = 0;
+      }
+
+      if (verbose) {
+        loprintf("Created TraceWriter for mode %d, file: %s\n", trace_format_ndjson, base_filename.c_str());
+      }
+    }
   }
   /* enable instrumented code to run */
   nvbit_enable_instrumented(ctx, func, should_instrument);
@@ -372,6 +385,11 @@ static void leave_kernel_launch(CTXstate* ctx_state, uint64_t& grid_launch_id) {
   /* Make sure GPU is idle */
   cudaDeviceSynchronize();
   CUDA_CHECK_LAST_ERROR();
+
+  // Flush TraceWriter buffer
+  if (ctx_state->trace_writer) {
+    ctx_state->trace_writer->flush();
+  }
 }
 
 // Reference code from NVIDIA nvbit mem_trace tool
@@ -548,14 +566,17 @@ void nvbit_at_ctx_term(CUcontext ctx) {
   ctx_state->recv_thread_done = RecvThreadState::STOP;
   while (ctx_state->recv_thread_done != RecvThreadState::FINISHED);
 
-  // Clean up any remaining kernel mapping entries
-  // (in case there were kernels launched but no data received)
-  kernel_launch_to_func_map.clear();
-  kernel_launch_to_iter_map.clear();
+  // Cleanup TraceWriter
+  if (ctx_state->trace_writer) {
+    ctx_state->trace_writer->flush();
+    delete ctx_state->trace_writer;
+    ctx_state->trace_writer = nullptr;
+  }
 
   // Clean up any remaining kernel mapping entries
   // (in case there were kernels launched but no data received)
   kernel_launch_to_func_map.clear();
+  kernel_launch_to_iter_map.clear();
 
   ctx_state->channel_host.destroy(false);
   cudaFree(ctx_state->channel_dev);
