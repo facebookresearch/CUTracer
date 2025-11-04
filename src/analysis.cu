@@ -1036,7 +1036,6 @@ void* recv_thread_fun(void* args) {
       while (num_processed_bytes < num_recv_bytes) {
         // First read the message header to determine the message type
         message_header_t* header = (message_header_t*)&recv_buffer[num_processed_bytes];
-        const char* sass_str = "N/A";
 
         uint64_t current_launch_id = get_kernel_launch_id(header);
         bool is_new_kernel = false;
@@ -1152,38 +1151,26 @@ void* recv_thread_fun(void* args) {
         } else if (header->type == MSG_TYPE_MEM_ACCESS) {
           mem_access_t* mem = (mem_access_t*)&recv_buffer[num_processed_bytes];
 
-          // TODO(PR#3): Migrate MEM_ACCESS to TraceWriter
-          // Currently commented out to avoid dependency on log_open_kernel_file()
-          // which has been removed in favor of unified TraceWriter approach.
+          // Get SASS string for trace output
+          std::string sass_str_cpp;
+          std::map<uint64_t, std::pair<CUcontext, CUfunction>>::iterator func_iter =
+              kernel_launch_to_func_map.find(mem->kernel_launch_id);
+          if (func_iter != kernel_launch_to_func_map.end()) {
+            std::pair<CUcontext, CUfunction> kernel_info = func_iter->second;
+            CUfunction f_func = kernel_info.second;
+            if (ctx_state->id_to_sass_map.count(f_func) && ctx_state->id_to_sass_map[f_func].count(mem->opcode_id)) {
+              sass_str_cpp = ctx_state->id_to_sass_map[f_func][mem->opcode_id];
+            }
+          }
 
-          // Get SASS string for trace output.
-          // std::map<uint64_t, std::pair<CUcontext, CUfunction>>::iterator func_iter =
-          //     kernel_launch_to_func_map.find(mem->kernel_launch_id);
-          // if (func_iter != kernel_launch_to_func_map.end()) {
-          //   std::pair<CUcontext, CUfunction> kernel_info = func_iter->second;
-          //   CUfunction f_func = kernel_info.second;
-          //   if (ctx_state->id_to_sass_map.count(f_func) && ctx_state->id_to_sass_map[f_func].count(mem->opcode_id)) {
-          //     sass_str = ctx_state->id_to_sass_map[f_func][mem->opcode_id].c_str();
-          //   }
-          // }
+          // Unified TraceWriter output
+          if (ctx_state->trace_writer) {
+            uint64_t trace_idx = ctx_state->trace_index_by_kernel[mem->kernel_launch_id]++;
+            uint64_t timestamp = get_timestamp_ns();
+            auto record = TraceRecord::create_mem_trace(ctx, sass_str_cpp, trace_idx, timestamp, mem);
+            ctx_state->trace_writer->write_trace(record);
+          }
 
-          // trace_lprintf(
-          //     "CTX %p - kernel_launch_id %ld - CTA %d,%d,%d - warp %d - PC %ld - "
-          //     "%s:\n",
-          //     ctx, mem->kernel_launch_id, mem->cta_id_x, mem->cta_id_y, mem->cta_id_z, mem->warp_id, mem->pc,
-          //     sass_str);
-          // trace_lprintf("  Memory Addresses:\n  * ");
-          // int printed = 0;
-          // for (int i = 0; i < 32; i++) {
-          //   if (mem->addrs[i] != 0) {  // Only print non-zero addresses
-          //     trace_lprintf("T%02d: 0x%016lx ", i, mem->addrs[i]);
-          //     printed++;
-          //     if (printed % 4 == 0 && i < 31) {
-          //       trace_lprintf("\n    ");
-          //     }
-          //   }
-          // }
-          // trace_lprintf("\n\n");
           num_processed_bytes += sizeof(mem_access_t);
         } else {
           // Unknown message type, print error and break loop

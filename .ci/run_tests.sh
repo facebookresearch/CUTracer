@@ -214,16 +214,21 @@ test_vectoradd() {
 # Function to test trace formats (mode 0 and mode 2)
 test_trace_formats() {
   echo "🧪 Testing all trace formats (Unified TraceWriter Implementation)..."
+  echo "   Testing with combined instrumentation: reg_trace + mem_trace"
   cd "$PROJECT_ROOT/tests/vectoradd"
 
   # Initialize result tracking variables
   local mode0_status="pending"
   local mode2_status="pending"
-  local cross_validation_status="pending"
   local mode0_file=""
   local mode2_file=""
-  local mode0_record_count=0
-  local mode2_record_count=0
+  local mode0_reg_count=0
+  local mode0_mem_count=0
+  local mode0_total_count=0
+  local mode2_reg_count=0
+  local mode2_mem_count=0
+  local mode2_total_count=0
+  local cross_validation_status="pending"
 
   # Clean up old trace files
   rm -f *.log *.ndjson
@@ -234,7 +239,7 @@ test_trace_formats() {
 
   if ! TRACE_FORMAT_NDJSON=0 \
        CUDA_INJECTION64_PATH="$PROJECT_ROOT/lib/cutracer.so" \
-       CUTRACER_INSTRUMENT=reg_trace \
+       CUTRACER_INSTRUMENT=reg_trace,mem_trace \
        ./vectoradd >mode0_run.log 2>&1; then
     echo "    ❌ Mode 0 execution failed"
     mode0_status="failed"
@@ -251,12 +256,21 @@ test_trace_formats() {
       echo "    🔍 Validating text format..."
       if python3 "$PROJECT_ROOT/scripts/validate_trace.py" --no-color text "$mode0_file" >mode0_validation.log 2>&1; then
         mode0_status="passed"
-        # Count records by counting CTX lines (each trace record starts with "CTX")
-        mode0_record_count=$(grep -c "^CTX" "$mode0_file" 2>/dev/null | tr -d '\n' || echo "0")
-        # Ensure it's a clean number (remove any whitespace/newlines)
-        mode0_record_count=$(echo "$mode0_record_count" | tr -d '[:space:]')
+
+        # Count reg_trace records (CTX lines without "kernel_launch_id")
+        mode0_reg_count=$(grep "^CTX" "$mode0_file" | grep -v "kernel_launch_id" | wc -l | tr -d '[:space:]')
+
+        # Count mem_trace records (lines with "Memory Addresses:")
+        mode0_mem_count=$(grep -c "Memory Addresses:" "$mode0_file" 2>/dev/null | tr -d '[:space:]')
+
+        # Total count
+        mode0_total_count=$((mode0_reg_count + mode0_mem_count))
+
         echo "    ✅ Mode 0 validation passed"
-        echo "       Records: $mode0_record_count"
+        echo "       📊 Record breakdown:"
+        echo "          reg_trace:  $mode0_reg_count records"
+        echo "          mem_trace:  $mode0_mem_count records"
+        echo "          Total:      $mode0_total_count records"
         echo "       File size: $(stat -f%z "$mode0_file" 2>/dev/null || stat -c%s "$mode0_file") bytes"
       else
         echo "    ❌ Mode 0 validation failed"
@@ -276,7 +290,7 @@ test_trace_formats() {
 
   if ! TRACE_FORMAT_NDJSON=2 \
        CUDA_INJECTION64_PATH="$PROJECT_ROOT/lib/cutracer.so" \
-       CUTRACER_INSTRUMENT=reg_trace \
+       CUTRACER_INSTRUMENT=reg_trace,mem_trace \
        ./vectoradd >mode2_run.log 2>&1; then
     echo "    ❌ Mode 2 execution failed"
     mode2_status="failed"
@@ -293,14 +307,27 @@ test_trace_formats() {
       echo "    🔍 Validating JSON format..."
       if python3 "$PROJECT_ROOT/scripts/validate_trace.py" --no-color json "$mode2_file" >mode2_validation.log 2>&1; then
         mode2_status="passed"
-        mode2_record_count=$(wc -l < "$mode2_file" 2>/dev/null || echo 0)
+
+        # Count each trace type separately (note: JSON has no spaces after colons)
+        mode2_reg_count=$(grep -c '"type":"reg_trace"' "$mode2_file" 2>/dev/null | tr -d '[:space:]')
+        mode2_mem_count=$(grep -c '"type":"mem_trace"' "$mode2_file" 2>/dev/null | tr -d '[:space:]')
+        mode2_total_count=$(wc -l < "$mode2_file" 2>/dev/null | tr -d '[:space:]')
+
         echo "    ✅ Mode 2 validation passed"
-        echo "       Records: $mode2_record_count"
+        echo "       📊 Record breakdown:"
+        echo "          reg_trace:  $mode2_reg_count records"
+        echo "          mem_trace:  $mode2_mem_count records"
+        echo "          Total:      $mode2_total_count records"
         echo "       File size: $(stat -f%z "$mode2_file" 2>/dev/null || stat -c%s "$mode2_file") bytes"
 
-        # Show first record (formatted)
-        echo "       First record (formatted):"
-        head -1 "$mode2_file" | python3 -m json.tool | head -20 | sed 's/^/         /'
+        # Show first record of each type (formatted)
+        echo "       First reg_trace record (formatted):"
+        grep '"type":"reg_trace"' "$mode2_file" | head -1 | python3 -m json.tool | head -20 | sed 's/^/         /'
+
+        if [ "$mode2_mem_count" -gt 0 ]; then
+          echo "       First mem_trace record (formatted):"
+          grep '"type":"mem_trace"' "$mode2_file" | head -1 | python3 -m json.tool | head -20 | sed 's/^/         /'
+        fi
       else
         echo "    ❌ Mode 2 validation failed"
         echo "    === Validation errors ==="
@@ -318,32 +345,66 @@ test_trace_formats() {
     # Assume cross-validation will pass, set to failed if any check fails
     cross_validation_status="passed"
 
-    # Compare record counts
+    # Compare record counts by type
     echo "    📊 Comparing record counts..."
-    echo "       Mode 0: $mode0_record_count records"
-    echo "       Mode 2: $mode2_record_count records"
+    echo "       Mode 0 breakdown: reg=$mode0_reg_count, mem=$mode0_mem_count, total=$mode0_total_count"
+    echo "       Mode 2 breakdown: reg=$mode2_reg_count, mem=$mode2_mem_count, total=$mode2_total_count"
+    echo ""
 
-    # Check if Mode 0 has records
-    if [ "$mode0_record_count" -eq 0 ]; then
-      echo "    ❌ ERROR: Mode 0 has zero records, cannot validate"
-      cross_validation_status="failed"
-    else
-      # Calculate difference and tolerance (10%)
-      local diff=$((mode2_record_count - mode0_record_count))
-      local abs_diff=${diff#-}  # Absolute value
-      local tolerance=$((mode0_record_count / 10))
+    # Compare total counts (no tolerance - must be exact match)
+    if [ "$mode0_total_count" -gt 0 ]; then
+      local diff=$((mode2_total_count - mode0_total_count))
 
-      echo "       Difference: $diff (tolerance: ±$tolerance)"
+      echo "       Total difference: $diff (no tolerance - exact match required)"
 
-      if [ "$abs_diff" -le "$tolerance" ]; then
-        echo "    ✅ Record counts are consistent"
+      if [ "$diff" -eq 0 ]; then
+        echo "    ✅ Total record counts are consistent"
       else
-        echo "    ❌ ERROR: Record count difference ($diff) exceeds tolerance (±$tolerance)"
+        echo "    ❌ ERROR: Total record count difference ($diff) - exact match required"
         cross_validation_status="failed"
       fi
+    else
+      echo "    ❌ ERROR: Mode 0 has zero records, cannot compare"
+      cross_validation_status="failed"
+    fi
+
+    # Compare reg_trace counts separately (no tolerance - exact match)
+    echo ""
+    echo "    🔍 Detailed comparison by trace type:"
+    if [ "$mode0_reg_count" -gt 0 ] && [ "$mode2_reg_count" -gt 0 ]; then
+      local reg_diff=$((mode2_reg_count - mode0_reg_count))
+
+      echo "       reg_trace: mode0=$mode0_reg_count, mode2=$mode2_reg_count, diff=$reg_diff"
+      if [ "$reg_diff" -eq 0 ]; then
+        echo "       ✅ reg_trace counts consistent"
+      else
+        echo "       ❌ ERROR: reg_trace difference ($reg_diff) - exact match required"
+        cross_validation_status="failed"
+      fi
+    else
+      echo "       ⚠️  reg_trace: Cannot compare (one or both modes have 0 records)"
+    fi
+
+    # Compare mem_trace counts separately (no tolerance - exact match)
+    if [ "$mode0_mem_count" -gt 0 ] && [ "$mode2_mem_count" -gt 0 ]; then
+      local mem_diff=$((mode2_mem_count - mode0_mem_count))
+
+      echo "       mem_trace: mode0=$mode0_mem_count, mode2=$mode2_mem_count, diff=$mem_diff"
+      if [ "$mem_diff" -eq 0 ]; then
+        echo "       ✅ mem_trace counts consistent"
+      else
+        echo "       ❌ ERROR: mem_trace difference ($mem_diff) - exact match required"
+        cross_validation_status="failed"
+      fi
+    elif [ "$mode0_mem_count" -eq 0 ] && [ "$mode2_mem_count" -eq 0 ]; then
+      echo "       ℹ️  mem_trace: Both modes have 0 records (no mem_trace data)"
+    else
+      echo "       ❌ ERROR: mem_trace: Inconsistent (mode0=$mode0_mem_count, mode2=$mode2_mem_count)"
+      cross_validation_status="failed"
     fi
 
     # Run comprehensive comparison using Python module
+    echo ""
     echo "    🔍 Running comprehensive format comparison..."
     if python3 "$PROJECT_ROOT/scripts/validate_trace.py" --no-color compare "$mode0_file" "$mode2_file" >compare_result.log 2>&1; then
       echo "    ✅ Format comparison passed"

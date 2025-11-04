@@ -50,7 +50,7 @@ def validate_text(filepath):
 def validate_json(filepath):
     """
     Validate JSON trace file (NDJSON format).
-    Checks that each line is valid JSON.
+    Checks that each line is valid JSON and validates trace record structure.
 
     Args:
         filepath: Path to NDJSON trace file
@@ -69,9 +69,103 @@ def validate_json(filepath):
                     continue
 
                 try:
-                    json.loads(line)
+                    record = json.loads(line)
                 except json.JSONDecodeError as e:
                     return False, f"Invalid JSON at line {line_num}: {e}"
+
+                # Validate trace record structure
+                if "type" not in record:
+                    return False, f"Missing 'type' field at line {line_num}"
+
+                trace_type = record["type"]
+                if trace_type not in ["reg_trace", "mem_trace", "opcode_only"]:
+                    return (
+                        False,
+                        f"Invalid trace type '{trace_type}' at line {line_num}",
+                    )
+
+                # Validate common fields
+                required_common = ["ctx", "trace_index", "timestamp"]
+                for field in required_common:
+                    if field not in record:
+                        return (
+                            False,
+                            f"Missing '{field}' field in {trace_type} at line {line_num}",
+                        )
+
+                # Type-specific validation
+                if trace_type == "reg_trace":
+                    required = [
+                        "grid_launch_id",
+                        "cta",
+                        "warp",
+                        "opcode_id",
+                        "pc",
+                        "regs",
+                    ]
+                    for field in required:
+                        if field not in record:
+                            return (
+                                False,
+                                f"Missing '{field}' field in reg_trace at line {line_num}",
+                            )
+
+                    # Validate regs array structure (2D array)
+                    if not isinstance(record["regs"], list):
+                        return (
+                            False,
+                            f"'regs' must be an array in reg_trace at line {line_num}",
+                        )
+                    if record["regs"] and not isinstance(record["regs"][0], list):
+                        return (
+                            False,
+                            f"'regs' must be 2D array in reg_trace at line {line_num}",
+                        )
+
+                    # Validate uregs if present (1D array)
+                    if "uregs" in record:
+                        if not isinstance(record["uregs"], list):
+                            return (
+                                False,
+                                f"'uregs' must be an array in reg_trace at line {line_num}",
+                            )
+
+                elif trace_type == "mem_trace":
+                    required = [
+                        "grid_launch_id",
+                        "cta",
+                        "warp",
+                        "opcode_id",
+                        "pc",
+                        "addrs",
+                    ]
+                    for field in required:
+                        if field not in record:
+                            return (
+                                False,
+                                f"Missing '{field}' field in mem_trace at line {line_num}",
+                            )
+
+                    # Validate addrs array (must be 32 addresses)
+                    if not isinstance(record["addrs"], list):
+                        return (
+                            False,
+                            f"'addrs' must be an array in mem_trace at line {line_num}",
+                        )
+                    if len(record["addrs"]) != 32:
+                        return (
+                            False,
+                            f"'addrs' must have 32 elements in mem_trace at line {line_num}, got {len(record['addrs'])}",
+                        )
+
+                elif trace_type == "opcode_only":
+                    required = ["grid_launch_id", "cta", "warp", "opcode_id", "pc"]
+                    for field in required:
+                        if field not in record:
+                            return (
+                                False,
+                                f"Missing '{field}' field in opcode_only at line {line_num}",
+                            )
 
         return True, None
 
