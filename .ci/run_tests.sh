@@ -347,57 +347,51 @@ test_trace_formats() {
     echo "       Mode 2 breakdown: reg=$mode2_reg_count, mem=$mode2_mem_count, total=$mode2_total_count"
     echo ""
 
-    # Compare total counts with 10% tolerance
+    # Compare total counts (no tolerance - must be exact match)
     if [ "$mode0_total_count" -gt 0 ]; then
       local diff=$((mode2_total_count - mode0_total_count))
-      local abs_diff=${diff#-}  # Absolute value
-      local tolerance=$((mode0_total_count / 10))
 
-      echo "       Total difference: $diff (tolerance: ±$tolerance)"
+      echo "       Total difference: $diff (no tolerance - exact match required)"
 
-      if [ "$abs_diff" -le "$tolerance" ]; then
+      if [ "$diff" -eq 0 ]; then
         echo "    ✅ Total record counts are consistent"
       else
-        echo "    ⚠️  WARNING: Total record count difference exceeds tolerance"
+        echo "    ❌ ERROR: Total record count difference ($diff) - exact match required"
       fi
     else
-      echo "    ⚠️  WARNING: Mode 0 has zero records, cannot compare"
+      echo "    ❌ ERROR: Mode 0 has zero records, cannot compare"
     fi
 
-    # Compare reg_trace counts separately
+    # Compare reg_trace counts separately (no tolerance - exact match)
     echo ""
     echo "    🔍 Detailed comparison by trace type:"
     if [ "$mode0_reg_count" -gt 0 ] && [ "$mode2_reg_count" -gt 0 ]; then
       local reg_diff=$((mode2_reg_count - mode0_reg_count))
-      local reg_abs_diff=${reg_diff#-}
-      local reg_tolerance=$((mode0_reg_count / 10))
 
       echo "       reg_trace: mode0=$mode0_reg_count, mode2=$mode2_reg_count, diff=$reg_diff"
-      if [ "$reg_abs_diff" -le "$reg_tolerance" ]; then
+      if [ "$reg_diff" -eq 0 ]; then
         echo "       ✅ reg_trace counts consistent"
       else
-        echo "       ⚠️  reg_trace difference exceeds tolerance (±$reg_tolerance)"
+        echo "       ❌ ERROR: reg_trace difference ($reg_diff) - exact match required"
       fi
     else
       echo "       ⚠️  reg_trace: Cannot compare (one or both modes have 0 records)"
     fi
 
-    # Compare mem_trace counts separately
+    # Compare mem_trace counts separately (no tolerance - exact match)
     if [ "$mode0_mem_count" -gt 0 ] && [ "$mode2_mem_count" -gt 0 ]; then
       local mem_diff=$((mode2_mem_count - mode0_mem_count))
-      local mem_abs_diff=${mem_diff#-}
-      local mem_tolerance=$((mode0_mem_count / 10))
 
       echo "       mem_trace: mode0=$mode0_mem_count, mode2=$mode2_mem_count, diff=$mem_diff"
-      if [ "$mem_abs_diff" -le "$mem_tolerance" ]; then
+      if [ "$mem_diff" -eq 0 ]; then
         echo "       ✅ mem_trace counts consistent"
       else
-        echo "       ⚠️  mem_trace difference exceeds tolerance (±$mem_tolerance)"
+        echo "       ❌ ERROR: mem_trace difference ($mem_diff) - exact match required"
       fi
     elif [ "$mode0_mem_count" -eq 0 ] && [ "$mode2_mem_count" -eq 0 ]; then
       echo "       ℹ️  mem_trace: Both modes have 0 records (no mem_trace data)"
     else
-      echo "       ❌ mem_trace: Inconsistent (mode0=$mode0_mem_count, mode2=$mode2_mem_count)"
+      echo "       ❌ ERROR: mem_trace: Inconsistent (mode0=$mode0_mem_count, mode2=$mode2_mem_count)"
     fi
 
     # Run comprehensive comparison using Python module
