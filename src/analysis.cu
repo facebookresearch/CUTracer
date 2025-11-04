@@ -15,6 +15,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 
+#include <chrono>
 #include <map>
 #include <string>
 #include <unordered_map>
@@ -25,6 +26,7 @@
 #include "cuda.h"
 #include "env_config.h"
 #include "log.h"
+#include "trace_writer.h"
 #include "utils/channel.hpp"
 
 #define PC_HISTORY_LEN 32
@@ -40,6 +42,20 @@ extern std::map<uint64_t, KernelDimensions> kernel_launch_to_dimensions_map;
 
 // Forward declaration for helper defined below in this file
 std::string extract_instruction_name(const std::string& sass_line);
+
+/**
+ * @brief Get current timestamp in nanoseconds.
+ *
+ * This helper function provides high-resolution timestamps for trace records,
+ * allowing precise timing analysis of GPU execution.
+ *
+ * @return Current time since epoch in nanoseconds
+ */
+static inline uint64_t get_timestamp_ns() {
+  auto now = std::chrono::high_resolution_clock::now();
+  auto duration = now.time_since_epoch();
+  return std::chrono::duration_cast<std::chrono::nanoseconds>(duration).count();
+}
 
 /**
  * Print one instruction line in the exact same format as loop body entries.
@@ -1102,26 +1118,27 @@ void* recv_thread_fun(void* args) {
             }
           }
           // Get SASS string for trace output
+          std::string sass_str_cpp;
           auto func_iter = kernel_launch_to_func_map.find(ri->kernel_launch_id);
           if (func_iter != kernel_launch_to_func_map.end()) {
             auto [f_ctx, f_func] = func_iter->second;
             if (ctx_state->id_to_sass_map.count(f_func) && ctx_state->id_to_sass_map[f_func].count(ri->opcode_id)) {
-              sass_str = ctx_state->id_to_sass_map[f_func][ri->opcode_id].c_str();
+              sass_str_cpp = ctx_state->id_to_sass_map[f_func][ri->opcode_id];
             }
           }
 
-          trace_lprintf("CTX %p - CTA %d,%d,%d - warp %d - %s:\n", ctx, ri->cta_id_x, ri->cta_id_y, ri->cta_id_z,
-                        ri->warp_id, sass_str);
+          // Unified trace output through TraceWriter for all modes
+          if (ctx_state->trace_writer) {
+            // Get trace_index (monotonically increasing per kernel)
+            uint64_t trace_idx = ctx_state->trace_index_by_kernel[ri->kernel_launch_id]++;
 
-          // Print register values
-          for (int reg_idx = 0; reg_idx < ri->num_regs; reg_idx++) {
-            trace_lprintf("  * ");
-            for (int i = 0; i < 32; i++) {
-              trace_lprintf("Reg%d_T%02d: 0x%08x ", reg_idx, i, ri->reg_vals[i][reg_idx]);
-            }
-            trace_lprintf("\n");
+            // Get timestamp
+            uint64_t timestamp = get_timestamp_ns();
+
+            // Create TraceRecord and write (mode 0/1/2 handled by TraceWriter)
+            auto record = TraceRecord::create_reg_trace(ctx, sass_str_cpp, trace_idx, timestamp, ri);
+            ctx_state->trace_writer->write_trace(record);
           }
-          trace_lprintf("\n");
           num_processed_bytes += sizeof(reg_info_t);
 
         } else if (header->type == MSG_TYPE_OPCODE_ONLY) {
@@ -1135,33 +1152,38 @@ void* recv_thread_fun(void* args) {
         } else if (header->type == MSG_TYPE_MEM_ACCESS) {
           mem_access_t* mem = (mem_access_t*)&recv_buffer[num_processed_bytes];
 
-          // Get SASS string for trace output.
-          std::map<uint64_t, std::pair<CUcontext, CUfunction>>::iterator func_iter =
-              kernel_launch_to_func_map.find(mem->kernel_launch_id);
-          if (func_iter != kernel_launch_to_func_map.end()) {
-            std::pair<CUcontext, CUfunction> kernel_info = func_iter->second;
-            CUfunction f_func = kernel_info.second;
-            if (ctx_state->id_to_sass_map.count(f_func) && ctx_state->id_to_sass_map[f_func].count(mem->opcode_id)) {
-              sass_str = ctx_state->id_to_sass_map[f_func][mem->opcode_id].c_str();
-            }
-          }
+          // TODO(PR#3): Migrate MEM_ACCESS to TraceWriter
+          // Currently commented out to avoid dependency on log_open_kernel_file()
+          // which has been removed in favor of unified TraceWriter approach.
 
-          trace_lprintf(
-              "CTX %p - kernel_launch_id %ld - CTA %d,%d,%d - warp %d - PC %ld - "
-              "%s:\n",
-              ctx, mem->kernel_launch_id, mem->cta_id_x, mem->cta_id_y, mem->cta_id_z, mem->warp_id, mem->pc, sass_str);
-          trace_lprintf("  Memory Addresses:\n  * ");
-          int printed = 0;
-          for (int i = 0; i < 32; i++) {
-            if (mem->addrs[i] != 0) {  // Only print non-zero addresses
-              trace_lprintf("T%02d: 0x%016lx ", i, mem->addrs[i]);
-              printed++;
-              if (printed % 4 == 0 && i < 31) {
-                trace_lprintf("\n    ");
-              }
-            }
-          }
-          trace_lprintf("\n\n");
+          // Get SASS string for trace output.
+          // std::map<uint64_t, std::pair<CUcontext, CUfunction>>::iterator func_iter =
+          //     kernel_launch_to_func_map.find(mem->kernel_launch_id);
+          // if (func_iter != kernel_launch_to_func_map.end()) {
+          //   std::pair<CUcontext, CUfunction> kernel_info = func_iter->second;
+          //   CUfunction f_func = kernel_info.second;
+          //   if (ctx_state->id_to_sass_map.count(f_func) && ctx_state->id_to_sass_map[f_func].count(mem->opcode_id)) {
+          //     sass_str = ctx_state->id_to_sass_map[f_func][mem->opcode_id].c_str();
+          //   }
+          // }
+
+          // trace_lprintf(
+          //     "CTX %p - kernel_launch_id %ld - CTA %d,%d,%d - warp %d - PC %ld - "
+          //     "%s:\n",
+          //     ctx, mem->kernel_launch_id, mem->cta_id_x, mem->cta_id_y, mem->cta_id_z, mem->warp_id, mem->pc,
+          //     sass_str);
+          // trace_lprintf("  Memory Addresses:\n  * ");
+          // int printed = 0;
+          // for (int i = 0; i < 32; i++) {
+          //   if (mem->addrs[i] != 0) {  // Only print non-zero addresses
+          //     trace_lprintf("T%02d: 0x%016lx ", i, mem->addrs[i]);
+          //     printed++;
+          //     if (printed % 4 == 0 && i < 31) {
+          //       trace_lprintf("\n    ");
+          //     }
+          //   }
+          // }
+          // trace_lprintf("\n\n");
           num_processed_bytes += sizeof(mem_access_t);
         } else {
           // Unknown message type, print error and break loop
