@@ -109,3 +109,4 @@ compile_commands.json
 *.ptx
 *.sass
 *.ndjson
+*.zstd

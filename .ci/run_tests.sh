@@ -228,6 +228,7 @@ test_trace_formats() {
   local mode2_reg_count=0
   local mode2_mem_count=0
   local mode2_total_count=0
+  local cross_validation_status="pending"
 
   # Clean up old trace files
   rm -f *.log *.ndjson
@@ -341,6 +342,9 @@ test_trace_formats() {
   echo "  🔄 Validating cross-format consistency..."
 
   if [ "$mode0_status" = "passed" ] && [ "$mode2_status" = "passed" ]; then
+    # Assume cross-validation will pass, set to failed if any check fails
+    cross_validation_status="passed"
+
     # Compare record counts by type
     echo "    📊 Comparing record counts..."
     echo "       Mode 0 breakdown: reg=$mode0_reg_count, mem=$mode0_mem_count, total=$mode0_total_count"
@@ -357,9 +361,11 @@ test_trace_formats() {
         echo "    ✅ Total record counts are consistent"
       else
         echo "    ❌ ERROR: Total record count difference ($diff) - exact match required"
+        cross_validation_status="failed"
       fi
     else
       echo "    ❌ ERROR: Mode 0 has zero records, cannot compare"
+      cross_validation_status="failed"
     fi
 
     # Compare reg_trace counts separately (no tolerance - exact match)
@@ -373,6 +379,7 @@ test_trace_formats() {
         echo "       ✅ reg_trace counts consistent"
       else
         echo "       ❌ ERROR: reg_trace difference ($reg_diff) - exact match required"
+        cross_validation_status="failed"
       fi
     else
       echo "       ⚠️  reg_trace: Cannot compare (one or both modes have 0 records)"
@@ -387,11 +394,13 @@ test_trace_formats() {
         echo "       ✅ mem_trace counts consistent"
       else
         echo "       ❌ ERROR: mem_trace difference ($mem_diff) - exact match required"
+        cross_validation_status="failed"
       fi
     elif [ "$mode0_mem_count" -eq 0 ] && [ "$mode2_mem_count" -eq 0 ]; then
       echo "       ℹ️  mem_trace: Both modes have 0 records (no mem_trace data)"
     else
       echo "       ❌ ERROR: mem_trace: Inconsistent (mode0=$mode0_mem_count, mode2=$mode2_mem_count)"
+      cross_validation_status="failed"
     fi
 
     # Run comprehensive comparison using Python module
@@ -400,11 +409,13 @@ test_trace_formats() {
     if python3 "$PROJECT_ROOT/scripts/validate_trace.py" --no-color compare "$mode0_file" "$mode2_file" >compare_result.log 2>&1; then
       echo "    ✅ Format comparison passed"
     else
-      echo "    ⚠️  Format comparison found differences:"
+      echo "    ❌ ERROR: Format comparison failed:"
       cat compare_result.log
+      cross_validation_status="failed"
     fi
   else
     echo "    ⏭️  Skipping cross-format validation (one or more formats failed)"
+    cross_validation_status="skipped"
   fi
 
   # ===== Final Report =====
@@ -412,12 +423,15 @@ test_trace_formats() {
   echo "  ═══════════════════════════════════════════"
   echo "  📋 Test Summary"
   echo "  ═══════════════════════════════════════════"
-  echo "  Mode 0 (Text):   $mode0_status"
-  echo "  Mode 2 (NDJSON): $mode2_status"
+  echo "  Mode 0 (Text):          $mode0_status"
+  echo "  Mode 2 (NDJSON):        $mode2_status"
+  echo "  Cross-Validation:       $cross_validation_status"
   echo "  ═══════════════════════════════════════════"
 
-  # Determine overall result
-  if [ "$mode0_status" = "passed" ] && [ "$mode2_status" = "passed" ]; then
+  # Determine overall result - all three must pass
+  if [ "$mode0_status" = "passed" ] && \
+     [ "$mode2_status" = "passed" ] && \
+     [ "$cross_validation_status" = "passed" ]; then
     echo "  ✅ All trace format tests passed!"
     return 0
   else
@@ -659,6 +673,11 @@ run_all_tests() {
 
   if ! test_hang_test; then
     echo "❌ hang test failed"
+    return 1
+  fi
+
+  if ! test_trace_formats; then
+    echo "❌ trace format tests failed"
     return 1
   fi
 
