@@ -7,10 +7,13 @@
 
 #pragma once
 
+#include <zstd.h>
+
 #include <cstdint>
 #include <cstdio>
 #include <nlohmann/json.hpp>
 #include <string>
+#include <vector>
 
 #include "common.h"
 #include "nvbit.h"
@@ -152,6 +155,11 @@ class TraceWriter {
   int trace_mode_;  // 0, 1, or 2
   bool enabled_;
 
+  // ========== Mode 1 (Zstd compression) support ==========
+  ZSTD_CCtx* zstd_ctx_;                  // Zstd compression context
+  std::vector<char> compressed_buffer_;  // Pre-allocated compression output buffer
+  int compression_level_;                // Zstd compression level (1-22, default 9)
+
  public:
   /**
    * @brief Construct TraceWriter.
@@ -211,6 +219,14 @@ class TraceWriter {
    * @brief Write uncompressed buffer to file (mode 2).
    */
   void write_uncompressed();
+
+  /**
+   * @brief Compress and write buffer to file (mode 1).
+   *
+   * Compresses json_buffer_ using Zstd and writes to .ndjson.zstd file.
+   * Each flush creates an independent Zstd frame for incremental writing.
+   */
+  void write_compressed();
 
   // ========== JSON serialization ==========
 

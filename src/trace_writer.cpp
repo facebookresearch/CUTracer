@@ -21,18 +21,13 @@ TraceWriter::TraceWriter(const std::string& filename, int trace_mode, size_t buf
       file_handle_(nullptr),
       buffer_threshold_(buffer_threshold),
       trace_mode_(trace_mode),
-      enabled_(true) {
+      enabled_(true),
+      zstd_ctx_(nullptr),
+      compression_level_(9) {  // Default compression level 9 (balanced)
+
   // Validate trace mode
   if (trace_mode < 0 || trace_mode > 2) {
-    fprintf(stderr, "TraceWriter: Invalid trace_mode %d (must be 0, 1, or 2)\\n", trace_mode);
-    enabled_ = false;
-    return;
-  }
-
-  // Note: Mode 1 (compression) will be implemented in a future PR
-  if (trace_mode == 1) {
-    fprintf(stderr, "TraceWriter: Mode 1 (compression) is not yet implemented\\n");
-    fprintf(stderr, "TraceWriter: Please use mode 0 (text) or mode 2 (NDJSON)\\n");
+    fprintf(stderr, "TraceWriter: Invalid trace_mode %d (must be 0, 1, or 2)\n", trace_mode);
     enabled_ = false;
     return;
   }
@@ -45,16 +40,36 @@ TraceWriter::TraceWriter(const std::string& filename, int trace_mode, size_t buf
     // Mode 0: Text format
     actual_filename = filename + ".log";
     open_mode = "a";  // Append text mode
-  } else {            // trace_mode == 2
+
+  } else if (trace_mode == 1) {
+    // Mode 1: NDJSON + Zstd compression
+    actual_filename = filename + ".ndjson.zstd";
+    open_mode = "ab";  // Append binary mode (required for compressed data)
+
+    // Initialize Zstd compression context
+    zstd_ctx_ = ZSTD_createCCtx();
+    if (!zstd_ctx_) {
+      fprintf(stderr, "TraceWriter: Failed to initialize Zstd compression context\n");
+      enabled_ = false;
+      return;
+    }
+
+    // Pre-allocate compression buffer to avoid runtime allocation
+    // ZSTD_compressBound() returns worst-case compressed size
+    size_t max_compressed_size = ZSTD_compressBound(buffer_threshold);
+    compressed_buffer_.resize(max_compressed_size);
+
+  } else {  // trace_mode == 2
     // Mode 2: NDJSON uncompressed
     actual_filename = filename + ".ndjson";
     open_mode = "a";  // Append text mode
   }
 
+  // Open output file
   file_handle_ = fopen(actual_filename.c_str(), open_mode);
 
   if (!file_handle_) {
-    fprintf(stderr, "TraceWriter: Failed to open %s\\n", actual_filename.c_str());
+    fprintf(stderr, "TraceWriter: Failed to open %s\n", actual_filename.c_str());
     enabled_ = false;
     return;
   }
@@ -69,7 +84,11 @@ TraceWriter::~TraceWriter() {
     fclose(file_handle_);
   }
 
-  // Zstd context cleanup will be added when mode 1 is implemented
+  // Release Zstd compression context
+  if (zstd_ctx_) {
+    ZSTD_freeCCtx(zstd_ctx_);
+    zstd_ctx_ = nullptr;
+  }
 }
 
 // ============================================================================
@@ -90,8 +109,13 @@ bool TraceWriter::write_trace(const TraceRecord& record) {
 }
 
 void TraceWriter::flush() {
-  // Currently only mode 2 is implemented
-  write_uncompressed();
+  // Dispatch based on trace mode
+  if (trace_mode_ == 1) {
+    write_compressed();
+  } else if (trace_mode_ == 2) {
+    write_uncompressed();
+  }
+  // Mode 0 (text) doesn't buffer, so no flush needed
 }
 
 // ============================================================================
@@ -106,6 +130,33 @@ void TraceWriter::write_uncompressed() {
     size_t written = fwrite(json_buffer_.data(), 1, json_buffer_.size(), file_handle_);
     if (written != json_buffer_.size()) {
       fprintf(stderr, "TraceWriter: Write error (wrote %zu of %zu bytes)\n", written, json_buffer_.size());
+    }
+
+    fflush(file_handle_);
+  }
+
+  // Clear buffer
+  json_buffer_.clear();
+}
+
+void TraceWriter::write_compressed() {
+  if (json_buffer_.empty() || !enabled_ || !zstd_ctx_) return;
+
+  // Compress JSON buffer using Zstd
+  size_t compressed_size = ZSTD_compressCCtx(zstd_ctx_, compressed_buffer_.data(), compressed_buffer_.size(),
+                                             json_buffer_.data(), json_buffer_.size(), compression_level_);
+
+  // Check for compression errors
+  if (ZSTD_isError(compressed_size)) {
+    fprintf(stderr, "TraceWriter: Zstd compression error: %s\n", ZSTD_getErrorName(compressed_size));
+    return;
+  }
+
+  // Write compressed data to file
+  if (file_handle_) {
+    size_t written = fwrite(compressed_buffer_.data(), 1, compressed_size, file_handle_);
+    if (written != compressed_size) {
+      fprintf(stderr, "TraceWriter: Write error (wrote %zu of %zu compressed bytes)\n", written, compressed_size);
     }
 
     fflush(file_handle_);
@@ -313,7 +364,12 @@ void TraceWriter::write_json_format(const TraceRecord& record) {
 
     // Check if buffer threshold reached
     if (json_buffer_.size() >= buffer_threshold_) {
-      write_uncompressed();
+      // Dispatch based on trace mode
+      if (trace_mode_ == 1) {
+        write_compressed();
+      } else {
+        write_uncompressed();
+      }
     }
 
   } catch (const std::exception& e) {
