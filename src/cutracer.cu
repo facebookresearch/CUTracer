@@ -163,8 +163,7 @@ bool instrument_function_if_needed(CUcontext ctx, CUfunction func) {
         instr->printDecoded();
       }
 
-      std::vector<int> reg_num_list;
-      std::vector<int> ureg_num_list;
+      OperandLists operands;
       int mref_idx = 0;
       int opcode_id = instr->getIdx();
       ctx_state->id_to_sass_map[f][opcode_id] = std::string(instr->getSass());
@@ -174,17 +173,18 @@ bool instrument_function_if_needed(CUcontext ctx, CUfunction func) {
         const InstrType::operand_t* op = instr->getOperand(i);
         if (op->type == InstrType::OperandType::REG) {
           for (int reg_idx = 0; reg_idx < instr->getSize() / 4; reg_idx++) {
-            reg_num_list.push_back(op->u.reg.num + reg_idx);
+            operands.reg_nums.push_back(op->u.reg.num + reg_idx);
           }
         } else if (op->type == InstrType::OperandType::UREG) {
           for (int reg_idx = 0; reg_idx < instr->getSize() / 4; reg_idx++) {
-            ureg_num_list.push_back(op->u.reg.num + reg_idx);
+            operands.ureg_nums.push_back(op->u.reg.num + reg_idx);
           }
+        } else if (op->type == InstrType::OperandType::GENERIC) {
         } else if (op->type == InstrType::OperandType::MREF) {
           // TODO: double check this with NVIDIA people
           if (op->u.mref.has_desc) {
-            ureg_num_list.push_back(op->u.mref.desc_ureg_num);
-            ureg_num_list.push_back(op->u.mref.desc_ureg_num + 1);
+            operands.ureg_nums.push_back(op->u.mref.desc_ureg_num);
+            operands.ureg_nums.push_back(op->u.mref.desc_ureg_num + 1);
           }
 
           // Use new instrumentation interface for memory tracing
@@ -203,7 +203,7 @@ bool instrument_function_if_needed(CUcontext ctx, CUfunction func) {
         instrument_opcode_only(instr, opcode_id, ctx_state);
       } else if (is_instrument_type_enabled(InstrumentType::REG_TRACE)) {
         // Full register tracing.
-        instrument_register_trace(instr, opcode_id, ctx_state, reg_num_list, ureg_num_list);
+        instrument_register_trace(instr, opcode_id, ctx_state, operands);
       }
     }
 

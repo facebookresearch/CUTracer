@@ -21,6 +21,19 @@ enum class InstrumentType {
 };
 
 /**
+ * @brief Structure to hold operand information for instrumentation
+ *
+ * This structure groups operand data needed for instrumentation,
+ * making it easy to extend support for additional operand types without
+ * changing function signatures.
+ */
+struct OperandLists {
+  std::vector<int> reg_nums;   // Regular register numbers
+  std::vector<int> ureg_nums;  // Uniform register numbers
+  // Future: add support for other types like pred_nums, generic_vals, etc.
+};
+
+/**
  * @brief Insert lightweight opcode-only instrumentation for instruction histogram analysis
  *
  * This is optimized for Proton instruction statistic analysis where only opcode
@@ -40,11 +53,9 @@ void instrument_opcode_only(Instr* instr, int opcode_id, CTXstate* ctx_state);
  * @param instr The instruction to instrument
  * @param opcode_id The opcode identifier for this instruction
  * @param ctx_state The context state containing channel information
- * @param reg_num_list List of register numbers to trace
- * @param ureg_num_list List of uniform register numbers to trace
+ * @param operands Structure containing all operand information (reg, ureg, etc.)
  */
-void instrument_register_trace(Instr* instr, int opcode_id, CTXstate* ctx_state, const std::vector<int>& reg_num_list,
-                               const std::vector<int>& ureg_num_list);
+void instrument_register_trace(Instr* instr, int opcode_id, CTXstate* ctx_state, const OperandLists& operands);
 
 /**
  * @brief Insert memory access tracing instrumentation
