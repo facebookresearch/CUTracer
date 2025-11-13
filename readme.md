@@ -73,7 +73,7 @@ CUDA_INJECTION64_PATH=~/CUTracer/lib/cutracer.so \
 -   `INSTR_BEGIN`, `INSTR_END`: static instruction index gate during instrumentation
 -   `TOOL_VERBOSE`: 0/1/2
 -   `TRACE_FORMAT_NDJSON`: trace output format
-    -   **1** (default): NDJSON+Zstd compressed (`.ndjson.zstd`, ~12x compression, 92% space savings)
+    -   **1** (default): NDJSON+Zstd compressed (`.ndjson.zst`, ~12x compression, 92% space savings)
     -   0: Plain text (`.log`, legacy format, verbose)
     -   2: NDJSON uncompressed (`.ndjson`, for debugging)
 

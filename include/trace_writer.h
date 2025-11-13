@@ -137,7 +137,7 @@ struct TraceRecord {
  *
  * Unified writer supporting three output modes:
  * - Mode 0: Text format (legacy .log files)
- * - Mode 1: NDJSON + Zstd compression (.ndjson.zstd)
+ * - Mode 1: NDJSON + Zstd compression (.ndjson.zst)
  * - Mode 2: NDJSON uncompressed (.ndjson)
  *
  * Key features:
@@ -183,7 +183,7 @@ class TraceWriter {
    * @brief Write a trace record to output.
    *
    * Mode 0: Formats as text and writes to .log file
-   * Mode 1/2: Serializes to JSON and writes to .ndjson[.zstd] file
+   * Mode 1/2: Serializes to JSON and writes to .ndjson[.zst] file
    *
    * @param record Complete trace record with all information
    * @return true if successful, false on error
@@ -223,7 +223,7 @@ class TraceWriter {
   /**
    * @brief Compress and write buffer to file (mode 1).
    *
-   * Compresses json_buffer_ using Zstd and writes to .ndjson.zstd file.
+   * Compresses json_buffer_ using Zstd and writes to .ndjson.zst file.
    * Each flush creates an independent Zstd frame for incremental writing.
    */
   void write_compressed();
