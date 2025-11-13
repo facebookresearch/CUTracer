@@ -23,7 +23,7 @@ TraceWriter::TraceWriter(const std::string& filename, int trace_mode, size_t buf
       trace_mode_(trace_mode),
       enabled_(true),
       zstd_ctx_(nullptr),
-      compression_level_(9) {  // Default compression level 9 (balanced)
+      compression_level_(22) {  // Maximum compression level for best compression ratio
 
   // Validate trace mode
   if (trace_mode < 0 || trace_mode > 2) {
@@ -43,7 +43,7 @@ TraceWriter::TraceWriter(const std::string& filename, int trace_mode, size_t buf
 
   } else if (trace_mode == 1) {
     // Mode 1: NDJSON + Zstd compression
-    actual_filename = filename + ".ndjson.zstd";
+    actual_filename = filename + ".ndjson.zst";
     open_mode = "ab";  // Append binary mode (required for compressed data)
 
     // Initialize Zstd compression context
