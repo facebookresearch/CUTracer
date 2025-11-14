@@ -218,7 +218,8 @@ test_vectoradd() {
 test_trace_formats() {
   echo "🧪 Testing all trace formats (Unified TraceWriter Implementation)..."
   echo "   Testing with combined instrumentation: reg_trace + mem_trace"
-  cd "$PROJECT_ROOT/tests/vectoradd"
+  echo "   Testing with py_add and kernel filter: vectorized_elementwise_kernel"
+  cd "$PROJECT_ROOT/tests/py_add"
 
   # Initialize result tracking variables
   local mode0_status="pending"
@@ -248,12 +249,13 @@ test_trace_formats() {
   if ! TRACE_FORMAT_NDJSON=0 \
        CUDA_INJECTION64_PATH="$PROJECT_ROOT/lib/cutracer.so" \
        CUTRACER_INSTRUMENT=reg_trace,mem_trace \
-       ./vectoradd >mode0_run.log 2>&1; then
+       KERNEL_FILTERS=vectorized_elementwise_kernel \
+       python ./test_add.py >mode0_run.log 2>&1; then
     echo "    ❌ Mode 0 execution failed"
     mode0_status="failed"
   else
     # Find generated .log file
-    mode0_file=$(ls -1t kernel_*vecAdd*.log 2>/dev/null | head -n 1)
+    mode0_file=$(ls -1t kernel_*vectorized_elementwise_kernel*.log 2>/dev/null | head -n 1)
     if [ -z "$mode0_file" ]; then
       echo "    ❌ No .log file generated"
       mode0_status="failed"
@@ -269,7 +271,7 @@ test_trace_formats() {
         mode0_reg_count=$(grep "^CTX" "$mode0_file" | grep -v "kernel_launch_id" | wc -l | tr -d '[:space:]')
 
         # Count mem_trace records (lines with "Memory Addresses:")
-        mode0_mem_count=$(grep -c "Memory Addresses:" "$mode0_file" 2>/dev/null | tr -d '[:space:]')
+        mode0_mem_count=$(grep -ac "Memory Addresses:" "$mode0_file" 2>/dev/null | tr -d '[:space:]')
 
         # Total count
         mode0_total_count=$((mode0_reg_count + mode0_mem_count))
@@ -299,12 +301,13 @@ test_trace_formats() {
   if ! TRACE_FORMAT_NDJSON=2 \
        CUDA_INJECTION64_PATH="$PROJECT_ROOT/lib/cutracer.so" \
        CUTRACER_INSTRUMENT=reg_trace,mem_trace \
-       ./vectoradd >mode2_run.log 2>&1; then
+       KERNEL_FILTERS=vectorized_elementwise_kernel \
+       python ./test_add.py >mode2_run.log 2>&1; then
     echo "    ❌ Mode 2 execution failed"
     mode2_status="failed"
   else
     # Find generated .ndjson file
-    mode2_file=$(ls -1t kernel_*vecAdd*.ndjson 2>/dev/null | head -n 1)
+    mode2_file=$(ls -1t kernel_*vectorized_elementwise_kernel*.ndjson 2>/dev/null | head -n 1)
     if [ -z "$mode2_file" ]; then
       echo "    ❌ No .ndjson file generated"
       mode2_status="failed"
@@ -317,8 +320,8 @@ test_trace_formats() {
         mode2_status="passed"
 
         # Count each trace type separately (note: JSON has no spaces after colons)
-        mode2_reg_count=$(grep -c '"type":"reg_trace"' "$mode2_file" 2>/dev/null | tr -d '[:space:]')
-        mode2_mem_count=$(grep -c '"type":"mem_trace"' "$mode2_file" 2>/dev/null | tr -d '[:space:]')
+        mode2_reg_count=$(grep -ac '"type":"reg_trace"' "$mode2_file" 2>/dev/null | tr -d '[:space:]')
+        mode2_mem_count=$(grep -ac '"type":"mem_trace"' "$mode2_file" 2>/dev/null | tr -d '[:space:]')
         mode2_total_count=$(wc -l < "$mode2_file" 2>/dev/null | tr -d '[:space:]')
 
         echo "    ✅ Mode 2 validation passed"
@@ -330,11 +333,11 @@ test_trace_formats() {
 
         # Show first record of each type (formatted)
         echo "       First reg_trace record (formatted):"
-        grep '"type":"reg_trace"' "$mode2_file" | head -1 | python3 -m json.tool | head -20 | sed 's/^/         /'
+        grep -a '"type":"reg_trace"' "$mode2_file" | head -1 | python3 -m json.tool | head -20 | sed 's/^/         /'
 
         if [ "$mode2_mem_count" -gt 0 ]; then
           echo "       First mem_trace record (formatted):"
-          grep '"type":"mem_trace"' "$mode2_file" | head -1 | python3 -m json.tool | head -20 | sed 's/^/         /'
+          grep -a '"type":"mem_trace"' "$mode2_file" | head -1 | python3 -m json.tool | head -20 | sed 's/^/         /'
         fi
       else
         echo "    ❌ Mode 2 validation failed"
@@ -355,12 +358,13 @@ test_trace_formats() {
   if ! TRACE_FORMAT_NDJSON=1 \
        CUDA_INJECTION64_PATH="$PROJECT_ROOT/lib/cutracer.so" \
        CUTRACER_INSTRUMENT=reg_trace,mem_trace \
-       ./vectoradd >mode1_run.log 2>&1; then
+       KERNEL_FILTERS=vectorized_elementwise_kernel \
+       python ./test_add.py >mode1_run.log 2>&1; then
     echo "    ❌ Mode 1 execution failed"
     mode1_status="failed"
   else
     # Find generated .ndjson.zst file
-    mode1_file=$(ls -1t kernel_*vecAdd*.ndjson.zst 2>/dev/null | head -n 1)
+    mode1_file=$(ls -1t kernel_*vectorized_elementwise_kernel*.ndjson.zst 2>/dev/null | head -n 1)
     if [ -z "$mode1_file" ]; then
       echo "    ❌ No .ndjson.zst file generated"
       mode1_status="failed"
@@ -395,8 +399,8 @@ test_trace_formats() {
           mode1_status="passed"
 
           # Count each trace type separately
-          mode1_reg_count=$(grep -c '"type":"reg_trace"' mode1_decompressed.ndjson 2>/dev/null | tr -d '[:space:]')
-          mode1_mem_count=$(grep -c '"type":"mem_trace"' mode1_decompressed.ndjson 2>/dev/null | tr -d '[:space:]')
+          mode1_reg_count=$(grep -ac '"type":"reg_trace"' mode1_decompressed.ndjson 2>/dev/null | tr -d '[:space:]')
+          mode1_mem_count=$(grep -ac '"type":"mem_trace"' mode1_decompressed.ndjson 2>/dev/null | tr -d '[:space:]')
           mode1_total_count=$(wc -l < mode1_decompressed.ndjson 2>/dev/null | tr -d '[:space:]')
 
           echo "    ✅ Mode 1 validation passed"
@@ -407,11 +411,11 @@ test_trace_formats() {
 
           # Show first record of each type (formatted)
           echo "       First reg_trace record (formatted):"
-          grep '"type":"reg_trace"' mode1_decompressed.ndjson | head -1 | python3 -m json.tool | head -20 | sed 's/^/         /'
+          grep -a '"type":"reg_trace"' mode1_decompressed.ndjson | head -1 | python3 -m json.tool | head -20 | sed 's/^/         /'
 
           if [ "$mode1_mem_count" -gt 0 ]; then
             echo "       First mem_trace record (formatted):"
-            grep '"type":"mem_trace"' mode1_decompressed.ndjson | head -1 | python3 -m json.tool | head -20 | sed 's/^/         /'
+            grep -a '"type":"mem_trace"' mode1_decompressed.ndjson | head -1 | python3 -m json.tool | head -20 | sed 's/^/         /'
           fi
         else
           echo "    ❌ Mode 1 validation failed"
