@@ -87,8 +87,15 @@ jobs:
           path: |
             tests/vectoradd/*.sass
             tests/vectoradd/*.log
+            tests/vectoradd/*.ndjson
+            tests/vectoradd/*.ndjson.zstd
             tests/py_add/*.log
             tests/py_add/*.sass
+            tests/py_add/*.ndjson
+            tests/py_add/*.ndjson.zstd
+            tests/py_add/mode*_validation.log
+            tests/py_add/mode*_run.log
+            tests/py_add/mode1_decompressed.ndjson
   test-triton-source:
     runs-on: 4-core-ubuntu-gpu-t4
     timeout-minutes: 60
