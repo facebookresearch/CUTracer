@@ -150,6 +150,7 @@ class TraceWriter {
  private:
   std::string filename_;
   FILE* file_handle_;
+  int fd_;  // File descriptor for POSIX write() (Mode 1/2 only)
   std::string json_buffer_;
   size_t buffer_threshold_;
   int trace_mode_;  // 0, 1, or 2
@@ -227,6 +228,19 @@ class TraceWriter {
    * Each flush creates an independent Zstd frame for incremental writing.
    */
   void write_compressed();
+
+  /**
+   * @brief Reliably write data to file with retry logic.
+   *
+   * Handles partial writes, EINTR interrupts, and detects zero-write deadlock.
+   * On fatal error, sets enabled_ = false.
+   *
+   * @param data Pointer to data buffer
+   * @param size Number of bytes to write
+   * @param data_type Description for error messages (e.g., "bytes", "compressed bytes")
+   * @return true if all data written successfully, false on error
+   */
+  bool write_data(const char* data, size_t size, const char* data_type);
 
   // ========== JSON serialization ==========
 
