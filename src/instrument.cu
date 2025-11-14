@@ -58,8 +58,7 @@ void instrument_opcode_only(Instr* instr, int opcode_id, CTXstate* ctx_state) {
  *  - **Refactoring**: Encapsulated the logic into this dedicated function,
  *    separating it from the main instruction iteration loop in `cutracer.cu`.
  */
-void instrument_register_trace(Instr* instr, int opcode_id, CTXstate* ctx_state, const std::vector<int>& reg_num_list,
-                               const std::vector<int>& ureg_num_list) {
+void instrument_register_trace(Instr* instr, int opcode_id, CTXstate* ctx_state, const OperandLists& operands) {
   /* insert call to the instrumentation function with its arguments */
   nvbit_insert_call(instr, "instrument_reg_val", IPOINT_BEFORE);
   /* guard predicate value */
@@ -75,15 +74,15 @@ void instrument_register_trace(Instr* instr, int opcode_id, CTXstate* ctx_state,
   /* add instruction offset */
   nvbit_add_call_arg_const_val64(instr, instr->getOffset());
   /* how many register values are passed next */
-  nvbit_add_call_arg_const_val32(instr, reg_num_list.size());
-  nvbit_add_call_arg_const_val32(instr, ureg_num_list.size());
+  nvbit_add_call_arg_const_val32(instr, operands.reg_nums.size());
+  nvbit_add_call_arg_const_val32(instr, operands.ureg_nums.size());
 
-  for (int num : reg_num_list) {
+  for (int num : operands.reg_nums) {
     /* last parameter tells it is a variadic parameter passed to
      * the instrument function record_reg_val() */
     nvbit_add_call_arg_reg_val(instr, num, true);
   }
-  for (int num : ureg_num_list) {
+  for (int num : operands.ureg_nums) {
     nvbit_add_call_arg_ureg_val(instr, num, true);
   }
 }
