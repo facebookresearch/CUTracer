@@ -239,7 +239,7 @@ test_trace_formats() {
   local cross_validation_status="pending"
 
   # Clean up old trace files
-  rm -f *.log *.ndjson *.ndjson.zstd
+  rm -f *.log *.ndjson *.ndjson.zst
 
   # ===== Test Mode 0 (Text Format) =====
   echo ""
@@ -349,8 +349,8 @@ test_trace_formats() {
   echo ""
   echo "  📦 Testing Mode 1 (NDJSON + Zstd)..."
 
-  # Clean old zstd files
-  rm -f *.ndjson.zstd mode1_decompressed.ndjson
+  # Clean old zst files
+  rm -f *.ndjson.zst mode1_decompressed.ndjson
 
   if ! TRACE_FORMAT_NDJSON=1 \
        CUDA_INJECTION64_PATH="$PROJECT_ROOT/lib/cutracer.so" \
@@ -359,10 +359,10 @@ test_trace_formats() {
     echo "    ❌ Mode 1 execution failed"
     mode1_status="failed"
   else
-    # Find generated .ndjson.zstd file
-    mode1_file=$(ls -1t kernel_*vecAdd*.ndjson.zstd 2>/dev/null | head -n 1)
+    # Find generated .ndjson.zst file
+    mode1_file=$(ls -1t kernel_*vecAdd*.ndjson.zst 2>/dev/null | head -n 1)
     if [ -z "$mode1_file" ]; then
-      echo "    ❌ No .ndjson.zstd file generated"
+      echo "    ❌ No .ndjson.zst file generated"
       mode1_status="failed"
     else
       echo "    ✅ Found: $mode1_file"
