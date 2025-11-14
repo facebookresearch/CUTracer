@@ -180,6 +180,9 @@ bool instrument_function_if_needed(CUcontext ctx, CUfunction func) {
             operands.ureg_nums.push_back(op->u.reg.num + reg_idx);
           }
         } else if (op->type == InstrType::OperandType::GENERIC) {
+          if (verbose) {
+            loprintf("  GENERIC operand[%d]: '%s'\n", i, op->u.generic.array);
+          }
         } else if (op->type == InstrType::OperandType::MREF) {
           // TODO: double check this with NVIDIA people
           if (op->u.mref.has_desc) {
