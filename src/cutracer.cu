@@ -15,6 +15,7 @@
 #include <unistd.h>
 
 #include <map>
+#include <regex>
 #include <string>
 #include <unordered_map>
 #include <unordered_set>
@@ -103,6 +104,9 @@ bool instrument_function_if_needed(CUcontext ctx, CUfunction func) {
   assert(ctx_state_map.find(ctx) != ctx_state_map.end());
   CTXstate* ctx_state = ctx_state_map[ctx];
 
+  // Static regex pattern for extracting UR register numbers from GENERIC operands
+  static std::regex ureg_pattern(R"(UR(\d+))");
+
   /* Get related functions of the kernel (device function that can be
    * called by the kernel) */
   std::vector<CUfunction> related_functions = nvbit_get_related_functions(ctx, func);
@@ -180,9 +184,39 @@ bool instrument_function_if_needed(CUcontext ctx, CUfunction func) {
             operands.ureg_nums.push_back(op->u.reg.num + reg_idx);
           }
         } else if (op->type == InstrType::OperandType::GENERIC) {
-          if (verbose) {
-            loprintf("  GENERIC operand[%d]: '%s'\n", i, op->u.generic.array);
+          loprintf("  GENERIC operand[%d]: '%s'\n", i, op->u.generic.array);
+
+          // Extract UR register numbers from GENERIC operand using regex
+          try {
+            std::string generic_str(op->u.generic.array);
+            std::sregex_iterator begin(generic_str.begin(), generic_str.end(), ureg_pattern);
+            std::sregex_iterator end;
+
+            int match_count = 0;
+            for (auto it = begin; it != end; ++it) {
+              std::smatch match = *it;
+              // match[0] is the full match "URxx"
+              // match[1] is the captured group (the number part)
+              int ureg_num = std::stoi(match[1].str());
+              
+              operands.ureg_nums.push_back(ureg_num);
+              match_count++;
+
+              if (verbose) {
+                loprintf("    Extracted UREG: UR%d\n", ureg_num);
+              }
+            }
+
+            if (match_count == 0 && verbose) {
+              loprintf("    No UREG found in GENERIC operand\n");
+            }
+          } catch (const std::exception& e) {
+            if (verbose) {
+              loprintf("    ERROR: Failed to parse GENERIC operand: %s\n", e.what());
+            }
           }
+        } else if (op->type == InstrType::OperandType::MEM_DESC) {
+          loprintf("  MEM_DESC operand[%d]: ureg_num=%d\n", i, op->u.mem_desc.ureg_num);
         } else if (op->type == InstrType::OperandType::MREF) {
           // TODO: double check this with NVIDIA people
           if (op->u.mref.has_desc) {
