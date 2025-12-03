@@ -184,7 +184,9 @@ bool instrument_function_if_needed(CUcontext ctx, CUfunction func) {
             operands.ureg_nums.push_back(op->u.reg.num + reg_idx);
           }
         } else if (op->type == InstrType::OperandType::GENERIC) {
-          loprintf("  GENERIC operand[%d]: '%s'\n", i, op->u.generic.array);
+          if (verbose) {
+            loprintf("  GENERIC operand[%d]: '%s'\n", i, op->u.generic.array);
+          }
 
           // Extract UR register numbers from GENERIC operand using regex
           try {
