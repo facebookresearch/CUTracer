@@ -184,7 +184,9 @@ bool instrument_function_if_needed(CUcontext ctx, CUfunction func) {
             operands.ureg_nums.push_back(op->u.reg.num + reg_idx);
           }
         } else if (op->type == InstrType::OperandType::GENERIC) {
-          loprintf("  GENERIC operand[%d]: '%s'\n", i, op->u.generic.array);
+          if (verbose) {
+            loprintf("  GENERIC operand[%d]: '%s'\n", i, op->u.generic.array);
+          }
 
           // Extract UR register numbers from GENERIC operand using regex
           try {
@@ -198,7 +200,7 @@ bool instrument_function_if_needed(CUcontext ctx, CUfunction func) {
               // match[0] is the full match "URxx"
               // match[1] is the captured group (the number part)
               int ureg_num = std::stoi(match[1].str());
-              
+
               operands.ureg_nums.push_back(ureg_num);
               match_count++;
 
@@ -216,7 +218,9 @@ bool instrument_function_if_needed(CUcontext ctx, CUfunction func) {
             }
           }
         } else if (op->type == InstrType::OperandType::MEM_DESC) {
-          loprintf("  MEM_DESC operand[%d]: ureg_num=%d\n", i, op->u.mem_desc.ureg_num);
+          if (verbose) {
+            loprintf("  MEM_DESC operand[%d]: ureg_num=%d\n", i, op->u.mem_desc.ureg_num);
+          }
         } else if (op->type == InstrType::OperandType::MREF) {
           // TODO: double check this with NVIDIA people
           if (op->u.mref.has_desc) {
