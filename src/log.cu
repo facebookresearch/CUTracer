@@ -202,7 +202,5 @@ void cleanup_log_handle() {
 
   g_main_log_file = NULL;
 
-  if (verbose) {
-    oprintf("Log handle system cleaned up.\n");
-  }
+  oprintf_v("Log handle system cleaned up.\n");
 }

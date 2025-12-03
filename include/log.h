@@ -27,6 +27,47 @@ typedef void* CUfunction_ptr;
  */
 void lprintf(const char* format, ...);
 
+/* ===== Verbose-conditional Logging Macros ===== */
+
+// Forward declaration for verbose variable
+extern int verbose;
+
+/**
+ * loprintf_v - verbose-conditional loprintf
+ * Only prints when verbose is non-zero.
+ */
+#define loprintf_v(fmt, ...)                   \
+  do {                                         \
+    if (verbose) loprintf(fmt, ##__VA_ARGS__); \
+  } while (0)
+
+/**
+ * loprintf_vl - verbose level-conditional loprintf
+ * Only prints when verbose >= level.
+ */
+#define loprintf_vl(level, fmt, ...)                      \
+  do {                                                    \
+    if (verbose >= (level)) loprintf(fmt, ##__VA_ARGS__); \
+  } while (0)
+
+/**
+ * lprintf_v - verbose-conditional lprintf
+ * Only prints to log file when verbose is non-zero.
+ */
+#define lprintf_v(fmt, ...)                   \
+  do {                                        \
+    if (verbose) lprintf(fmt, ##__VA_ARGS__); \
+  } while (0)
+
+/**
+ * oprintf_v - verbose-conditional oprintf
+ * Only prints to stdout when verbose is non-zero.
+ */
+#define oprintf_v(fmt, ...)                   \
+  do {                                        \
+    if (verbose) oprintf(fmt, ##__VA_ARGS__); \
+  } while (0)
+
 /**
  * oprintf - print to stdout only (output print)
  */

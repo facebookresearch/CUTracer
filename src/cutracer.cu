@@ -131,10 +131,8 @@ bool instrument_function_if_needed(CUcontext ctx, CUfunction func) {
             (mangled_name && strstr(mangled_name, filter.c_str()) != NULL)) {
           should_instrument = true;
           any_related_function_matched = true;  // Mark that at least one kernel matched
-          if (verbose) {
-            loprintf("Found matching kernel for filter '%s': %s (mangled: %s)\n", filter.c_str(),
+          loprintf_v("Found matching kernel for filter '%s': %s (mangled: %s)\n", filter.c_str(),
                      unmangled_name ? unmangled_name : "unknown", mangled_name ? mangled_name : "unknown");
-          }
           break;
         }
       }
@@ -144,9 +142,7 @@ bool instrument_function_if_needed(CUcontext ctx, CUfunction func) {
     }
 
     const std::vector<Instr*>& instrs = nvbit_get_instrs(ctx, f);
-    if (verbose) {
-      loprintf("Inspecting kernel %s at address 0x%lx\n", nvbit_get_func_name(ctx, f), nvbit_get_func_addr(ctx, f));
-    }
+    loprintf_v("Inspecting kernel %s at address 0x%lx\n", nvbit_get_func_name(ctx, f), nvbit_get_func_addr(ctx, f));
 
     if (!should_instrument) {
       continue;
@@ -184,9 +180,7 @@ bool instrument_function_if_needed(CUcontext ctx, CUfunction func) {
             operands.ureg_nums.push_back(op->u.reg.num + reg_idx);
           }
         } else if (op->type == InstrType::OperandType::GENERIC) {
-          if (verbose) {
-            loprintf("  GENERIC operand[%d]: '%s'\n", i, op->u.generic.array);
-          }
+          loprintf_v("  GENERIC operand[%d]: '%s'\n", i, op->u.generic.array);
 
           // Extract UR register numbers from GENERIC operand using regex
           try {
@@ -204,18 +198,14 @@ bool instrument_function_if_needed(CUcontext ctx, CUfunction func) {
               operands.ureg_nums.push_back(ureg_num);
               match_count++;
 
-              if (verbose) {
-                loprintf("    Extracted UREG: UR%d\n", ureg_num);
-              }
+              loprintf_v("    Extracted UREG: UR%d\n", ureg_num);
             }
 
-            if (match_count == 0 && verbose) {
-              loprintf("    No UREG found in GENERIC operand\n");
+            if (match_count == 0) {
+              loprintf_v("    No UREG found in GENERIC operand\n");
             }
           } catch (const std::exception& e) {
-            if (verbose) {
-              loprintf("    ERROR: Failed to parse GENERIC operand: %s\n", e.what());
-            }
+            loprintf_v("    ERROR: Failed to parse GENERIC operand: %s\n", e.what());
           }
 
           // Check for null array before constructing std::string
@@ -254,9 +244,7 @@ bool instrument_function_if_needed(CUcontext ctx, CUfunction func) {
             loprintf("ERROR: Failed to parse GENERIC operand: %s\n", e.what());
           }
         } else if (op->type == InstrType::OperandType::MEM_DESC) {
-          if (verbose) {
-            loprintf("  MEM_DESC operand[%d]: ureg_num=%d\n", i, op->u.mem_desc.ureg_num);
-          }
+          loprintf_v("  MEM_DESC operand[%d]: ureg_num=%d\n", i, op->u.mem_desc.ureg_num);
         } else if (op->type == InstrType::OperandType::MREF) {
           // TODO: double check this with NVIDIA people
           if (op->u.mref.has_desc) {
@@ -442,9 +430,7 @@ static bool enter_kernel_launch(CUcontext ctx, CUfunction func, uint64_t& kernel
         ctx_state->trace_index_by_kernel[kernel_launch_id - 1] = 0;
       }
 
-      if (verbose) {
-        loprintf("Created TraceWriter for mode %d, file: %s\n", trace_format_ndjson, base_filename.c_str());
-      }
+      loprintf_v("Created TraceWriter for mode %d, file: %s\n", trace_format_ndjson, base_filename.c_str());
     }
   }
   /* enable instrumented code to run */
@@ -562,14 +548,10 @@ void nvbit_at_cuda_event(CUcontext ctx, int is_exit, nvbit_api_cuda_t cbid, cons
         enter_kernel_launch(ctx, func, global_kernel_launch_id, cbid, params, stream_capture);
       } else {
         if (streamStatus != cudaStreamCaptureStatusActive) {
-          if (verbose >= 1) {
-            loprintf("kernel %s not captured by cuda graph\n", nvbit_get_func_name(ctx, func));
-          }
+          loprintf_vl(1, "kernel %s not captured by cuda graph\n", nvbit_get_func_name(ctx, func));
           leave_kernel_launch(ctx_state, global_kernel_launch_id);
         } else {
-          if (verbose >= 1) {
-            loprintf("kernel %s captured by cuda graph\n", nvbit_get_func_name(ctx, func));
-          }
+          loprintf_vl(1, "kernel %s captured by cuda graph\n", nvbit_get_func_name(ctx, func));
         }
       }
     } break;
@@ -631,9 +613,7 @@ void nvbit_at_ctx_init(CUcontext ctx) {
 void nvbit_at_ctx_term(CUcontext ctx) {
   pthread_mutex_lock(&mutex);
   skip_callback_flag = true;
-  if (verbose) {
-    loprintf("CUTracer: TERMINATING CONTEXT %p\n", ctx);
-  }
+  loprintf_v("CUTracer: TERMINATING CONTEXT %p\n", ctx);
   /* get context state from map */
   assert(ctx_state_map.find(ctx) != ctx_state_map.end());
   CTXstate* ctx_state = ctx_state_map[ctx];
