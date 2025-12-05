@@ -182,6 +182,12 @@ bool instrument_function_if_needed(CUcontext ctx, CUfunction func) {
         } else if (op->type == InstrType::OperandType::GENERIC) {
           loprintf_v("  GENERIC operand[%d]: '%s'\n", i, op->u.generic.array);
 
+          // Check for null array before constructing std::string
+          if (op->u.generic.array == nullptr) {
+            loprintf_v("  GENERIC operand[%d] has null array\n", i);
+            continue;
+          }
+
           // Extract UR register numbers from GENERIC operand using regex
           try {
             std::string generic_str(op->u.generic.array);
@@ -203,42 +209,6 @@ bool instrument_function_if_needed(CUcontext ctx, CUfunction func) {
 
             if (match_count == 0) {
               loprintf_v("    No UREG found in GENERIC operand\n");
-            }
-          } catch (const std::exception& e) {
-            loprintf_v("    ERROR: Failed to parse GENERIC operand: %s\n", e.what());
-          }
-
-          // Check for null array before constructing std::string
-          if (op->u.generic.array == nullptr) {
-            if (verbose) {
-              loprintf("  GENERIC operand[%d] has null array\n", i);
-            }
-            continue;
-          }
-
-          // Extract UR register numbers from GENERIC operand using regex
-          try {
-            std::string generic_str(op->u.generic.array);
-            std::sregex_iterator begin(generic_str.begin(), generic_str.end(), ureg_pattern);
-            std::sregex_iterator end;
-
-            int match_count = 0;
-            for (auto it = begin; it != end; ++it) {
-              std::smatch match = *it;
-              // match[0] is the full match "URxx"
-              // match[1] is the captured group (the number part)
-              int ureg_num = std::stoi(match[1].str());
-
-              operands.ureg_nums.push_back(ureg_num);
-              match_count++;
-
-              if (verbose) {
-                loprintf("    Extracted UREG: UR%d\n", ureg_num);
-              }
-            }
-
-            if (match_count == 0 && verbose) {
-              loprintf("    No UREG found in GENERIC operand\n");
             }
           } catch (const std::exception& e) {
             loprintf("ERROR: Failed to parse GENERIC operand: %s\n", e.what());
