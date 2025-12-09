@@ -1,4 +1,4 @@
-# (c) Meta Platforms, Inc. and affiliates. Confidential and proprietary.
+# Copyright (c) Meta Platforms, Inc. and affiliates.
 
 """
 JSON validator for CUTracer NDJSON trace files.
@@ -12,13 +12,13 @@ from pathlib import Path
 from typing import Any, Dict, List, Tuple
 
 import jsonschema
-from jsonschema import ValidationError as JsonSchemaValidationError
 
 from .schemas import SCHEMAS_BY_TYPE
 
 
 class ValidationError(Exception):
     """Exception raised for validation errors."""
+
     pass
 
 
@@ -65,7 +65,8 @@ def validate_json_syntax(filepath: Path) -> Tuple[int, List[str]]:
 def validate_json_schema(
     filepath: Path,
     message_type: str = "reg_trace",
-    max_errors: int = 10
+    max_errors: int = 10,
+    allow_mixed_types: bool = False,
 ) -> bool:
     """
     Validate JSON schema against TraceRecord definition.
@@ -74,6 +75,9 @@ def validate_json_schema(
         filepath: Path to NDJSON trace file
         message_type: Expected message type (default: "reg_trace")
         max_errors: Maximum number of schema errors to collect (default: 10)
+        allow_mixed_types: If True, validate each record against its own schema
+                          based on the 'type' field. If False, all records must
+                          match the specified message_type. (default: False)
 
     Returns:
         True if all records pass schema validation
@@ -92,8 +96,12 @@ def validate_json_schema(
             f"Unknown message type: {message_type}. Valid types: {valid_types}"
         )
 
-    schema = SCHEMAS_BY_TYPE[message_type]
-    validator = jsonschema.Draft7Validator(schema)
+    # Pre-create validators for all types if allowing mixed types
+    validators = {
+        msg_type: jsonschema.Draft7Validator(schema)
+        for msg_type, schema in SCHEMAS_BY_TYPE.items()
+    }
+    default_validator = validators[message_type]
 
     errors: List[str] = []
     line_num = 0
@@ -113,21 +121,37 @@ def validate_json_schema(
                         break
                     continue
 
-                # Check if type field matches expected type
+                # Get the record's type
                 record_type = record.get("type", "")
-                if record_type != message_type:
-                    errors.append(
-                        f"Line {line_num}: Expected type '{message_type}', "
-                        f"got '{record_type}'"
-                    )
-                    if len(errors) >= max_errors:
-                        break
-                    continue
+
+                if allow_mixed_types:
+                    # Validate against the appropriate schema for this record's type
+                    if record_type not in SCHEMAS_BY_TYPE:
+                        errors.append(
+                            f"Line {line_num}: Unknown message type '{record_type}'"
+                        )
+                        if len(errors) >= max_errors:
+                            break
+                        continue
+                    validator = validators[record_type]
+                else:
+                    # Check if type field matches expected type
+                    if record_type != message_type:
+                        errors.append(
+                            f"Line {line_num}: Expected type '{message_type}', "
+                            f"got '{record_type}'"
+                        )
+                        if len(errors) >= max_errors:
+                            break
+                        continue
+                    validator = default_validator
 
                 # Validate against schema
                 validation_errors = list(validator.iter_errors(record))
                 if validation_errors:
-                    for error in validation_errors[:3]:  # Show first 3 errors per record
+                    for error in validation_errors[
+                        :3
+                    ]:  # Show first 3 errors per record
                         field_path = ".".join(str(p) for p in error.path)
                         errors.append(
                             f"Line {line_num}: Schema error at '{field_path}': "
@@ -177,7 +201,7 @@ def validate_json_trace(filepath: Path) -> Dict[str, Any]:
         "record_count": 0,
         "file_size": filepath.stat().st_size,
         "message_type": None,
-        "errors": []
+        "errors": [],
     }
 
     # Step 1: Validate syntax
@@ -216,9 +240,11 @@ def validate_json_trace(filepath: Path) -> Dict[str, Any]:
         result["errors"].append(f"Failed to detect message type: {str(e)}")
         return result
 
-    # Step 3: Validate schema
+    # Step 3: Validate schema (allow mixed types since trace files often contain multiple record types)
     try:
-        validate_json_schema(filepath, message_type=result["message_type"])
+        validate_json_schema(
+            filepath, message_type=result["message_type"], allow_mixed_types=True
+        )
         result["valid"] = True
     except ValidationError as e:
         result["errors"].append(str(e))

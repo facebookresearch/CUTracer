@@ -1,4 +1,4 @@
-# (c) Meta Platforms, Inc. and affiliates. Confidential and proprietary.
+# Copyright (c) Meta Platforms, Inc. and affiliates.
 
 """
 Cross-format consistency checker for CUTracer traces.
@@ -10,7 +10,7 @@ This module provides functions to compare trace files in different formats
 import json
 import re
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict
 
 from .text_validator import (
     REG_INFO_HEADER_PATTERN,

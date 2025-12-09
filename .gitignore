@@ -77,3 +77,46 @@ compile_commands.json
 *.ttgir
 *.ptx
 *.sass
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+.Python
+
+# Distribution / packaging
+dist/
+*.egg-info/
+*.egg
+.eggs/
+wheels/
+MANIFEST
+
+# Virtual environments
+venv/
+.venv/
+env/
+ENV/
+
+# Type checkers
+.mypy_cache/
+.pytype/
+
+# Testing
+.pytest_cache/
+.coverage
+htmlcov/
+.tox/
+.nox/
+.hypothesis/
+
+# Jupyter Notebook
+.ipynb_checkpoints/
+
+# pyenv
+.python-version
+
+*.ndjson
+*.zstd
+*.zst
+*.log

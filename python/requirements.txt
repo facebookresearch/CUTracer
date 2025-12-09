@@ -1,4 +1,0 @@
-# CUTracer Python Package Runtime Dependencies
-# Install with: pip install -r requirements.txt
-
-jsonschema>=4.0.0
