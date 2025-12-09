@@ -7,7 +7,7 @@ Unit tests for JSON schema definitions.
 import jsonschema
 import pytest
 
-from cutracer.validation.schemas import (
+from cutracer.validation.schema_loader import (
     MEM_ACCESS_SCHEMA,
     OPCODE_ONLY_SCHEMA,
     REG_INFO_SCHEMA,

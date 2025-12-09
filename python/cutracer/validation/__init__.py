@@ -30,7 +30,7 @@ from .consistency import (
     get_trace_statistics,
 )
 
-from .schemas import (
+from .schema_loader import (
     REG_INFO_SCHEMA,
     MEM_ACCESS_SCHEMA,
     OPCODE_ONLY_SCHEMA,

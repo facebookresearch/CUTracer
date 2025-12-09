@@ -1,0 +1,97 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://github.com/facebookresearch/CUTracer/schemas/reg_trace.schema.json",
+  "title": "CUTracer Register Trace Record",
+  "description": "Schema for MSG_TYPE_REG_INFO (type='reg_trace') - records register values for each warp",
+  "type": "object",
+  "required": [
+    "type",
+    "ctx",
+    "sass",
+    "trace_index",
+    "timestamp",
+    "grid_launch_id",
+    "cta",
+    "warp",
+    "opcode_id",
+    "pc",
+    "regs"
+  ],
+  "properties": {
+    "type": {
+      "type": "string",
+      "enum": ["reg_trace"],
+      "description": "Message type identifier"
+    },
+    "ctx": {
+      "type": "string",
+      "pattern": "^0x[0-9a-fA-F]+$",
+      "description": "CUDA context pointer in hex format"
+    },
+    "sass": {
+      "type": "string",
+      "minLength": 1,
+      "description": "SASS instruction string"
+    },
+    "trace_index": {
+      "type": "integer",
+      "minimum": 0,
+      "description": "Sequential index of this trace record"
+    },
+    "timestamp": {
+      "type": "integer",
+      "minimum": 0,
+      "description": "Timestamp when trace was captured"
+    },
+    "grid_launch_id": {
+      "type": "integer",
+      "minimum": 0,
+      "description": "Kernel launch identifier"
+    },
+    "cta": {
+      "type": "array",
+      "items": {
+        "type": "integer",
+        "minimum": 0
+      },
+      "minItems": 3,
+      "maxItems": 3,
+      "description": "CTA (Cooperative Thread Array) coordinates [x, y, z]"
+    },
+    "warp": {
+      "type": "integer",
+      "minimum": 0,
+      "description": "Warp ID within the CTA"
+    },
+    "opcode_id": {
+      "type": "integer",
+      "minimum": 0,
+      "description": "Opcode identifier"
+    },
+    "pc": {
+      "type": "integer",
+      "minimum": 0,
+      "description": "Program counter value"
+    },
+    "regs": {
+      "type": "array",
+      "items": {
+        "type": "array",
+        "items": {
+          "type": "integer"
+        },
+        "minItems": 32,
+        "maxItems": 32
+      },
+      "description": "2D array of register values [reg_index][thread_index]"
+    },
+    "uregs": {
+      "type": "array",
+      "items": {
+        "type": "integer"
+      },
+      "description": "Optional uniform register values"
+    }
+  },
+  "additionalProperties": false
+}

@@ -50,6 +50,12 @@ exclude = '''
 )/
 '''
 
+[tool.setuptools.packages.find]
+include = ["cutracer*"]
+
+[tool.setuptools.package-data]
+"cutracer.validation.schemas" = ["*.json"]
+
 [tool.ufmt]
 formatter = "black"
 sorter = "usort"

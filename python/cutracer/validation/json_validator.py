@@ -13,7 +13,7 @@ from typing import Any, Dict, List, Tuple
 
 import jsonschema
 
-from .schemas import SCHEMAS_BY_TYPE
+from .schema_loader import SCHEMAS_BY_TYPE
 
 
 class ValidationError(Exception):
