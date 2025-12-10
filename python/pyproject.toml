@@ -17,6 +17,7 @@ license = "MIT"
 
 dependencies = [
     "jsonschema>=4.0.0",
+    "importlib_resources>=5.0.0; python_version < '3.11'",
 ]
 
 [project.optional-dependencies]
