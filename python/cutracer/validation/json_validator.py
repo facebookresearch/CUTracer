@@ -16,8 +16,8 @@ import jsonschema
 from .schema_loader import SCHEMAS_BY_TYPE
 
 
-class ValidationError(Exception):
-    """Exception raised for validation errors."""
+class JsonValidationError(Exception):
+    """Exception raised for JSON validation errors."""
 
     pass
 
@@ -83,7 +83,7 @@ def validate_json_schema(
         True if all records pass schema validation
 
     Raises:
-        ValidationError: If schema validation fails (includes detailed errors)
+        JsonValidationError: If schema validation fails (includes detailed errors)
         FileNotFoundError: If file does not exist
         ValueError: If message_type is not recognized
     """
@@ -167,7 +167,7 @@ def validate_json_schema(
         error_summary = "\n".join(errors)
         if len(errors) >= max_errors:
             error_summary += f"\n... (showing first {max_errors} errors)"
-        raise ValidationError(f"Schema validation failed:\n{error_summary}")
+        raise JsonValidationError(f"Schema validation failed:\n{error_summary}")
 
     return True
 
@@ -246,7 +246,7 @@ def validate_json_trace(filepath: Path) -> Dict[str, Any]:
             filepath, message_type=result["message_type"], allow_mixed_types=True
         )
         result["valid"] = True
-    except ValidationError as e:
+    except JsonValidationError as e:
         result["errors"].append(str(e))
     except Exception as e:
         result["errors"].append(f"Schema validation error: {str(e)}")

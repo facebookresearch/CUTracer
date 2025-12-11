@@ -12,8 +12,8 @@ from pathlib import Path
 from typing import Any, Dict, List
 
 
-class ValidationError(Exception):
-    """Exception raised for validation errors."""
+class TextValidationError(Exception):
+    """Exception raised for text validation errors."""
 
     pass
 
@@ -53,7 +53,7 @@ def validate_text_format(filepath: Path) -> bool:
         True if format is valid
 
     Raises:
-        ValidationError: If format validation fails
+        TextValidationError: If format validation fails
         FileNotFoundError: If file does not exist
     """
     if not filepath.exists():
@@ -109,7 +109,7 @@ def validate_text_format(filepath: Path) -> bool:
             error_summary += (
                 f"\n... (showing first {max_errors} of {len(errors)} errors)"
             )
-        raise ValidationError(f"Text format validation failed:\n{error_summary}")
+        raise TextValidationError(f"Text format validation failed:\n{error_summary}")
 
     return True
 
@@ -164,7 +164,7 @@ def validate_text_trace(filepath: Path) -> Dict[str, Any]:
     try:
         validate_text_format(filepath)
         result["valid"] = True
-    except ValidationError as e:
+    except TextValidationError as e:
         result["errors"].append(str(e))
     except Exception as e:
         result["errors"].append(f"Format validation error: {str(e)}")
