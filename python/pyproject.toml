@@ -1,0 +1,76 @@
+# Copyright (c) Meta Platforms, Inc. and affiliates.
+
+[build-system]
+requires = ["setuptools>=64", "wheel", "setuptools-scm>=8.0.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "cutracer"
+dynamic = ["version"]
+description = "Python tools for CUTracer trace validation and analysis"
+requires-python = ">=3.10"
+authors = [
+    {name = "Yueming Hao", email = "yhao@meta.com"}
+]
+readme = "README.md"
+license = "MIT"
+
+dependencies = [
+    "jsonschema>=4.0.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=7.0.0",
+    "pytest-cov>=4.0.0",
+    "mypy>=1.0.0",
+    "black>=22.0.0",
+    "ruff>=0.1.0",
+    "ufmt>=2.0.0",
+    "usort>=1.0.0",
+]
+
+[project.urls]
+"Homepage" = "https://github.com/facebookresearch/CUTracer"
+"Bug Tracker" = "https://github.com/facebookresearch/CUTracer/issues"
+
+# Note: CLI entry points can be added when cutracer.cli module is implemented
+# [project.scripts]
+# validate-trace = "cutracer.cli:main"
+
+[tool.black]
+line-length = 88
+target-version = ["py310"]
+exclude = '''
+/(
+    \.git
+  | \.mypy_cache
+  | \.pytest_cache
+  | \.venv
+  | build
+  | dist
+)/
+'''
+
+[tool.setuptools.packages.find]
+include = ["cutracer*"]
+
+[tool.setuptools.package-data]
+"cutracer.validation.schemas" = ["*.json"]
+
+[tool.ufmt]
+formatter = "black"
+sorter = "usort"
+
+[tool.usort]
+first_party_detection = false
+
+[tool.setuptools_scm]
+root = ".."
+version_scheme = "guess-next-dev"
+local_scheme = "no-local-version"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+python_files = ["test_*.py"]
+addopts = "-v --color=yes"
