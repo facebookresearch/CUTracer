@@ -1,0 +1,3 @@
+{"type": "reg_trace", "ctx": "0x5a1100", "sass": "LDC R1, c[0x0][0x28] ;", "trace_index": 0, "timestamp": 1763069214784647489, "grid_launch_id": 0, "cta": [0, 0, 0], "warp": 0, "opcode_id": 0, "pc": 0, "regs": [[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0]]}
+{"invalid json line - missing quotes and brackets
+{"type": "reg_trace", "ctx": "0x5a1100", "sass": "S2R R0, SR_TID.X ;", "trace_index": 2, "timestamp": 1763069214784700000, "grid_launch_id": 0, "cta": [0, 0, 0], "warp": 0, "opcode_id": 1, "pc": 16, "regs": [[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0]]}
