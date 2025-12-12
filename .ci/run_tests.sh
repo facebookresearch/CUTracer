@@ -800,9 +800,32 @@ test_hang_test() {
   return 0
 }
 
+# Function to run Python module unit tests
+test_python_module() {
+  echo "🧪 Running Python module unit tests..."
+  cd "$PROJECT_ROOT/python"
+
+  if ! python -m unittest discover -s tests -v; then
+    echo "❌ Python module unit tests failed"
+    cd "$PROJECT_ROOT"
+    return 1
+  fi
+
+  echo "✅ Python module unit tests passed!"
+  cd "$PROJECT_ROOT"
+  return 0
+}
+
 # Function to run all tests
 run_all_tests() {
   echo "🚀 Running all CUTracer tests..."
+
+  # Run Python module tests first (no build required)
+  if ! test_python_module; then
+    echo "❌ Python module tests failed"
+    return 1
+  fi
+
   # Test phase
   build_vectoradd
   if ! test_vectoradd; then
@@ -847,6 +870,9 @@ case "$TEST_TYPE" in
   ;;
 "hang")
   test_hang_test
+  ;;
+"python-module")
+  test_python_module
   ;;
 "all" | *)
   run_all_tests
