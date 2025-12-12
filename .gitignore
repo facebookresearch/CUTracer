@@ -111,3 +111,7 @@ compile_commands.json
 *.ndjson
 *.zst
 *.zstd
+
+# Exception for Python test example inputs
+!python/tests/example_inputs/*.ndjson
+!python/tests/example_inputs/*.log
