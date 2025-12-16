@@ -34,9 +34,8 @@ dev = [
 "Homepage" = "https://github.com/facebookresearch/CUTracer"
 "Bug Tracker" = "https://github.com/facebookresearch/CUTracer/issues"
 
-# Note: CLI entry points can be added when cutracer.cli module is implemented
-# [project.scripts]
-# validate-trace = "cutracer.cli:main"
+[project.scripts]
+cutraceross = "cutracer.cli:main"
 
 [tool.black]
 line-length = 88
