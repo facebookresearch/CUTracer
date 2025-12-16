@@ -17,13 +17,12 @@ license = "MIT"
 
 dependencies = [
     "jsonschema>=4.0.0",
+    "zstandard>=0.20.0",
     "importlib_resources>=5.0.0; python_version < '3.11'",
 ]
 
 [project.optional-dependencies]
 dev = [
-    "pytest>=7.0.0",
-    "pytest-cov>=4.0.0",
     "mypy>=1.0.0",
     "black>=22.0.0",
     "ruff>=0.1.0",
@@ -70,8 +69,3 @@ first_party_detection = false
 root = ".."
 version_scheme = "guess-next-dev"
 local_scheme = "no-local-version"
-
-[tool.pytest.ini_options]
-testpaths = ["tests"]
-python_files = ["test_*.py"]
-addopts = "-v --color=yes"

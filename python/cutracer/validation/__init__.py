@@ -7,8 +7,16 @@ This module provides validation functions for trace files in different formats:
 - JSON validation (syntax and schema)
 - Text format validation
 - Cross-format consistency checking
+- Compression handling (Zstd)
 """
 
+from .compression import (
+    detect_compression,
+    get_file_size,
+    get_trace_format,
+    iter_lines,
+    open_trace_file,
+)
 from .consistency import (
     compare_record_counts,
     compare_trace_content,
@@ -35,6 +43,12 @@ from .text_validator import (
 )
 
 __all__ = [
+    # Compression utilities
+    "detect_compression",
+    "get_trace_format",
+    "open_trace_file",
+    "iter_lines",
+    "get_file_size",
     # JSON validation
     "validate_json_syntax",
     "validate_json_schema",

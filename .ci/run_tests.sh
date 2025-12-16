@@ -40,9 +40,9 @@ if [ -f "/opt/miniconda3/etc/profile.d/conda.sh" ]; then
   conda install -y -c conda-forge libstdcxx-ng=15.1.0
   pip install pandas
 
-  # Install cutracer Python package dependencies
-  echo "📦 Installing cutracer Python package dependencies..."
-  pip install jsonschema>=4.0.0
+  # Install cutracer Python package in editable mode (includes all dependencies)
+  echo "📦 Installing cutracer Python package..."
+  pip install -e "$PROJECT_ROOT/python"
 else
   echo "⚠️ Conda activation script not found, skipping."
 fi
