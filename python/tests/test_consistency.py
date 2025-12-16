@@ -17,6 +17,8 @@ from tests.test_base import (
     REG_TRACE_LOG_RECORD_COUNT,
     REG_TRACE_NDJSON,
     REG_TRACE_NDJSON_RECORD_COUNT,
+    REG_TRACE_NDJSON_ZST,
+    REG_TRACE_NDJSON_ZST_RECORD_COUNT,
 )
 
 
@@ -83,6 +85,41 @@ class ConsistencyTest(BaseValidationTest):
         self.assertIn("json_records", result)
         self.assertEqual(result["text_records"], REG_TRACE_LOG_RECORD_COUNT)
         self.assertEqual(result["json_records"], REG_TRACE_NDJSON_RECORD_COUNT)
+
+
+class ConsistencyCompressedTest(BaseValidationTest):
+    """Tests for consistency checker with compressed files."""
+
+    def test_get_trace_statistics_compressed(self):
+        """Test statistics extraction from compressed NDJSON file."""
+        if not REG_TRACE_NDJSON_ZST.exists():
+            self.skipTest("Zstd test file not available")
+
+        stats = get_trace_statistics(REG_TRACE_NDJSON_ZST)
+
+        self.assertEqual(stats["format"], "json")
+        self.assertEqual(stats["compression"], "zstd")
+        self.assertEqual(stats["record_count"], REG_TRACE_NDJSON_ZST_RECORD_COUNT)
+        self.assertGreater(stats["file_size"], 0)
+        self.assertIn("reg_trace", stats["message_types"])
+
+    def test_get_trace_statistics_compression_field_uncompressed(self):
+        """Test that uncompressed files have compression='none'."""
+        stats = get_trace_statistics(REG_TRACE_NDJSON)
+
+        self.assertEqual(stats["compression"], "none")
+
+    def test_compare_trace_formats_with_compressed_json(self):
+        """Test comparison of text and compressed JSON trace files."""
+        if not REG_TRACE_NDJSON_ZST.exists():
+            self.skipTest("Zstd test file not available")
+
+        result = compare_trace_formats(REG_TRACE_LOG, REG_TRACE_NDJSON_ZST)
+
+        self.assertIn("consistent", result)
+        self.assertIn("record_count_match", result)
+        self.assertEqual(result["text_records"], REG_TRACE_LOG_RECORD_COUNT)
+        self.assertEqual(result["json_records"], REG_TRACE_NDJSON_ZST_RECORD_COUNT)
 
 
 if __name__ == "__main__":
