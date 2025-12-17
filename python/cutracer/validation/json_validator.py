@@ -4,15 +4,17 @@
 JSON validator for CUTracer NDJSON trace files.
 
 This module provides functions to validate NDJSON trace files produced by
-CUTracer for syntax correctness and schema compliance.
+CUTracer for syntax correctness and schema compliance. Supports both
+uncompressed (.ndjson) and Zstd-compressed (.ndjson.zst) files.
 """
 
 import json
 from pathlib import Path
-from typing import Any, Dict, List, Tuple
+from typing import Any, Dict, List, Tuple, Union
 
 import jsonschema
 
+from .compression import detect_compression, open_trace_file
 from .schema_loader import SCHEMAS_BY_TYPE
 
 
@@ -22,9 +24,13 @@ class JsonValidationError(Exception):
     pass
 
 
-def validate_json_syntax(filepath: Path) -> Tuple[int, List[str]]:
+def validate_json_syntax(
+    filepath: Union[str, Path],
+) -> Tuple[int, List[str]]:
     """
     Validate JSON syntax line-by-line for NDJSON file.
+
+    Supports both uncompressed (.ndjson) and Zstd-compressed (.ndjson.zst) files.
 
     Args:
         filepath: Path to NDJSON trace file
@@ -37,6 +43,7 @@ def validate_json_syntax(filepath: Path) -> Tuple[int, List[str]]:
     Raises:
         FileNotFoundError: If file does not exist
     """
+    filepath = Path(filepath)
     if not filepath.exists():
         raise FileNotFoundError(f"File not found: {filepath}")
 
@@ -44,7 +51,7 @@ def validate_json_syntax(filepath: Path) -> Tuple[int, List[str]]:
     errors: List[str] = []
 
     try:
-        with open(filepath, "r", encoding="utf-8") as f:
+        with open_trace_file(filepath) as f:
             for line_num, line in enumerate(f, start=1):
                 line = line.strip()
                 if not line:
@@ -63,13 +70,15 @@ def validate_json_syntax(filepath: Path) -> Tuple[int, List[str]]:
 
 
 def validate_json_schema(
-    filepath: Path,
+    filepath: Union[str, Path],
     message_type: str = "reg_trace",
     max_errors: int = 10,
     allow_mixed_types: bool = False,
 ) -> bool:
     """
     Validate JSON schema against TraceRecord definition.
+
+    Supports both uncompressed (.ndjson) and Zstd-compressed (.ndjson.zst) files.
 
     Args:
         filepath: Path to NDJSON trace file
@@ -87,6 +96,7 @@ def validate_json_schema(
         FileNotFoundError: If file does not exist
         ValueError: If message_type is not recognized
     """
+    filepath = Path(filepath)
     if not filepath.exists():
         raise FileNotFoundError(f"File not found: {filepath}")
 
@@ -107,7 +117,7 @@ def validate_json_schema(
     line_num = 0
 
     try:
-        with open(filepath, "r", encoding="utf-8") as f:
+        with open_trace_file(filepath) as f:
             for line_num, line in enumerate(f, start=1):
                 line = line.strip()
                 if not line:
@@ -172,12 +182,13 @@ def validate_json_schema(
     return True
 
 
-def validate_json_trace(filepath: Path) -> Dict[str, Any]:
+def validate_json_trace(filepath: Union[str, Path]) -> Dict[str, Any]:
     """
     Complete validation of NDJSON trace file.
 
     Performs both syntax and schema validation, with auto-detection of
-    message type from the first record.
+    message type from the first record. Supports both uncompressed (.ndjson)
+    and Zstd-compressed (.ndjson.zst) files.
 
     Args:
         filepath: Path to NDJSON trace file
@@ -186,20 +197,25 @@ def validate_json_trace(filepath: Path) -> Dict[str, Any]:
         Dictionary containing:
             - valid: bool - Whether validation passed
             - record_count: int - Number of valid records
-            - file_size: int - File size in bytes
+            - file_size: int - File size in bytes (compressed size for .zst files)
+            - compression: str - Compression type ("zstd" or "none")
             - message_type: str - Detected message type
             - errors: List[str] - Error messages (empty if valid)
 
     Raises:
         FileNotFoundError: If file does not exist
     """
+    filepath = Path(filepath)
     if not filepath.exists():
         raise FileNotFoundError(f"File not found: {filepath}")
+
+    compression = detect_compression(filepath)
 
     result: Dict[str, Any] = {
         "valid": False,
         "record_count": 0,
         "file_size": filepath.stat().st_size,
+        "compression": compression,
         "message_type": None,
         "errors": [],
     }
@@ -223,7 +239,7 @@ def validate_json_trace(filepath: Path) -> Dict[str, Any]:
 
     # Step 2: Auto-detect message type from first record
     try:
-        with open(filepath, "r", encoding="utf-8") as f:
+        with open_trace_file(filepath) as f:
             for line in f:
                 line = line.strip()
                 if line:

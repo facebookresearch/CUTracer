@@ -4,14 +4,15 @@
 Cross-format consistency checker for CUTracer traces.
 
 This module provides functions to compare trace files in different formats
-(text vs NDJSON) for data consistency.
+(text vs NDJSON) for data consistency. Supports Zstd-compressed files.
 """
 
 import json
 import re
 from pathlib import Path
-from typing import Any, Dict
+from typing import Any, Dict, Union
 
+from .compression import detect_compression, open_trace_file
 from .text_validator import (
     MEM_ACCESS_HEADER_PATTERN,
     parse_text_trace_record,
@@ -59,7 +60,9 @@ def compare_record_counts(
 
 
 def compare_trace_content(
-    text_file: Path, json_file: Path, sample_size: int = 10
+    text_file: Union[str, Path],
+    json_file: Union[str, Path],
+    sample_size: int = 10,
 ) -> Dict[str, Any]:
     """
     Compare actual trace content between formats (sampling).
@@ -70,9 +73,11 @@ def compare_trace_content(
     - Consistent SASS strings
     - Matching CTA and warp information
 
+    Supports Zstd-compressed JSON files.
+
     Args:
         text_file: Path to text trace file
-        json_file: Path to NDJSON trace file
+        json_file: Path to NDJSON trace file (supports .ndjson.zst)
         sample_size: Number of records to sample for comparison (default: 10)
 
     Returns:
@@ -84,6 +89,9 @@ def compare_trace_content(
     Raises:
         FileNotFoundError: If either file does not exist
     """
+    text_file = Path(text_file)
+    json_file = Path(json_file)
+
     if not text_file.exists():
         raise FileNotFoundError(f"Text file not found: {text_file}")
     if not json_file.exists():
@@ -96,9 +104,9 @@ def compare_trace_content(
     }
 
     try:
-        # Read sample of JSON records
+        # Read sample of JSON records (supports compressed files)
         json_records = []
-        with open(json_file, "r", encoding="utf-8") as f:
+        with open_trace_file(json_file) as f:
             for i, line in enumerate(f):
                 if i >= sample_size:
                     break
@@ -284,11 +292,11 @@ def compare_trace_formats(
     return result
 
 
-def get_trace_statistics(filepath: Path) -> Dict[str, Any]:
+def get_trace_statistics(filepath: Union[str, Path]) -> Dict[str, Any]:
     """
     Extract statistics from a trace file.
 
-    Works with both text and JSON formats.
+    Works with both text and JSON formats. Supports Zstd-compressed JSON files.
 
     Args:
         filepath: Path to trace file
@@ -296,6 +304,7 @@ def get_trace_statistics(filepath: Path) -> Dict[str, Any]:
     Returns:
         Dictionary containing:
             - format: str - "text" or "json"
+            - compression: str - "zstd" or "none"
             - record_count: int
             - file_size: int
             - message_types: Dict[str, int] - Count by message type
@@ -306,11 +315,16 @@ def get_trace_statistics(filepath: Path) -> Dict[str, Any]:
         FileNotFoundError: If file does not exist
         ValueError: If file format is not recognized
     """
+    filepath = Path(filepath)
+
     if not filepath.exists():
         raise FileNotFoundError(f"File not found: {filepath}")
 
+    compression = detect_compression(filepath)
+
     stats: Dict[str, Any] = {
         "format": None,
+        "compression": compression,
         "record_count": 0,
         "file_size": filepath.stat().st_size,
         "message_types": {},
@@ -319,9 +333,11 @@ def get_trace_statistics(filepath: Path) -> Dict[str, Any]:
     }
 
     # Determine format by extension
-    if filepath.suffix == ".ndjson":
+    suffixes = "".join(filepath.suffixes).lower()
+
+    if ".ndjson" in suffixes:
         stats["format"] = "json"
-        with open(filepath, "r", encoding="utf-8") as f:
+        with open_trace_file(filepath) as f:
             for line in f:
                 line = line.strip()
                 if not line:
