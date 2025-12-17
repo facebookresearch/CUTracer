@@ -115,3 +115,4 @@ compile_commands.json
 # Exception for Python test example inputs
 !python/tests/example_inputs/*.ndjson
 !python/tests/example_inputs/*.log
+!python/tests/example_inputs/*.zst
