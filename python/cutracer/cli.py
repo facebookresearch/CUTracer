@@ -10,7 +10,6 @@ import sys
 from importlib.metadata import PackageNotFoundError, version
 
 import click
-
 from cutracer.validation.cli import validate_command
 
 
