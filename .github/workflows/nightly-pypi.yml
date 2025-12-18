@@ -25,6 +25,8 @@ jobs:
         with:
           python-version: "3.12"
 
+      # This step checks if there are new commits since the last nightly publish.
+      # Output: steps.check.outputs.should_publish - 'true' if new commits exist, 'false' otherwise
       - name: Check for new commits since last nightly
         id: check
         if: github.ref_type != 'tag'
@@ -44,11 +46,14 @@ jobs:
             exit 1
           fi
           BASE=${TAG#v}
+          # Require a semantic version X.Y.Z (optionally with a suffix) before proceeding
+          if ! printf "%s\n" "$BASE" | grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+'; then
+            echo "::error title=Invalid git tag::Latest tag '$TAG' is not a semantic version like v0.1.0"
+            exit 1
+          fi
           # Keep only X.Y.Z form (strip rc/a/b/post/dev suffixes)
           BASE=$(printf "%s\n" "$BASE" | sed -E 's/^([0-9]+)\.([0-9]+)\.([0-9]+).*/\1.\2.\3/')
-          IFS='.' read -r MAJ MIN PAT <<EOF
-          $BASE
-          EOF
+          IFS='.' read -r MAJ MIN PAT <<< "$BASE"
           # Use next patch version as the nightly base
           PAT=$((PAT + 1))
           NEXT="$MAJ.$MIN.$PAT"
