@@ -8,7 +8,6 @@ import unittest
 from pathlib import Path
 
 from click.testing import CliRunner
-
 from cutracer.cli import main
 from cutracer.validation.cli import _detect_format, _format_size
 
