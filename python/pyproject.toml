@@ -16,6 +16,7 @@ readme = "README.md"
 license = "MIT"
 
 dependencies = [
+    "click>=8.0.0",
     "jsonschema>=4.0.0",
     "zstandard>=0.20.0",
     "importlib_resources>=5.0.0; python_version < '3.11'",
