@@ -6,8 +6,8 @@ import subprocess
 import sys
 import unittest
 from pathlib import Path
-from unittest.mock import patch
 
+from click.testing import CliRunner
 from cutracer.cli import main
 from cutracer.validation.cli import _detect_format, _format_size
 
@@ -48,159 +48,137 @@ class ValidateCommandTest(unittest.TestCase):
 
     def setUp(self):
         self.test_dir = Path(__file__).parent / "example_inputs"
+        self.runner = CliRunner()
 
     def test_validate_valid_json(self):
         """Test validating a valid NDJSON file."""
-        with patch(
-            "sys.argv",
-            ["cutraceross", "validate", str(self.test_dir / "reg_trace_sample.ndjson")],
-        ):
-            exit_code = main()
-            self.assertEqual(exit_code, 0)
+        result = self.runner.invoke(
+            main, ["validate", str(self.test_dir / "reg_trace_sample.ndjson")]
+        )
+        self.assertEqual(result.exit_code, 0)
 
     def test_validate_valid_json_zst(self):
         """Test validating a valid Zstd-compressed NDJSON file."""
-        with patch(
-            "sys.argv",
-            [
-                "cutraceross",
-                "validate",
-                str(self.test_dir / "reg_trace_sample.ndjson.zst"),
-            ],
-        ):
-            exit_code = main()
-            self.assertEqual(exit_code, 0)
+        result = self.runner.invoke(
+            main, ["validate", str(self.test_dir / "reg_trace_sample.ndjson.zst")]
+        )
+        self.assertEqual(result.exit_code, 0)
 
     def test_validate_valid_text(self):
         """Test validating a valid text log file."""
-        with patch(
-            "sys.argv",
-            ["cutraceross", "validate", str(self.test_dir / "reg_trace_sample.log")],
-        ):
-            exit_code = main()
-            self.assertEqual(exit_code, 0)
+        result = self.runner.invoke(
+            main, ["validate", str(self.test_dir / "reg_trace_sample.log")]
+        )
+        self.assertEqual(result.exit_code, 0)
 
     def test_validate_invalid_syntax(self):
         """Test validating a file with invalid JSON syntax."""
-        with patch(
-            "sys.argv",
-            ["cutraceross", "validate", str(self.test_dir / "invalid_syntax.ndjson")],
-        ):
-            exit_code = main()
-            self.assertEqual(exit_code, 1)
+        result = self.runner.invoke(
+            main, ["validate", str(self.test_dir / "invalid_syntax.ndjson")]
+        )
+        self.assertEqual(result.exit_code, 1)
 
     def test_validate_invalid_schema(self):
         """Test validating a file with schema errors."""
-        with patch(
-            "sys.argv",
-            ["cutraceross", "validate", str(self.test_dir / "invalid_schema.ndjson")],
-        ):
-            exit_code = main()
-            self.assertEqual(exit_code, 1)
+        result = self.runner.invoke(
+            main, ["validate", str(self.test_dir / "invalid_schema.ndjson")]
+        )
+        self.assertEqual(result.exit_code, 1)
 
     def test_validate_quiet_mode(self):
         """Test quiet mode returns only exit code."""
-        with patch(
-            "sys.argv",
-            [
-                "cutraceross",
-                "validate",
-                "--quiet",
-                str(self.test_dir / "reg_trace_sample.ndjson"),
-            ],
-        ):
-            exit_code = main()
-            self.assertEqual(exit_code, 0)
+        result = self.runner.invoke(
+            main,
+            ["validate", "--quiet", str(self.test_dir / "reg_trace_sample.ndjson")],
+        )
+        self.assertEqual(result.exit_code, 0)
+        # Quiet mode should produce no output
+        self.assertEqual(result.output.strip(), "")
 
     def test_validate_json_output(self):
         """Test JSON output format."""
-        with patch(
-            "sys.argv",
-            [
-                "cutraceross",
-                "validate",
-                "--json",
-                str(self.test_dir / "reg_trace_sample.ndjson"),
-            ],
-        ):
-            exit_code = main()
-            self.assertEqual(exit_code, 0)
+        result = self.runner.invoke(
+            main,
+            ["validate", "--json", str(self.test_dir / "reg_trace_sample.ndjson")],
+        )
+        self.assertEqual(result.exit_code, 0)
+        # Should contain JSON output
+        self.assertIn('"valid"', result.output)
 
     def test_validate_file_not_found(self):
         """Test error handling for non-existent file."""
-        with patch("sys.argv", ["cutraceross", "validate", "/nonexistent/file.ndjson"]):
-            exit_code = main()
-            self.assertEqual(exit_code, 2)
+        result = self.runner.invoke(main, ["validate", "/nonexistent/file.ndjson"])
+        self.assertEqual(result.exit_code, 2)
 
     def test_validate_unknown_format(self):
         """Test error handling for unknown format."""
-        with patch(
-            "sys.argv",
-            [
-                "cutraceross",
-                "validate",
-                str(self.test_dir / "reg_trace_sample.ndjson").replace(
-                    ".ndjson", ".unknown"
-                ),
-            ],
-        ):
-            exit_code = main()
-            self.assertEqual(exit_code, 2)
+        # Create a temporary file with unknown extension
+        unknown_file = self.test_dir / "reg_trace_sample.unknown"
+        # Copy content from existing file for the test
+        if not unknown_file.exists():
+            import shutil
+
+            shutil.copy(self.test_dir / "reg_trace_sample.ndjson", unknown_file)
+
+        try:
+            result = self.runner.invoke(main, ["validate", str(unknown_file)])
+            self.assertEqual(result.exit_code, 2)
+            self.assertIn("Cannot auto-detect format", result.output)
+        finally:
+            # Cleanup
+            if unknown_file.exists():
+                unknown_file.unlink()
 
     def test_validate_explicit_format_json(self):
         """Test explicit --format json option."""
-        with patch(
-            "sys.argv",
+        result = self.runner.invoke(
+            main,
             [
-                "cutraceross",
                 "validate",
                 "--format",
                 "json",
                 str(self.test_dir / "reg_trace_sample.ndjson"),
             ],
-        ):
-            exit_code = main()
-            self.assertEqual(exit_code, 0)
+        )
+        self.assertEqual(result.exit_code, 0)
 
     def test_validate_explicit_format_text(self):
         """Test explicit --format text option."""
-        with patch(
-            "sys.argv",
+        result = self.runner.invoke(
+            main,
             [
-                "cutraceross",
                 "validate",
                 "--format",
                 "text",
                 str(self.test_dir / "reg_trace_sample.log"),
             ],
-        ):
-            exit_code = main()
-            self.assertEqual(exit_code, 0)
+        )
+        self.assertEqual(result.exit_code, 0)
 
 
 class MainEntryPointTest(unittest.TestCase):
     """Tests for main entry point."""
 
+    def setUp(self):
+        self.runner = CliRunner()
+
     def test_version_flag(self):
         """Test --version flag."""
-        with patch("sys.argv", ["cutraceross", "--version"]):
-            with self.assertRaises(SystemExit) as cm:
-                main()
-            self.assertEqual(cm.exception.code, 0)
+        result = self.runner.invoke(main, ["--version"])
+        self.assertEqual(result.exit_code, 0)
+        self.assertIn("cutraceross", result.output)
 
     def test_help_flag(self):
         """Test --help flag."""
-        with patch("sys.argv", ["cutraceross", "--help"]):
-            with self.assertRaises(SystemExit) as cm:
-                main()
-            self.assertEqual(cm.exception.code, 0)
+        result = self.runner.invoke(main, ["--help"])
+        self.assertEqual(result.exit_code, 0)
+        self.assertIn("validate", result.output)
 
     def test_no_command(self):
         """Test error when no command is provided."""
-        with patch("sys.argv", ["cutraceross"]):
-            with self.assertRaises(SystemExit) as cm:
-                main()
-            self.assertNotEqual(cm.exception.code, 0)
+        result = self.runner.invoke(main, [])
+        # Click group with required subcommand returns exit code 2 when no command provided
+        self.assertEqual(result.exit_code, 2)
 
 
 class ModuleEntryPointTest(unittest.TestCase):

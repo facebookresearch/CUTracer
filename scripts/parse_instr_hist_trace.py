@@ -1,11 +1,12 @@
 #!/usr/bin/env python3
 #  Copyright (c) Meta Platforms, Inc. and affiliates.
-import argparse
+
 import json
 import os
 import re
 import sys
 
+import click
 import pandas as pd
 
 
@@ -362,60 +363,90 @@ def merge_traces(
     print(f"Successfully merged data and saved to {output_path}")
 
 
-if __name__ == "__main__":
-    parser = argparse.ArgumentParser(
-        description="Parse and merge trace files from Chrome's tracer and CUTRICER.",
-        formatter_class=argparse.RawTextHelpFormatter,
-    )
+@click.command()
+@click.option(
+    "--chrome-trace",
+    "chrome_trace_input",
+    type=click.Path(exists=True),
+    help="Path to the Chrome trace JSON file.",
+)
+@click.option(
+    "--cutracer-trace",
+    "cutracer_trace_input",
+    type=click.Path(exists=True),
+    help="Path to the CUTRICER histogram CSV file.",
+)
+@click.option(
+    "--cutracer-log",
+    "cutracer_log_input",
+    type=click.Path(exists=True),
+    help="Path to the CUTRICER log file to enable merge mode.",
+)
+@click.option(
+    "--kernel-hash",
+    "kernel_hash_hex",
+    help="Optional kernel hash (e.g., 0x7fa21c3) to select a specific launch from the log.",
+)
+@click.option(
+    "--output",
+    required=True,
+    type=click.Path(),
+    help="Path for the output CSV file.",
+)
+def main(
+    chrome_trace_input,
+    cutracer_trace_input,
+    cutracer_log_input,
+    kernel_hash_hex,
+    output,
+):
+    """Parse and merge trace files from Chrome's tracer and CUTRICER.
 
-    parser.add_argument(
-        "--chrome-trace",
-        dest="chrome_trace_input",
-        help="Path to the Chrome trace JSON file.",
-    )
-    parser.add_argument(
-        "--cutracer-trace",
-        dest="cutracer_trace_input",
-        help="Path to the CUTRICER histogram CSV file.",
-    )
-    parser.add_argument(
-        "--cutracer-log",
-        dest="cutracer_log_input",
-        help="Path to the CUTRICER log file to enable merge mode.",
-    )
-    parser.add_argument(
-        "--kernel-hash",
-        dest="kernel_hash_hex",
-        help="Optional kernel hash (e.g., 0x7fa21c3) to select a specific launch from the log.",
-    )
-    parser.add_argument("--output", required=True, help="Path for the output CSV file.")
+    Supports three modes:
 
-    args = parser.parse_args()
+    \b
+    1. Merge mode (requires --cutracer-log, --chrome-trace, and --cutracer-trace):
+       Merges Chrome trace, CUTRICER histogram, and log data.
 
-    # --- Main Logic ---
-    if args.cutracer_log_input:
+    \b
+    2. Chrome trace only (--chrome-trace):
+       Parses a Chrome trace JSON file to CSV.
+
+    \b
+    3. CUTRICER histogram only (--cutracer-trace):
+       Parses a CUTRICER histogram CSV file.
+    """
+    if cutracer_log_input:
         # Merge mode
-        if not all([args.chrome_trace_input, args.cutracer_trace_input]):
-            parser.error("--cutracer-log requires --chrome-trace and --cutracer-trace.")
+        if not all([chrome_trace_input, cutracer_trace_input]):
+            raise click.UsageError(
+                "--cutracer-log requires --chrome-trace and --cutracer-trace."
+            )
 
         merge_traces(
-            args.chrome_trace_input,
-            args.cutracer_trace_input,
-            args.cutracer_log_input,
-            args.output,
-            args.kernel_hash_hex,
+            chrome_trace_input,
+            cutracer_trace_input,
+            cutracer_log_input,
+            output,
+            kernel_hash_hex,
         )
-    elif args.chrome_trace_input:
+    elif chrome_trace_input:
         # Standalone Chrome trace parsing
-        df = get_chrome_trace_df(args.chrome_trace_input)
+        df = get_chrome_trace_df(chrome_trace_input)
         if df is not None:
-            df.to_csv(args.output, index=False)
-            print(f"Successfully parsed Chrome trace and saved to {args.output}")
-    elif args.cutracer_trace_input:
+            df.to_csv(output, index=False)
+            print(f"Successfully parsed Chrome trace and saved to {output}")
+    elif cutracer_trace_input:
         # Standalone CUTRICER hist parsing
-        df = get_cutracer_hist_df(args.cutracer_trace_input)
+        df = get_cutracer_hist_df(cutracer_trace_input)
         if df is not None:
-            df.to_csv(args.output, index=False)
-            print(f"Successfully parsed CUTRICER histogram and saved to {args.output}")
+            df.to_csv(output, index=False)
+            print(f"Successfully parsed CUTRICER histogram and saved to {output}")
     else:
-        parser.print_help()
+        raise click.UsageError(
+            "At least one of --chrome-trace, --cutracer-trace, or --cutracer-log is required."
+        )
+
+
+if __name__ == "__main__":
+    main()
