@@ -28,14 +28,21 @@ git clone git@github.com:facebookresearch/CUTracer.git
 cd CUTracer
 ```
 
-2. Install system dependencies (libzstd):
+2. Install system dependencies (libzstd static library for self-contained builds):
 
 ```bash
 # Ubuntu/Debian
+# On most Ubuntu/Debian systems, libzstd-dev provides both shared and static libs (libzstd.a).
+# You can verify this with: dpkg -L libzstd-dev | grep 'libzstd.a'
+# If your distribution does not ship the static library in libzstd-dev, you may need to
+# build zstd from source or install a distro-specific static libzstd package.
 sudo apt-get install libzstd-dev
 
-# CentOS/RHEL
-sudo dnf install libzstd-devel
+# CentOS/RHEL/Fedora (static library for portable builds)
+sudo dnf install libzstd-static
+
+# If static library is not available, the build will fall back to dynamic linking
+# and display a warning. The resulting binary will not be self-contained.
 ```
 
 3. Download third-party dependencies:

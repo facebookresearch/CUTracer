@@ -46,7 +46,22 @@ NVBIT_PATH=./third_party/nvbit/core
 INCLUDES=-I$(NVBIT_PATH) -I./$(INCLUDE_DIR) -I./third_party
 
 # Libraries
-LIBS=-L$(NVBIT_PATH) -lnvbit -lzstd
+# Dynamically find static zstd library for self-contained builds
+# Priority: 1) pkg-config, 2) common system paths
+# Note: -lpthread is required because zstd uses POSIX threads internally
+ZSTD_STATIC := $(shell pkg-config --variable=libdir libzstd 2>/dev/null)/libzstd.a
+ifeq ($(wildcard $(ZSTD_STATIC)),)
+    ZSTD_STATIC := $(shell for p in /usr/lib64 /usr/lib /usr/local/lib64 /usr/local/lib; do \
+        if [ -f "$$p/libzstd.a" ]; then echo "$$p/libzstd.a"; break; fi; done)
+endif
+ifeq ($(ZSTD_STATIC),)
+    $(warning WARNING: libzstd.a not found - falling back to dynamic linking.)
+    $(warning WARNING: The resulting binary will NOT be self-contained/portable.)
+    $(warning WARNING: Install static library with: dnf install libzstd-static (RHEL/Fedora) or apt install libzstd-dev (Ubuntu/Debian))
+    ZSTD_STATIC := -lzstd
+endif
+
+LIBS=-L$(NVBIT_PATH) -lnvbit $(ZSTD_STATIC) -lpthread
 NVCC_PATH=-L $(subst bin/nvcc,lib64,$(shell which nvcc | tr -s /))
 
 # Identify inject_funcs.cu specifically
