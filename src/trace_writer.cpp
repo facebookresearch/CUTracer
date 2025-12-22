@@ -16,6 +16,8 @@
 #include <sstream>
 #include <stdexcept>
 
+#include "env_config.h"
+
 // ============================================================================
 // Constructor & Destructor
 // ============================================================================
@@ -28,7 +30,7 @@ TraceWriter::TraceWriter(const std::string& filename, int trace_mode, size_t buf
       trace_mode_(trace_mode),
       enabled_(true),
       zstd_ctx_(nullptr),
-      compression_level_(22) {  // Maximum compression level for best compression ratio
+      compression_level_(zstd_compression_level) {  // Use configurable compression level from env_config
 
   // Validate trace mode
   if (trace_mode < 0 || trace_mode > 2) {
