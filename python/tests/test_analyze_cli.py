@@ -244,5 +244,99 @@ class AnalyzeCommandGroupByTest(unittest.TestCase):
         self.assertNotIn("warp=1", result.output)
 
 
+class AnalyzeCommandCountTest(unittest.TestCase):
+    """Tests for --count and --top options."""
+
+    def setUp(self):
+        self.runner = CliRunner()
+        self.test_file = REG_TRACE_NDJSON
+
+    def test_analyze_count_by_warp(self):
+        """Test --group-by warp --count shows record counts."""
+        result = self.runner.invoke(
+            main, ["analyze", str(self.test_file), "--group-by", "warp", "--count"]
+        )
+        self.assertEqual(result.exit_code, 0)
+        # Should have WARP and COUNT headers
+        self.assertIn("WARP", result.output)
+        self.assertIn("COUNT", result.output)
+        # Should have numeric counts
+        lines = result.output.strip().split("\n")
+        self.assertGreater(len(lines), 1)  # Header + at least 1 data row
+
+    def test_analyze_count_by_sass(self):
+        """Test --group-by sass --count for instruction frequency."""
+        result = self.runner.invoke(
+            main, ["analyze", str(self.test_file), "--group-by", "sass", "--count"]
+        )
+        self.assertEqual(result.exit_code, 0)
+        # Should have SASS and COUNT headers
+        self.assertIn("SASS", result.output)
+        self.assertIn("COUNT", result.output)
+
+    def test_analyze_count_top(self):
+        """Test --count --top N shows only top N groups."""
+        result = self.runner.invoke(
+            main, ["analyze", str(self.test_file), "--group-by", "warp", "--count", "--top", "3"]
+        )
+        self.assertEqual(result.exit_code, 0)
+        lines = result.output.strip().split("\n")
+        # Should have header + exactly 3 data rows
+        self.assertEqual(len(lines), 4)  # 1 header + 3 data rows
+
+    def test_analyze_count_json_format(self):
+        """Test --count with --format json."""
+        result = self.runner.invoke(
+            main,
+            ["analyze", str(self.test_file), "--group-by", "warp", "--count", "--format", "json"],
+        )
+        self.assertEqual(result.exit_code, 0)
+        # Should be valid JSON with group -> count mapping
+        data = json.loads(result.output)
+        self.assertIsInstance(data, dict)
+        # Values should be integers (counts)
+        for key, value in data.items():
+            self.assertIsInstance(value, int)
+
+    def test_analyze_count_csv_format(self):
+        """Test --count with --format csv."""
+        result = self.runner.invoke(
+            main,
+            ["analyze", str(self.test_file), "--group-by", "warp", "--count", "--format", "csv"],
+        )
+        self.assertEqual(result.exit_code, 0)
+        lines = result.output.strip().split("\n")
+        # First line is header
+        self.assertIn("warp", lines[0])
+        self.assertIn("count", lines[0])
+
+    def test_analyze_count_no_header(self):
+        """Test --count with --no-header."""
+        result = self.runner.invoke(
+            main,
+            ["analyze", str(self.test_file), "--group-by", "warp", "--count", "--no-header"],
+        )
+        self.assertEqual(result.exit_code, 0)
+        # Should not have WARP or COUNT header text
+        self.assertNotIn("WARP", result.output)
+        self.assertNotIn("COUNT", result.output)
+
+    def test_analyze_count_requires_group_by(self):
+        """Test --count without --group-by raises error."""
+        result = self.runner.invoke(
+            main, ["analyze", str(self.test_file), "--count"]
+        )
+        self.assertNotEqual(result.exit_code, 0)
+        self.assertIn("--count requires --group-by", result.output)
+
+    def test_analyze_top_requires_count(self):
+        """Test --top without --count raises error."""
+        result = self.runner.invoke(
+            main, ["analyze", str(self.test_file), "--group-by", "warp", "--top", "5"]
+        )
+        self.assertNotEqual(result.exit_code, 0)
+        self.assertIn("--top requires --count", result.output)
+
+
 if __name__ == "__main__":
     unittest.main()

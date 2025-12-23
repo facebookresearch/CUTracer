@@ -216,6 +216,17 @@ def _format_records_csv(records: list[dict], fields: list[str], show_header: boo
     help="Group by field (e.g., 'warp', 'cta', 'sass').",
 )
 @click.option(
+    "--count",
+    is_flag=True,
+    help="Show record count per group (requires --group-by).",
+)
+@click.option(
+    "--top",
+    type=int,
+    default=None,
+    help="Show only top N groups by count (requires --group-by --count).",
+)
+@click.option(
     "--format",
     "-f",
     "output_format",
@@ -236,6 +247,8 @@ def analyze_command(
     filter_expr: Optional[str],
     fields: Optional[str],
     group_by: Optional[str],
+    count: bool,
+    top: Optional[int],
     output_format: str,
     no_header: bool,
 ) -> None:
@@ -251,8 +264,16 @@ def analyze_command(
       cutraceross analyze trace.ndjson --tail 5     # Show last 5 records
       cutraceross analyze trace.ndjson --filter "warp=24"
       cutraceross analyze trace.ndjson --group-by warp --tail 10
+      cutraceross analyze trace.ndjson --group-by warp --count
+      cutraceross analyze trace.ndjson --group-by sass --count --top 20
       cutraceross analyze trace.ndjson --format json
     """
+    # Validate option combinations
+    if count and not group_by:
+        raise click.ClickException("--count requires --group-by")
+    if top is not None and not count:
+        raise click.ClickException("--top requires --count")
+
     reader = TraceReader(file)
 
     # Get iterator (lazy - does not load all records)
@@ -274,15 +295,18 @@ def analyze_command(
     if group_by:
         grouper = StreamingGrouper(records_iter, group_by)
 
-        if tail is not None:
+        if count:
+            # Count mode - show record count per group
+            counts = grouper.count_per_group()
+            _output_counts(counts, group_by, top, output_format, not no_header)
+        elif tail is not None:
             # Get last N records per group
             groups = grouper.tail_per_group(tail)
+            _output_groups(groups, group_by, field_list, output_format, not no_header)
         else:
             # Get first N records per group (default: 10)
             groups = grouper.head_per_group(head)
-
-        # Output grouped results
-        _output_groups(groups, group_by, field_list, output_format, not no_header)
+            _output_groups(groups, group_by, field_list, output_format, not no_header)
     else:
         # Simple view mode - streaming
         records = _apply_record_selection_streaming(records_iter, head=head, tail=tail)
@@ -356,3 +380,51 @@ def _output_groups(
 
             click.echo(output)
             first_group = False
+
+
+def _output_counts(
+    counts: dict,
+    group_field: str,
+    top_n: Optional[int],
+    output_format: str,
+    show_header: bool,
+) -> None:
+    """
+    Output record counts per group.
+
+    Args:
+        counts: Dict mapping group key to count
+        group_field: Name of the field used for grouping
+        top_n: Only show top N groups by count (None for all)
+        output_format: Output format (table, json, csv)
+        show_header: Whether to show headers
+    """
+    if not counts:
+        click.echo("No records found.")
+        return
+
+    # Sort by count (descending), then by key (ascending) for stability
+    sorted_counts = sorted(counts.items(), key=lambda x: (-x[1], str(x[0])))
+
+    # Apply top N filter if specified
+    if top_n is not None and top_n > 0:
+        sorted_counts = sorted_counts[:top_n]
+
+    if output_format == "json":
+        # JSON output: object with group key -> count
+        output_data = {str(k): v for k, v in sorted_counts}
+        click.echo(json.dumps(output_data, indent=2))
+    elif output_format == "csv":
+        # CSV output
+        output = io.StringIO()
+        writer = csv.writer(output)
+        if show_header:
+            writer.writerow([group_field, "count"])
+        for key, count in sorted_counts:
+            writer.writerow([key, count])
+        click.echo(output.getvalue().rstrip("\n"))
+    else:
+        # Table output
+        table_data = [[key, count] for key, count in sorted_counts]
+        headers = [group_field.upper(), "COUNT"] if show_header else []
+        click.echo(tabulate(table_data, headers=headers, tablefmt="plain"))
