@@ -28,6 +28,9 @@ std::unordered_set<AnalysisType> enabled_analysis_types;
 // Trace format configuration variable
 int trace_format_ndjson;
 
+// Zstd compression level
+int zstd_compression_level;
+
 /**
  * @brief Parses a comma-separated string of kernel name filters for substring matching.
  *
@@ -224,6 +227,15 @@ void init_config_from_env() {
   if (trace_format_ndjson < 0 || trace_format_ndjson > 2) {
     printf("WARNING: Invalid TRACE_FORMAT_NDJSON=%d. Using default=0 (text).\n", trace_format_ndjson);
     trace_format_ndjson = 0;
+  }
+
+  // Zstd compression level (only used when trace_format_ndjson == 1)
+  get_var_int(zstd_compression_level, "CUTRACER_ZSTD_LEVEL", 22, "Zstd compression level (1-22, default 22)");
+
+  // Validate compression level range
+  if (zstd_compression_level < 1 || zstd_compression_level > 22) {
+    printf("WARNING: Invalid CUTRACER_ZSTD_LEVEL=%d. Using default=22.\n", zstd_compression_level);
+    zstd_compression_level = 22;
   }
 
   std::string pad(100, '-');

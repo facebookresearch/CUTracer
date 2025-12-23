@@ -72,3 +72,7 @@ void init_analysis(const std::string& analysis_str);
 // 1 = NDJSON+Zstd (compressed JSON)
 // 2 = NDJSON only (uncompressed JSON, good for debugging)
 extern int trace_format_ndjson;
+
+// Zstd compression level (1-22, higher = better compression but slower)
+// Default: 9 (good compression with reasonable speed)
+extern int zstd_compression_level;
