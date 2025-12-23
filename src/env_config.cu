@@ -230,12 +230,12 @@ void init_config_from_env() {
   }
 
   // Zstd compression level (only used when trace_format_ndjson == 1)
-  get_var_int(zstd_compression_level, "CUTRACER_ZSTD_LEVEL", 9, "Zstd compression level (1-22, default 9)");
+  get_var_int(zstd_compression_level, "CUTRACER_ZSTD_LEVEL", 22, "Zstd compression level (1-22, default 22)");
 
   // Validate compression level range
   if (zstd_compression_level < 1 || zstd_compression_level > 22) {
-    printf("WARNING: Invalid CUTRACER_ZSTD_LEVEL=%d. Using default=9.\n", zstd_compression_level);
-    zstd_compression_level = 9;
+    printf("WARNING: Invalid CUTRACER_ZSTD_LEVEL=%d. Using default=22.\n", zstd_compression_level);
+    zstd_compression_level = 22;
   }
 
   std::string pad(100, '-');

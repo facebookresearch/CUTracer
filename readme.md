@@ -83,10 +83,10 @@ CUDA_INJECTION64_PATH=~/CUTracer/lib/cutracer.so \
     -   **1** (default): NDJSON+Zstd compressed (`.ndjson.zst`, ~12x compression, 92% space savings)
     -   0: Plain text (`.log`, legacy format, verbose)
     -   2: NDJSON uncompressed (`.ndjson`, for debugging)
--   `CUTRACER_ZSTD_LEVEL`: Zstd compression level (1-22, default 9)
+-   `CUTRACER_ZSTD_LEVEL`: Zstd compression level (1-22, default 22)
     -   Lower values (1-3): Faster compression, slightly larger output
     -   Higher values (19-22): Maximum compression, slower but smallest output
-    -   Default of 9 provides good compression with reasonable speed
+    -   Default of 22 provides maximum compression for smallest output
 
 Note: The tool sets `CUDA_MANAGED_FORCE_DEVICE_ALLOC=1` to simplify channel memory handling.
 

@@ -159,7 +159,7 @@ class TraceWriter {
   // ========== Mode 1 (Zstd compression) support ==========
   ZSTD_CCtx* zstd_ctx_;                  // Zstd compression context
   std::vector<char> compressed_buffer_;  // Pre-allocated compression output buffer
-  int compression_level_;                // Zstd compression level (1-22, default 9)
+  int compression_level_;                // Zstd compression level (1-22, default 22)
 
  public:
   /**
