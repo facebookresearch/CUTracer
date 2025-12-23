@@ -7,8 +7,9 @@ This module provides the TraceReader class for reading and iterating
 over trace records from NDJSON files (plain or Zstd-compressed).
 """
 
-import json
 from pathlib import Path
+
+import orjson
 from typing import Any, Callable, Iterator, Optional, Union
 
 from cutracer.validation.compression import detect_compression, open_trace_file
@@ -108,4 +109,4 @@ class TraceReader:
                 line = line.strip()
                 if not line:
                     continue
-                yield json.loads(line)
+                yield orjson.loads(line)

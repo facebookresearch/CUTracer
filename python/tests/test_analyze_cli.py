@@ -192,5 +192,57 @@ class AnalyzeInHelpTest(unittest.TestCase):
         self.assertIn("analyze", result.output)
 
 
+class AnalyzeCommandGroupByTest(unittest.TestCase):
+    """Tests for --group-by option."""
+
+    def setUp(self):
+        self.runner = CliRunner()
+        self.test_file = REG_TRACE_NDJSON
+
+    def test_analyze_group_by_warp_tail(self):
+        """Test --group-by warp --tail option (core use case)."""
+        result = self.runner.invoke(
+            main, ["analyze", str(self.test_file), "--group-by", "warp", "--tail", "2"]
+        )
+        self.assertEqual(result.exit_code, 0)
+        # Should have group headers
+        self.assertIn("warp=", result.output)
+        self.assertIn("records", result.output)
+
+    def test_analyze_group_by_warp_head(self):
+        """Test --group-by warp --head option."""
+        result = self.runner.invoke(
+            main, ["analyze", str(self.test_file), "--group-by", "warp", "-n", "2"]
+        )
+        self.assertEqual(result.exit_code, 0)
+        # Should have group headers
+        self.assertIn("warp=", result.output)
+
+    def test_analyze_group_by_json_format(self):
+        """Test --group-by with --format json."""
+        result = self.runner.invoke(
+            main,
+            ["analyze", str(self.test_file), "--group-by", "warp", "--tail", "2", "--format", "json"],
+        )
+        self.assertEqual(result.exit_code, 0)
+        # Should be valid JSON with group keys
+        data = json.loads(result.output)
+        self.assertIsInstance(data, dict)
+        # Keys should be warp values (as strings)
+        self.assertTrue(len(data) > 0)
+
+    def test_analyze_group_by_with_filter(self):
+        """Test --group-by combined with --filter."""
+        result = self.runner.invoke(
+            main,
+            ["analyze", str(self.test_file), "--filter", "warp=0", "--group-by", "warp", "--tail", "5"],
+        )
+        self.assertEqual(result.exit_code, 0)
+        # Should only have warp=0 group
+        self.assertIn("warp=0", result.output)
+        # Should not have other warps
+        self.assertNotIn("warp=1", result.output)
+
+
 if __name__ == "__main__":
     unittest.main()

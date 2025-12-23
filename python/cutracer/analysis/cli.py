@@ -17,6 +17,7 @@ from typing import Iterator, Optional
 import click
 from tabulate import tabulate
 
+from cutracer.analysis.grouper import StreamingGrouper
 from cutracer.analysis.reader import parse_filter_expr, TraceReader
 
 
@@ -208,6 +209,13 @@ def _format_records_csv(records: list[dict], fields: list[str], show_header: boo
     help="Fields to display (comma-separated). Default: warp,pc,sass",
 )
 @click.option(
+    "--group-by",
+    "-g",
+    type=str,
+    default=None,
+    help="Group by field (e.g., 'warp', 'cta', 'sass').",
+)
+@click.option(
     "--format",
     "-f",
     "output_format",
@@ -227,6 +235,7 @@ def analyze_command(
     tail: Optional[int],
     filter_expr: Optional[str],
     fields: Optional[str],
+    group_by: Optional[str],
     output_format: str,
     no_header: bool,
 ) -> None:
@@ -241,8 +250,8 @@ def analyze_command(
       cutraceross analyze trace.ndjson -n 20        # Show first 20 records
       cutraceross analyze trace.ndjson --tail 5     # Show last 5 records
       cutraceross analyze trace.ndjson --filter "warp=24"
+      cutraceross analyze trace.ndjson --group-by warp --tail 10
       cutraceross analyze trace.ndjson --format json
-      cutraceross analyze trace.ndjson --format csv > output.csv
     """
     reader = TraceReader(file)
 
@@ -258,20 +267,92 @@ def analyze_command(
         except ValueError as e:
             raise click.ClickException(str(e))
 
-    # Apply record selection using streaming (memory-efficient)
-    # - head: uses islice to stop early
-    # - tail: uses deque to keep only last N records
-    records = _apply_record_selection_streaming(records_iter, head=head, tail=tail)
-
     # Determine fields to display
-    display_fields = _get_display_fields(records, fields)
+    field_list = [f.strip() for f in fields.split(",")] if fields else None
 
-    # Format and output based on format option
+    # Group mode
+    if group_by:
+        grouper = StreamingGrouper(records_iter, group_by)
+
+        if tail is not None:
+            # Get last N records per group
+            groups = grouper.tail_per_group(tail)
+        else:
+            # Get first N records per group (default: 10)
+            groups = grouper.head_per_group(head)
+
+        # Output grouped results
+        _output_groups(groups, group_by, field_list, output_format, not no_header)
+    else:
+        # Simple view mode - streaming
+        records = _apply_record_selection_streaming(records_iter, head=head, tail=tail)
+
+        # Determine fields from first record if not specified
+        display_fields = _get_display_fields(records, fields)
+
+        # Format and output based on format option
+        if output_format == "json":
+            output = _format_records_json(records, display_fields)
+        elif output_format == "csv":
+            output = _format_records_csv(records, display_fields, show_header=not no_header)
+        else:  # table
+            output = _format_records_table(records, display_fields, show_header=not no_header)
+
+        click.echo(output)
+
+
+def _output_groups(
+    groups: dict,
+    group_field: str,
+    field_list: Optional[list[str]],
+    output_format: str,
+    show_header: bool,
+) -> None:
+    """
+    Output grouped records.
+
+    Args:
+        groups: Dict mapping group key to list of records
+        group_field: Name of the field used for grouping
+        field_list: List of fields to display (or None for defaults)
+        output_format: Output format (table, json, csv)
+        show_header: Whether to show headers
+    """
+    if not groups:
+        click.echo("No records found.")
+        return
+
     if output_format == "json":
-        output = _format_records_json(records, display_fields)
-    elif output_format == "csv":
-        output = _format_records_csv(records, display_fields, show_header=not no_header)
-    else:  # table
-        output = _format_records_table(records, display_fields, show_header=not no_header)
+        # JSON output: nested structure
+        output_data = {}
+        for key, records in sorted(groups.items(), key=lambda x: str(x[0])):
+            key_str = str(key) if not isinstance(key, str) else key
+            # Filter fields if specified
+            if field_list:
+                records = [{f: r.get(f) for f in field_list if f in r} for r in records]
+            output_data[key_str] = records
+        click.echo(json.dumps(output_data, indent=2))
+    else:
+        # Table or CSV output: show each group with header
+        first_group = True
+        for key, records in sorted(groups.items(), key=lambda x: str(x[0])):
+            if not records:
+                continue
 
-    click.echo(output)
+            # Determine fields for this group
+            display_fields = field_list if field_list else _get_display_fields(records, None)
+
+            # Group header
+            if output_format == "table":
+                if not first_group:
+                    click.echo()  # Blank line between groups
+                click.echo(f"=== {group_field}={key} ({len(records)} records) ===")
+
+            # Format records
+            if output_format == "csv":
+                output = _format_records_csv(records, display_fields, show_header=show_header and first_group)
+            else:  # table
+                output = _format_records_table(records, display_fields, show_header=show_header)
+
+            click.echo(output)
+            first_group = False
