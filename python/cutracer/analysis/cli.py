@@ -9,8 +9,10 @@ This module provides command-line interface for analyzing CUTracer trace files.
 import csv
 import io
 import json
+from collections import deque
+from itertools import islice
 from pathlib import Path
-from typing import Optional
+from typing import Iterator, Optional
 
 import click
 from tabulate import tabulate
@@ -29,31 +31,44 @@ def _format_value(value) -> str:
     return str(value)
 
 
-def _apply_record_selection(
-    records: list[dict],
+def _apply_record_selection_streaming(
+    records: Iterator[dict],
     head: Optional[int] = None,
     tail: Optional[int] = None,
 ) -> list[dict]:
     """
-    Apply record selection based on options.
+    Apply record selection using streaming (memory-efficient).
 
-    Currently supports head and tail. Designed for future extension
-    with options like --range, --skip, etc.
+    This function processes records in a streaming fashion:
+    - For --head: Uses itertools.islice to stop early after N records
+    - For --tail: Uses collections.deque(maxlen=N) to keep only last N records
+
+    Memory complexity:
+    - --head N: O(N) - only stores N records
+    - --tail N: O(N) - deque automatically discards older records
 
     Args:
-        records: All trace records
+        records: Iterator of trace records (not a list!)
         head: Number of records from the beginning (default: 10)
         tail: Number of records from the end (overrides head)
 
     Returns:
-        Selected subset of records
+        Selected subset of records as a list
     """
     if tail is not None:
-        return records[-tail:] if tail > 0 else []
+        if tail <= 0:
+            return []
+        # deque with maxlen automatically discards oldest items
+        # Memory: O(tail) regardless of total record count
+        return list(deque(records, maxlen=tail))
 
     # Default head to 10 if not specified
     head = head if head is not None else 10
-    return records[:head] if head > 0 else []
+    if head <= 0:
+        return []
+    # islice stops iteration after head items - no need to read entire file
+    # Memory: O(head) regardless of total record count
+    return list(islice(records, head))
 
 
 def _get_display_fields(records: list[dict], requested_fields: Optional[str]) -> list[str]:
@@ -231,19 +246,22 @@ def analyze_command(
     """
     reader = TraceReader(file)
 
-    # Read all records
-    records = list(reader.iter_records())
+    # Get iterator (lazy - does not load all records)
+    records_iter = reader.iter_records()
 
-    # Apply filter if specified
+    # Apply filter if specified (still streaming)
     if filter_expr:
         try:
             predicate = parse_filter_expr(filter_expr)
-            records = [r for r in records if predicate(r)]
+            # Generator expression - maintains streaming
+            records_iter = (r for r in records_iter if predicate(r))
         except ValueError as e:
             raise click.ClickException(str(e))
 
-    # Apply record selection (head/tail)
-    records = _apply_record_selection(records, head=head, tail=tail)
+    # Apply record selection using streaming (memory-efficient)
+    # - head: uses islice to stop early
+    # - tail: uses deque to keep only last N records
+    records = _apply_record_selection_streaming(records_iter, head=head, tail=tail)
 
     # Determine fields to display
     display_fields = _get_display_fields(records, fields)
