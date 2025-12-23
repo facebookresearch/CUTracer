@@ -9,9 +9,53 @@ over trace records from NDJSON files (plain or Zstd-compressed).
 
 import json
 from pathlib import Path
-from typing import Iterator, Union
+from typing import Any, Callable, Iterator, Optional, Union
 
 from cutracer.validation.compression import detect_compression, open_trace_file
+
+
+def parse_filter_expr(filter_expr: str) -> Callable[[dict], bool]:
+    """
+    Parse a filter expression and return a predicate function.
+
+    Supports simple equality filters like "field=value".
+    Values are automatically converted to int if possible.
+
+    Args:
+        filter_expr: Filter expression (e.g., "warp=24", "type=mem_trace")
+
+    Returns:
+        Predicate function that takes a record and returns bool
+
+    Raises:
+        ValueError: If the filter expression is invalid
+
+    Examples:
+        >>> pred = parse_filter_expr("warp=24")
+        >>> pred({"warp": 24})
+        True
+        >>> pred({"warp": 25})
+        False
+    """
+    if "=" not in filter_expr:
+        raise ValueError(
+            f"Invalid filter expression: '{filter_expr}'. Expected format: 'field=value'"
+        )
+
+    field, value = filter_expr.split("=", 1)
+    field = field.strip()
+    value = value.strip()
+
+    if not field:
+        raise ValueError("Filter field name cannot be empty")
+
+    # Try to convert value to int
+    try:
+        converted_value: Any = int(value)
+    except ValueError:
+        converted_value = value
+
+    return lambda record: record.get(field) == converted_value
 
 
 class TraceReader:

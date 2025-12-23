@@ -1,13 +1,13 @@
 # Copyright (c) Meta Platforms, Inc. and affiliates.
 
 """
-Unit tests for TraceReader class.
+Unit tests for TraceReader class and filter expression parsing.
 """
 
 import json
 import unittest
 
-from cutracer.analysis import TraceReader
+from cutracer.analysis import parse_filter_expr, TraceReader
 from tests.test_base import (
     BaseValidationTest,
     REG_TRACE_NDJSON,
@@ -15,6 +15,45 @@ from tests.test_base import (
     REG_TRACE_NDJSON_ZST,
     REG_TRACE_NDJSON_ZST_RECORD_COUNT,
 )
+
+
+class TestParseFilterExpr(unittest.TestCase):
+    """Tests for parse_filter_expr function."""
+
+    def test_parse_filter_int_value(self):
+        """Test parsing filter with integer value."""
+        pred = parse_filter_expr("warp=24")
+        self.assertTrue(pred({"warp": 24}))
+        self.assertFalse(pred({"warp": 25}))
+        self.assertFalse(pred({"warp": "24"}))  # String vs int
+
+    def test_parse_filter_string_value(self):
+        """Test parsing filter with string value."""
+        pred = parse_filter_expr("type=mem_trace")
+        self.assertTrue(pred({"type": "mem_trace"}))
+        self.assertFalse(pred({"type": "reg_trace"}))
+
+    def test_parse_filter_missing_field(self):
+        """Test filter returns False for missing field."""
+        pred = parse_filter_expr("warp=0")
+        self.assertFalse(pred({"type": "reg_trace"}))
+
+    def test_parse_filter_with_spaces(self):
+        """Test filter with spaces around = is handled."""
+        pred = parse_filter_expr(" warp = 24 ")
+        self.assertTrue(pred({"warp": 24}))
+
+    def test_parse_filter_invalid_no_equals(self):
+        """Test that filter without = raises ValueError."""
+        with self.assertRaises(ValueError) as ctx:
+            parse_filter_expr("warp")
+        self.assertIn("Invalid filter expression", str(ctx.exception))
+
+    def test_parse_filter_invalid_empty_field(self):
+        """Test that filter with empty field raises ValueError."""
+        with self.assertRaises(ValueError) as ctx:
+            parse_filter_expr("=24")
+        self.assertIn("empty", str(ctx.exception))
 
 
 class TestTraceReaderInit(BaseValidationTest):

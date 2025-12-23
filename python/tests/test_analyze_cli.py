@@ -2,6 +2,7 @@
 
 """Tests for analyze CLI command."""
 
+import json
 import unittest
 
 from click.testing import CliRunner
@@ -34,7 +35,8 @@ class AnalyzeCommandBasicTest(unittest.TestCase):
         self.assertEqual(result.exit_code, 0)
         self.assertIn("--head", result.output)
         self.assertIn("--tail", result.output)
-        self.assertIn("--fields", result.output)
+        self.assertIn("--filter", result.output)
+        self.assertIn("--format", result.output)
 
     def test_analyze_file_not_found(self):
         """Test error handling for non-existent file."""
@@ -62,6 +64,43 @@ class AnalyzeCommandHeadTailTest(unittest.TestCase):
         self.assertEqual(result.exit_code, 0)
         lines = [line for line in result.output.strip().split("\n") if line.strip()]
         self.assertEqual(len(lines), 6)  # 1 header + 5 records
+
+
+class AnalyzeCommandFilterTest(unittest.TestCase):
+    """Tests for --filter option."""
+
+    def setUp(self):
+        self.runner = CliRunner()
+        self.test_file = REG_TRACE_NDJSON
+
+    def test_analyze_filter_warp(self):
+        """Test --filter option filters by warp."""
+        result = self.runner.invoke(
+            main, ["analyze", str(self.test_file), "--filter", "warp=0", "-n", "100"]
+        )
+        self.assertEqual(result.exit_code, 0)
+        # All output records should have warp=0
+        lines = result.output.strip().split("\n")
+        # Skip header, check data lines start with warp 0
+        for line in lines[1:]:
+            if line.strip():
+                self.assertTrue(line.strip().startswith("0"))
+
+    def test_analyze_filter_no_match(self):
+        """Test --filter with no matching records."""
+        result = self.runner.invoke(
+            main, ["analyze", str(self.test_file), "--filter", "warp=99999"]
+        )
+        self.assertEqual(result.exit_code, 0)
+        self.assertIn("No records found", result.output)
+
+    def test_analyze_filter_invalid(self):
+        """Test --filter with invalid expression."""
+        result = self.runner.invoke(
+            main, ["analyze", str(self.test_file), "--filter", "invalid"]
+        )
+        self.assertNotEqual(result.exit_code, 0)
+        self.assertIn("Invalid filter expression", result.output)
 
 
 class AnalyzeCommandFieldsTest(unittest.TestCase):
@@ -98,6 +137,30 @@ class AnalyzeCommandFormatTest(unittest.TestCase):
     def setUp(self):
         self.runner = CliRunner()
         self.test_file = REG_TRACE_NDJSON
+
+    def test_analyze_format_json(self):
+        """Test --format json output."""
+        result = self.runner.invoke(
+            main, ["analyze", str(self.test_file), "-n", "2", "--format", "json"]
+        )
+        self.assertEqual(result.exit_code, 0)
+        # Should be valid JSON
+        data = json.loads(result.output)
+        self.assertIsInstance(data, list)
+        self.assertEqual(len(data), 2)
+        self.assertIn("warp", data[0])
+
+    def test_analyze_format_csv(self):
+        """Test --format csv output."""
+        result = self.runner.invoke(
+            main, ["analyze", str(self.test_file), "-n", "2", "--format", "csv"]
+        )
+        self.assertEqual(result.exit_code, 0)
+        lines = result.output.strip().split("\n")
+        # First line is header
+        self.assertIn("warp", lines[0])
+        # Should have header + 2 data rows
+        self.assertEqual(len(lines), 3)
 
     def test_analyze_no_header(self):
         """Test --no-header option."""
