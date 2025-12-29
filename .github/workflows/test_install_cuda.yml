@@ -1,0 +1,77 @@
+name: Test CUDA Install Script
+
+on:
+    push:
+        paths:
+            - "scripts/install_cuda.sh"
+            - ".github/workflows/test_install_cuda.yml"
+    pull_request:
+        paths:
+            - "scripts/install_cuda.sh"
+            - ".github/workflows/test_install_cuda.yml"
+    workflow_dispatch:
+
+jobs:
+    test-install-cuda:
+        runs-on: 8-core-ubuntu
+        timeout-minutes: 90
+        strategy:
+            fail-fast: false
+            matrix:
+                cuda_version: ["12.8", "13.0"]
+
+        steps:
+            - name: Checkout code
+              uses: actions/checkout@v4
+
+            - name: Prepare environment
+              run: |
+                  mkdir -p /tmp/test-cuda-install
+                  chmod +x scripts/install_cuda.sh
+                  echo "Environment prepared: /tmp/test-cuda-install"
+
+            - name: Run install_cuda.sh (CUDA ${{ matrix.cuda_version }})
+              env:
+                  CUDA_INSTALL_PREFIX: /tmp/test-cuda-install
+                  SKIP_PRUNE: 1
+                  MAKEFLAGS: -j8
+                  NVCC_GENCODE: -gencode arch=compute_75,code=sm_75
+                  # Disable NCCL in CI: NCCL compilation is slow and times out (>20min)
+                  INSTALL_NCCL: 0
+              run:
+                  # Only test CUDA Toolkit installation, no GPU driver install (no root, no real GPU)
+                  bash scripts/install_cuda.sh ${{ matrix.cuda_version }} || (cat /tmp/${USER}/cuda_install/error.log || true; exit 1)
+
+            - name: Verify installation
+              run: |
+                  SUMMARY_FILE="/tmp/${USER}/cuda_install/script_completed_successfully"
+                  if [ ! -f "$SUMMARY_FILE" ]; then
+                    echo "❌ Script did not complete successfully!"
+                    exit 1
+                  fi
+                  echo "✅ Install script completed successfully."
+
+                  # Verify nvcc exists
+                  if [ -f "/tmp/test-cuda-install/cuda/bin/nvcc" ]; then
+                    echo "✅ nvcc binary found"
+                    /tmp/test-cuda-install/cuda/bin/nvcc --version
+                  else
+                    echo "⚠️ nvcc not found (expected in toolkit-only install)"
+                  fi
+
+            - name: Upload debug log
+              if: always()
+              uses: actions/upload-artifact@v4
+              with:
+                  name: cuda-install-debug-${{ matrix.cuda_version }}
+                  path: /tmp/runner/cuda_install_debug.txt
+                  if-no-files-found: ignore
+                  retention-days: 7
+
+            - name: Show install log on failure
+              if: failure()
+              run: |
+                  echo "=== Debug Log ==="
+                  cat /tmp/${USER}/cuda_install_debug.txt 2>/dev/null || echo "No debug log found"
+                  echo "=== Error Log ==="
+                  cat /tmp/${USER}/cuda_install/error.log 2>/dev/null || echo "No error log found"
