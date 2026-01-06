@@ -28,8 +28,7 @@ class SchemaTest(unittest.TestCase):
 
     def test_schemas_are_valid_json_schema(self):
         """Test that all schemas are valid JSON Schema documents."""
-        for msg_type, schema in SCHEMAS_BY_TYPE.items():
-            # This will raise if schema is invalid
+        for schema in SCHEMAS_BY_TYPE.values():
             jsonschema.Draft7Validator.check_schema(schema)
 
     def test_real_reg_trace_record_passes(self):
