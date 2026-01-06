@@ -46,22 +46,50 @@ NVBIT_PATH=./third_party/nvbit/core
 INCLUDES=-I$(NVBIT_PATH) -I./$(INCLUDE_DIR) -I./third_party
 
 # Libraries
-# Dynamically find static zstd library for self-contained builds
-# Priority: 1) pkg-config, 2) common system paths
+# zstd linking strategy:
+#   - RHEL/CentOS/Fedora: static linking (their libzstd.a is PIC-compatible)
+#   - Ubuntu/Debian/others: dynamic linking (their libzstd.a lacks -fPIC)
+#   - Override with STATIC_ZSTD=1 or DYNAMIC_ZSTD=1
 # Note: -lpthread is required because zstd uses POSIX threads internally
-ZSTD_STATIC := $(shell pkg-config --variable=libdir libzstd 2>/dev/null)/libzstd.a
-ifeq ($(wildcard $(ZSTD_STATIC)),)
-    ZSTD_STATIC := $(shell for p in /usr/lib64 /usr/lib /usr/local/lib64 /usr/local/lib; do \
-        if [ -f "$$p/libzstd.a" ]; then echo "$$p/libzstd.a"; break; fi; done)
-endif
-ifeq ($(ZSTD_STATIC),)
-    $(warning WARNING: libzstd.a not found - falling back to dynamic linking.)
-    $(warning WARNING: The resulting binary will NOT be self-contained/portable.)
-    $(warning WARNING: Install static library with: dnf install libzstd-static (RHEL/Fedora) or apt install libzstd-dev (Ubuntu/Debian))
-    ZSTD_STATIC := -lzstd
+
+# Detect OS type from /etc/os-release
+OS_ID := $(shell . /etc/os-release 2>/dev/null && echo $$ID)
+OS_ID_LIKE := $(shell . /etc/os-release 2>/dev/null && echo $$ID_LIKE)
+IS_RHEL_LIKE := $(if $(or $(findstring rhel,$(OS_ID) $(OS_ID_LIKE)),\
+                          $(findstring centos,$(OS_ID)),\
+                          $(findstring fedora,$(OS_ID)),\
+                          $(findstring rocky,$(OS_ID)),\
+                          $(findstring almalinux,$(OS_ID))),1,)
+
+# Helper function to find static zstd library
+define find_static_zstd
+$(or $(wildcard $(shell pkg-config --variable=libdir libzstd 2>/dev/null)/libzstd.a),\
+     $(if $(filter-out libzstd.a,$(shell $(CC) -print-file-name=libzstd.a 2>/dev/null)),\
+          $(shell $(CC) -print-file-name=libzstd.a 2>/dev/null),))
+endef
+
+ifdef DYNAMIC_ZSTD
+    # User explicitly requested dynamic linking
+    ZSTD_LIB := -lzstd
+else ifdef STATIC_ZSTD
+    # User explicitly requested static linking
+    ZSTD_LIB := $(call find_static_zstd)
+    ifeq ($(ZSTD_LIB),)
+        $(error ERROR: libzstd.a not found. Install with: dnf install libzstd-static (RHEL/Fedora) or apt install libzstd-dev (Ubuntu/Debian))
+    endif
+else ifdef IS_RHEL_LIKE
+    # RHEL-like OS: default to static linking (their static lib is PIC-compatible)
+    ZSTD_LIB := $(call find_static_zstd)
+    ifeq ($(ZSTD_LIB),)
+        $(error ERROR: libzstd.a not found. Install with: dnf install libzstd-static)
+    endif
+else
+    # Other OS (Ubuntu, Debian, etc.): default to dynamic linking
+    # Their libzstd.a is not compiled with -fPIC, so it can't be linked into a .so
+    ZSTD_LIB := -lzstd
 endif
 
-LIBS=-L$(NVBIT_PATH) -lnvbit $(ZSTD_STATIC) -lpthread
+LIBS=-L$(NVBIT_PATH) -lnvbit $(ZSTD_LIB) -lpthread
 NVCC_PATH=-L $(subst bin/nvcc,lib64,$(shell which nvcc | tr -s /))
 
 # Identify inject_funcs.cu specifically
