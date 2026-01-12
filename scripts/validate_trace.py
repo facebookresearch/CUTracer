@@ -234,9 +234,9 @@ def main():
 
             if success:
                 size = filepath.stat().st_size
-                print(f"\n{'='*70}")
+                print(f"\n{'=' * 70}")
                 print(f"Validating Text Trace: {filepath.name}")
-                print(f"{'='*70}\n")
+                print(f"{'=' * 70}\n")
                 print("✓ Text trace validation passed")
                 print(f"ℹ File size: {format_size(size)}\n")
                 return 0
@@ -254,9 +254,9 @@ def main():
                 with open(filepath) as f:
                     record_count = sum(1 for line in f if line.strip())
 
-                print(f"\n{'='*70}")
+                print(f"\n{'=' * 70}")
                 print(f"Validating JSON Trace: {filepath.name}")
-                print(f"{'='*70}\n")
+                print(f"{'=' * 70}\n")
                 print("✓ JSON trace validation passed")
                 print(f"ℹ Record count: {record_count:,}")
                 print(f"ℹ File size: {format_size(size)}\n")
@@ -275,9 +275,9 @@ def main():
 
             success, error = compare_formats(text_file, json_file)
 
-            print(f"\n{'='*70}")
+            print(f"\n{'=' * 70}")
             print("Comparing Trace Formats")
-            print(f"{'='*70}\n")
+            print(f"{'=' * 70}\n")
             print(f"ℹ Text: {text_file.name}")
             print(f"ℹ JSON: {json_file.name}\n")
 
