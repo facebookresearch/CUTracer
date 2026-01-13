@@ -10,6 +10,7 @@ import sys
 from importlib.metadata import PackageNotFoundError, version
 
 import click
+from cutracer.analysis.cli import analyze_command
 from cutracer.validation.cli import validate_command
 
 
@@ -37,6 +38,7 @@ def main() -> None:
 
 
 # Register subcommands
+main.add_command(analyze_command)
 main.add_command(validate_command)
 
 
