@@ -267,6 +267,104 @@ class TestAnalyzeCommand(BaseValidationTest):
         self.assertEqual(result.exit_code, 0)
         self.assertIn("=== Group:", result.output)
 
+    def test_analyze_count_requires_group_by(self):
+        """Test that --count requires --group-by."""
+        result = self.runner.invoke(main, ["analyze", str(REG_TRACE_NDJSON), "--count"])
+        self.assertNotEqual(result.exit_code, 0)
+        self.assertIn("--count requires --group-by", result.output)
+
+    def test_analyze_top_requires_count(self):
+        """Test that --top requires --count."""
+        result = self.runner.invoke(
+            main,
+            ["analyze", str(REG_TRACE_NDJSON), "--group-by", "warp", "--top", "5"],
+        )
+        self.assertNotEqual(result.exit_code, 0)
+        self.assertIn("--top requires --count", result.output)
+
+    def test_analyze_count_basic(self):
+        """Test analyze with --group-by and --count."""
+        result = self.runner.invoke(
+            main,
+            ["analyze", str(REG_TRACE_NDJSON), "--group-by", "warp", "--count"],
+        )
+        self.assertEqual(result.exit_code, 0)
+        self.assertIn("WARP", result.output)
+        self.assertIn("COUNT", result.output)
+
+    def test_analyze_count_top(self):
+        """Test analyze with --count --top."""
+        result = self.runner.invoke(
+            main,
+            [
+                "analyze",
+                str(REG_TRACE_NDJSON),
+                "--group-by",
+                "warp",
+                "--count",
+                "--top",
+                "3",
+            ],
+        )
+        self.assertEqual(result.exit_code, 0)
+        lines = [line for line in result.output.strip().split("\n") if line]
+        self.assertEqual(len(lines), 4)  # header + 3 data rows
+
+    def test_analyze_count_json_format(self):
+        """Test analyze --count with JSON format."""
+        result = self.runner.invoke(
+            main,
+            [
+                "analyze",
+                str(REG_TRACE_NDJSON),
+                "--group-by",
+                "warp",
+                "--count",
+                "--format",
+                "json",
+            ],
+        )
+        self.assertEqual(result.exit_code, 0)
+        import json
+
+        data = json.loads(result.output)
+        self.assertIsInstance(data, dict)
+
+    def test_analyze_count_csv_format(self):
+        """Test analyze --count with CSV format."""
+        result = self.runner.invoke(
+            main,
+            [
+                "analyze",
+                str(REG_TRACE_NDJSON),
+                "--group-by",
+                "warp",
+                "--count",
+                "--format",
+                "csv",
+            ],
+        )
+        self.assertEqual(result.exit_code, 0)
+        self.assertIn("warp,count", result.output)
+
+    def test_analyze_count_no_header(self):
+        """Test analyze --count with --no-header."""
+        result = self.runner.invoke(
+            main,
+            [
+                "analyze",
+                str(REG_TRACE_NDJSON),
+                "--group-by",
+                "warp",
+                "--count",
+                "--no-header",
+            ],
+        )
+        self.assertEqual(result.exit_code, 0)
+        # Should not contain header row
+        self.assertNotIn("WARP", result.output)
+        self.assertNotIn("COUNT", result.output)
+
 
 if __name__ == "__main__":
     unittest.main()
