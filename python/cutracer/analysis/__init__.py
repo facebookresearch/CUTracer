@@ -9,6 +9,7 @@ Provides analysis utilities for trace files:
 - select_records: Memory-efficient record selection
 - StreamingGrouper: Memory-efficient grouped analysis
 - Formatters: Output formatting for table/json/csv
+- WarpSummary: Warp execution status summary for GPU hang analysis
 """
 
 from .formatters import (
@@ -21,6 +22,15 @@ from .formatters import (
 )
 from .grouper import StreamingGrouper
 from .reader import parse_filter_expr, select_records, TraceReader
+from .warp_summary import (
+    compute_warp_summary,
+    format_ranges,
+    format_warp_summary_text,
+    is_exit_instruction,
+    merge_to_ranges,
+    warp_summary_to_dict,
+    WarpSummary,
+)
 
 __all__ = [
     "TraceReader",
@@ -35,4 +45,12 @@ __all__ = [
     "format_records_table",
     "format_records_json",
     "format_records_csv",
+    # Warp Summary
+    "WarpSummary",
+    "is_exit_instruction",
+    "merge_to_ranges",
+    "format_ranges",
+    "compute_warp_summary",
+    "format_warp_summary_text",
+    "warp_summary_to_dict",
 ]
