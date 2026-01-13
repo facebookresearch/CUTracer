@@ -10,7 +10,12 @@ from pathlib import Path
 from typing import Optional
 
 import click
-from cutracer.analysis.formatters import format_records_table, get_display_fields
+from cutracer.analysis.formatters import (
+    format_records_csv,
+    format_records_json,
+    format_records_table,
+    get_display_fields,
+)
 from cutracer.analysis.reader import parse_filter_expr, select_records, TraceReader
 
 
@@ -39,11 +44,35 @@ from cutracer.analysis.reader import parse_filter_expr, select_records, TraceRea
     default=None,
     help="Filter expression (e.g., 'warp=24').",
 )
+@click.option(
+    "--format",
+    "-o",
+    "output_format",
+    type=click.Choice(["table", "json", "csv"]),
+    default="table",
+    show_default=True,
+    help="Output format.",
+)
+@click.option(
+    "--fields",
+    type=str,
+    default=None,
+    help="Comma-separated list of fields to display (e.g., 'warp,pc,sass').",
+)
+@click.option(
+    "--no-header",
+    is_flag=True,
+    default=False,
+    help="Hide the table/CSV header row.",
+)
 def analyze_command(
     file: Path,
     head: int,
     tail: Optional[int],
     filter_expr: Optional[str],
+    output_format: str,
+    fields: Optional[str],
+    no_header: bool,
 ) -> None:
     """
     Analyze trace data from FILE.
@@ -79,8 +108,16 @@ def analyze_command(
     selected = select_records(records, head=head, tail=tail)
 
     # Determine fields to display
-    fields = get_display_fields(selected)
+    display_fields = get_display_fields(selected, fields)
 
-    # Format and output
-    output = format_records_table(selected, fields)
+    # Format output based on format option
+    if output_format == "json":
+        output = format_records_json(selected, display_fields)
+    elif output_format == "csv":
+        output = format_records_csv(selected, display_fields, show_header=not no_header)
+    else:  # table
+        output = format_records_table(
+            selected, display_fields, show_header=not no_header
+        )
+
     click.echo(output)

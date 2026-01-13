@@ -100,6 +100,86 @@ class TestAnalyzeCommand(BaseValidationTest):
         )
         self.assertEqual(result.exit_code, 0)
 
+    def test_analyze_format_json(self):
+        """Test analyze with JSON output format."""
+        result = self.runner.invoke(
+            main, ["analyze", str(REG_TRACE_NDJSON), "--format", "json", "--head", "3"]
+        )
+        self.assertEqual(result.exit_code, 0)
+        # JSON output should be parseable
+        import json
+
+        data = json.loads(result.output)
+        self.assertEqual(len(data), 3)
+
+    def test_analyze_format_csv(self):
+        """Test analyze with CSV output format."""
+        result = self.runner.invoke(
+            main, ["analyze", str(REG_TRACE_NDJSON), "--format", "csv", "--head", "3"]
+        )
+        self.assertEqual(result.exit_code, 0)
+        lines = result.output.strip().split("\n")
+        self.assertEqual(len(lines), 4)  # header + 3 data rows
+        # CSV header should contain field names
+        self.assertIn("warp", lines[0])
+
+    def test_analyze_format_table_explicit(self):
+        """Test analyze with explicit table format."""
+        result = self.runner.invoke(
+            main,
+            ["analyze", str(REG_TRACE_NDJSON), "--format", "table", "--head", "3"],
+        )
+        self.assertEqual(result.exit_code, 0)
+        lines = [line for line in result.output.strip().split("\n") if line]
+        self.assertEqual(len(lines), 4)  # header + 3 data rows
+
+    def test_analyze_fields_custom(self):
+        """Test analyze with custom fields."""
+        result = self.runner.invoke(
+            main,
+            [
+                "analyze",
+                str(REG_TRACE_NDJSON),
+                "--fields",
+                "warp,sass",
+                "--head",
+                "3",
+            ],
+        )
+        self.assertEqual(result.exit_code, 0)
+        # Output should contain WARP and SASS headers
+        self.assertIn("WARP", result.output)
+        self.assertIn("SASS", result.output)
+        # But not PC (since we only asked for warp,sass)
+        self.assertNotIn("PC", result.output.split("\n")[0])
+
+    def test_analyze_no_header(self):
+        """Test analyze with --no-header flag."""
+        result = self.runner.invoke(
+            main, ["analyze", str(REG_TRACE_NDJSON), "--no-header", "--head", "3"]
+        )
+        self.assertEqual(result.exit_code, 0)
+        lines = [line for line in result.output.strip().split("\n") if line]
+        self.assertEqual(len(lines), 3)  # 3 data rows, no header
+
+    def test_analyze_format_csv_no_header(self):
+        """Test analyze with CSV format and no header."""
+        result = self.runner.invoke(
+            main,
+            [
+                "analyze",
+                str(REG_TRACE_NDJSON),
+                "--format",
+                "csv",
+                "--no-header",
+                "--head",
+                "3",
+            ],
+        )
+        self.assertEqual(result.exit_code, 0)
+        lines = result.output.strip().split("\n")
+        self.assertEqual(len(lines), 3)  # 3 data rows, no header
+
 
 if __name__ == "__main__":
     unittest.main()
