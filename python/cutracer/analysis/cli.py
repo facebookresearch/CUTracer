@@ -21,32 +21,72 @@ from cutracer.analysis.formatters import (
 )
 from cutracer.analysis.grouper import StreamingGrouper
 from cutracer.analysis.reader import parse_filter_expr, select_records, TraceReader
+from cutracer.analysis.warp_summary import (
+    compute_warp_summary,
+    format_warp_summary_text,
+    warp_summary_to_dict,
+)
 from tabulate import tabulate
 
 
 def _output_groups(
     groups: dict[Any, list[dict]],
+    group_by: str,
     output_format: str,
     fields: Optional[str],
     no_header: bool,
 ) -> None:
     """Output grouped records with group headers."""
-    for group_key, records in groups.items():
-        if not records:
-            continue
-        display_fields = get_display_fields(records, fields)
-        click.echo(f"\n=== Group: {group_key} ({len(records)} records) ===")
-        if output_format == "json":
-            output = format_records_json(records, display_fields)
-        elif output_format == "csv":
-            output = format_records_csv(
-                records, display_fields, show_header=not no_header
-            )
-        else:  # table
-            output = format_records_table(
-                records, display_fields, show_header=not no_header
-            )
-        click.echo(output)
+    if not groups:
+        click.echo("No records found.")
+        return
+
+    # Compute warp summary if grouping by warp
+    warp_summary = None
+    if group_by == "warp":
+        warp_summary = compute_warp_summary(groups)
+
+    if output_format == "json":
+        # JSON output with optional warp_summary
+        groups_data = {}
+        for group_key, records in sorted(groups.items(), key=lambda x: str(x[0])):
+            if not records:
+                continue
+            display_fields = get_display_fields(records, fields)
+            filtered_records = [
+                {f: r.get(f) for f in display_fields if f in r} for r in records
+            ]
+            groups_data[str(group_key)] = filtered_records
+
+        if warp_summary:
+            output_data = {
+                "groups": groups_data,
+                "warp_summary": warp_summary_to_dict(warp_summary),
+            }
+        else:
+            output_data = groups_data
+
+        click.echo(json.dumps(output_data, indent=2))
+    else:
+        # Table or CSV output
+        for group_key, records in sorted(groups.items(), key=lambda x: str(x[0])):
+            if not records:
+                continue
+            display_fields = get_display_fields(records, fields)
+            click.echo(f"\n=== Group: {group_key} ({len(records)} records) ===")
+            if output_format == "csv":
+                output = format_records_csv(
+                    records, display_fields, show_header=not no_header
+                )
+            else:  # table
+                output = format_records_table(
+                    records, display_fields, show_header=not no_header
+                )
+            click.echo(output)
+
+        # Print warp summary for table format only (not CSV)
+        if output_format == "table" and warp_summary:
+            click.echo(format_warp_summary_text(warp_summary))
 
 
 @click.command(name="analyze")
@@ -175,10 +215,10 @@ def analyze_command(
             _output_counts(counts, group_by, top, output_format, not no_header)
         elif tail is not None:
             groups = grouper.tail_per_group(tail)
-            _output_groups(groups, output_format, fields, no_header)
+            _output_groups(groups, group_by, output_format, fields, no_header)
         else:
             groups = grouper.head_per_group(head)
-            _output_groups(groups, output_format, fields, no_header)
+            _output_groups(groups, group_by, output_format, fields, no_header)
         return
 
     # Apply head/tail selection

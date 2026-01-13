@@ -221,6 +221,8 @@ class TestAnalyzeCommand(BaseValidationTest):
 
     def test_analyze_group_by_json_format(self):
         """Test analyze with --group-by and JSON format."""
+        import json
+
         result = self.runner.invoke(
             main,
             [
@@ -235,10 +237,14 @@ class TestAnalyzeCommand(BaseValidationTest):
             ],
         )
         self.assertEqual(result.exit_code, 0)
-        self.assertIn("=== Group:", result.output)
-        # JSON output should contain brackets
-        self.assertIn("[", result.output)
-        self.assertIn("]", result.output)
+        # JSON output should be valid and parseable
+        data = json.loads(result.output)
+        # Since --group-by warp is used, output should have groups and warp_summary
+        self.assertIn("groups", data)
+        self.assertIsInstance(data["groups"], dict)
+        # Each group should be a list of records
+        for records in data["groups"].values():
+            self.assertIsInstance(records, list)
 
     def test_analyze_group_by_csv_format(self):
         """Test analyze with --group-by and CSV format."""
@@ -364,6 +370,76 @@ class TestAnalyzeCommand(BaseValidationTest):
         # Should not contain header row
         self.assertNotIn("WARP", result.output)
         self.assertNotIn("COUNT", result.output)
+
+    def test_analyze_group_by_warp_shows_summary(self):
+        """Test analyze --group-by warp shows warp summary."""
+        result = self.runner.invoke(
+            main,
+            ["analyze", str(REG_TRACE_NDJSON), "--group-by", "warp", "--tail", "3"],
+        )
+        self.assertEqual(result.exit_code, 0)
+        # Should have warp summary section
+        self.assertIn("Warp Summary", result.output)
+        self.assertIn("Total warps observed:", result.output)
+        self.assertIn("Completed (EXIT):", result.output)
+        self.assertIn("In-progress:", result.output)
+        self.assertIn("Missing (never seen):", result.output)
+
+    def test_analyze_group_by_warp_json_has_summary(self):
+        """Test analyze --group-by warp with JSON format includes warp_summary."""
+        result = self.runner.invoke(
+            main,
+            [
+                "analyze",
+                str(REG_TRACE_NDJSON),
+                "--group-by",
+                "warp",
+                "--format",
+                "json",
+                "--head",
+                "2",
+            ],
+        )
+        self.assertEqual(result.exit_code, 0)
+        import json
+
+        data = json.loads(result.output)
+        # JSON should have groups and warp_summary keys
+        self.assertIn("groups", data)
+        self.assertIn("warp_summary", data)
+        self.assertIn("total_observed", data["warp_summary"])
+        self.assertIn("completed", data["warp_summary"])
+        self.assertIn("in_progress", data["warp_summary"])
+        self.assertIn("missing", data["warp_summary"])
+
+    def test_analyze_group_by_non_warp_no_summary(self):
+        """Test analyze --group-by with non-warp field does not show warp summary."""
+        result = self.runner.invoke(
+            main,
+            ["analyze", str(REG_TRACE_NDJSON), "--group-by", "sass", "--head", "2"],
+        )
+        self.assertEqual(result.exit_code, 0)
+        # Should NOT have warp summary section
+        self.assertNotIn("Warp Summary", result.output)
+
+    def test_analyze_group_by_warp_csv_no_summary(self):
+        """Test analyze --group-by warp with CSV format does not include summary."""
+        result = self.runner.invoke(
+            main,
+            [
+                "analyze",
+                str(REG_TRACE_NDJSON),
+                "--group-by",
+                "warp",
+                "--format",
+                "csv",
+                "--head",
+                "2",
+            ],
+        )
+        self.assertEqual(result.exit_code, 0)
+        # CSV format should NOT have warp summary section
+        self.assertNotIn("Warp Summary", result.output)
 
 
 if __name__ == "__main__":
