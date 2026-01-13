@@ -8,10 +8,96 @@ over trace records from NDJSON files (plain or Zstd-compressed).
 """
 
 import json
+from collections import deque
+from itertools import islice
 from pathlib import Path
-from typing import Iterator, Union
+from typing import Any, Callable, Iterator, Optional, Union
 
 from cutracer.validation.compression import detect_compression, open_trace_file
+
+
+def parse_filter_expr(filter_expr: str) -> Callable[[dict], bool]:
+    """
+    Parse a filter expression and return a predicate function.
+
+    Supports simple equality filters like "field=value".
+    Values are automatically converted to int if possible.
+
+    Args:
+        filter_expr: Filter expression (e.g., "warp=24", "type=mem_trace")
+
+    Returns:
+        Predicate function that takes a record and returns bool
+
+    Raises:
+        ValueError: If the filter expression is invalid
+
+    Examples:
+        >>> pred = parse_filter_expr("warp=24")
+        >>> pred({"warp": 24})
+        True
+        >>> pred({"warp": 25})
+        False
+    """
+    if "=" not in filter_expr:
+        raise ValueError(
+            f"Invalid filter expression: '{filter_expr}'. Expected format: 'field=value'"
+        )
+
+    field, value = filter_expr.split("=", 1)
+    field = field.strip()
+    value = value.strip()
+
+    if not field:
+        raise ValueError("Filter field name cannot be empty")
+
+    # Try to convert value to int
+    try:
+        converted_value: Any = int(value)
+    except ValueError:
+        converted_value = value
+
+    return lambda record: record.get(field) == converted_value
+
+
+def select_records(
+    records: Iterator[dict],
+    head: Optional[int] = None,
+    tail: Optional[int] = None,
+) -> list[dict]:
+    """
+    Memory-efficient record selection using streaming.
+
+    This function processes records in a streaming fashion:
+    - For head: Uses itertools.islice to stop early after N records
+    - For tail: Uses collections.deque(maxlen=N) to keep only last N records
+
+    Memory complexity:
+    - head N: O(N) - only stores N records
+    - tail N: O(N) - deque automatically discards older records
+
+    Note: The records iterator is consumed after calling this function.
+
+    Args:
+        records: Iterator of trace records (consumed once!)
+        head: Number of records from the beginning (default: 10)
+        tail: Number of records from the end (overrides head)
+
+    Returns:
+        Selected subset of records as a list
+    """
+    if tail is not None:
+        if tail <= 0:
+            return []
+        # deque with maxlen automatically discards oldest items
+        return list(deque(records, maxlen=tail))
+
+    # Default head to 10 if not specified
+    head = head if head is not None else 10
+    if head <= 0:
+        return []
+    # islice stops iteration after head items
+    return list(islice(records, head))
 
 
 class TraceReader:
