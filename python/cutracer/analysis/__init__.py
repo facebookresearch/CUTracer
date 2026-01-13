@@ -7,6 +7,7 @@ Provides analysis utilities for trace files:
 - TraceReader: Read and iterate over trace records
 - parse_filter_expr: Parse filter expressions for record filtering
 - select_records: Memory-efficient record selection
+- StreamingGrouper: Memory-efficient grouped analysis
 - Formatters: Output formatting for table/json/csv
 """
 
@@ -18,12 +19,15 @@ from .formatters import (
     format_value,
     get_display_fields,
 )
+from .grouper import StreamingGrouper
 from .reader import parse_filter_expr, select_records, TraceReader
 
 __all__ = [
     "TraceReader",
     "parse_filter_expr",
     "select_records",
+    # Grouper
+    "StreamingGrouper",
     # Formatters
     "DEFAULT_FIELDS",
     "format_value",
