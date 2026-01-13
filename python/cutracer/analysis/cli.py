@@ -6,6 +6,9 @@ CLI implementation for the analyze subcommand.
 Provides command-line interface for analyzing CUTracer trace files.
 """
 
+import csv
+import io
+import json
 from pathlib import Path
 from typing import Any, Optional
 
@@ -18,6 +21,7 @@ from cutracer.analysis.formatters import (
 )
 from cutracer.analysis.grouper import StreamingGrouper
 from cutracer.analysis.reader import parse_filter_expr, select_records, TraceReader
+from tabulate import tabulate
 
 
 def _output_groups(
@@ -99,6 +103,17 @@ def _output_groups(
     default=None,
     help="Group records by field (e.g., 'warp').",
 )
+@click.option(
+    "--count",
+    is_flag=True,
+    help="Show record count per group (requires --group-by).",
+)
+@click.option(
+    "--top",
+    type=int,
+    default=None,
+    help="Show only top N groups by count (requires --group-by --count).",
+)
 def analyze_command(
     file: Path,
     head: int,
@@ -108,6 +123,8 @@ def analyze_command(
     fields: Optional[str],
     no_header: bool,
     group_by: Optional[str],
+    count: bool,
+    top: Optional[int],
 ) -> None:
     """
     Analyze trace data from FILE.
@@ -122,7 +139,15 @@ def analyze_command(
       cutracer analyze trace.ndjson --tail 5
       cutracer analyze trace.ndjson --filter "warp=24"
       cutracer analyze trace.ndjson --group-by warp
+      cutracer analyze trace.ndjson --group-by warp --count
+      cutracer analyze trace.ndjson --group-by sass --count --top 20
     """
+    # Validate option combinations
+    if count and not group_by:
+        raise click.ClickException("--count requires --group-by")
+    if top is not None and not count:
+        raise click.ClickException("--top requires --count")
+
     # Create reader
     try:
         reader = TraceReader(file)
@@ -143,11 +168,17 @@ def analyze_command(
     # Handle grouped output
     if group_by:
         grouper = StreamingGrouper(records, group_by)
-        if tail is not None:
+
+        if count:
+            # Count mode - show record count per group
+            counts = grouper.count_per_group()
+            _output_counts(counts, group_by, top, output_format, not no_header)
+        elif tail is not None:
             groups = grouper.tail_per_group(tail)
+            _output_groups(groups, output_format, fields, no_header)
         else:
             groups = grouper.head_per_group(head)
-        _output_groups(groups, output_format, fields, no_header)
+            _output_groups(groups, output_format, fields, no_header)
         return
 
     # Apply head/tail selection
@@ -167,3 +198,48 @@ def analyze_command(
         )
 
     click.echo(output)
+
+
+def _output_counts(
+    counts: dict[Any, int],
+    group_field: str,
+    top_n: Optional[int],
+    output_format: str,
+    show_header: bool,
+) -> None:
+    """
+    Output record counts per group.
+
+    Args:
+        counts: Dict mapping group key to count
+        group_field: Name of the field used for grouping
+        top_n: Only show top N groups by count (None for all)
+        output_format: Output format (table, json, csv)
+        show_header: Whether to show headers
+    """
+    if not counts:
+        click.echo("No records found.")
+        return
+
+    # Sort by count (descending), then by key (ascending) for stability
+    sorted_counts = sorted(counts.items(), key=lambda x: (-x[1], str(x[0])))
+
+    # Apply top N filter if specified
+    if top_n is not None and top_n > 0:
+        sorted_counts = sorted_counts[:top_n]
+
+    if output_format == "json":
+        output_data = {str(k): v for k, v in sorted_counts}
+        click.echo(json.dumps(output_data, indent=2))
+    elif output_format == "csv":
+        output = io.StringIO(newline="")
+        writer = csv.writer(output)
+        if show_header:
+            writer.writerow([group_field, "count"])
+        for key, cnt in sorted_counts:
+            writer.writerow([key, cnt])
+        click.echo(output.getvalue().rstrip("\n").replace("\r", ""))
+    else:  # table
+        table_data = [[key, cnt] for key, cnt in sorted_counts]
+        headers = [group_field.upper(), "COUNT"] if show_header else []
+        click.echo(tabulate(table_data, headers=headers, tablefmt="plain"))
