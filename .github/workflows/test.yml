@@ -49,7 +49,7 @@ jobs:
 
       - name: Install Python formatting tools
         run: |
-          pip install usort ruff black
+          pip install -e "./python[dev]"
 
       - name: Run formatter check
         run: |

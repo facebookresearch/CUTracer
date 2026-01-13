@@ -49,15 +49,15 @@ format_and_report_changes() {
 # Export the function so it's available to the subshells created by xargs.
 export -f format_and_report_changes
 
-# Python checks/format aligned with format_fix.py: usort -> ruff -> black
+# Python checks/format: ufmt (sorter + formatter from pyproject.toml) -> ruff linting
 python_check() {
   local failed=0
 
-  if command -v usort &>/dev/null; then
-    usort check .
+  if command -v ufmt &>/dev/null; then
+    ufmt check .
     [ $? -eq 0 ] || failed=1
   else
-    echo "❌ usort not found (required for Python import sorting)." >&2
+    echo "❌ ufmt not found (required for Python formatting)." >&2
     failed=1
   fi
 
@@ -69,23 +69,15 @@ python_check() {
     failed=1
   fi
 
-  if command -v black &>/dev/null; then
-    black --check --diff .
-    [ $? -eq 0 ] || failed=1
-  else
-    echo "❌ black not found (required for Python formatting)." >&2
-    failed=1
-  fi
-
   return $failed
 }
 
 python_format() {
-  if command -v usort &>/dev/null; then
-    echo "🎨  Sorting Python imports with usort..."
-    usort format .
+  if command -v ufmt &>/dev/null; then
+    echo "🎨  Formatting Python code with ufmt..."
+    ufmt format .
   else
-    echo "⚠️  usort not found; skipping import sorting." >&2
+    echo "⚠️  ufmt not found; skipping formatting." >&2
   fi
 
   if command -v ruff &>/dev/null; then
@@ -93,13 +85,6 @@ python_format() {
     ruff check . --fix
   else
     echo "⚠️  ruff not found; skipping lint fixes." >&2
-  fi
-
-  if command -v black &>/dev/null; then
-    echo "🎨  Formatting Python code with black..."
-    black .
-  else
-    echo "⚠️  black not found; skipping code formatting." >&2
   fi
 }
 

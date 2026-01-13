@@ -25,10 +25,10 @@ dependencies = [
 [project.optional-dependencies]
 dev = [
     "mypy>=1.0.0",
-    "black>=22.0.0",
-    "ruff>=0.1.0",
-    "ufmt>=2.0.0",
-    "usort>=1.0.0",
+    "ufmt==2.9.0",
+    "usort==1.1.0",
+    "ruff-api==0.2.0",
+    "ruff>=0.4.0",
 ]
 
 [project.urls]
@@ -38,20 +38,6 @@ dev = [
 [project.scripts]
 cutraceross = "cutracer.cli:main"
 
-[tool.black]
-line-length = 88
-target-version = ["py310"]
-exclude = '''
-/(
-    \.git
-  | \.mypy_cache
-  | \.pytest_cache
-  | \.venv
-  | build
-  | dist
-)/
-'''
-
 [tool.setuptools.packages.find]
 include = ["cutracer*"]
 
@@ -59,8 +45,12 @@ include = ["cutracer*"]
 "cutracer.validation.schemas" = ["*.json"]
 
 [tool.ufmt]
-formatter = "black"
+formatter = "ruff-api"
 sorter = "usort"
+
+[tool.ruff]
+line-length = 88
+target-version = "py310"
 
 [tool.usort]
 first_party_detection = false
