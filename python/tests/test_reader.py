@@ -1,14 +1,14 @@
 # Copyright (c) Meta Platforms, Inc. and affiliates.
 
 """
-Unit tests for TraceReader class.
+Unit tests for TraceReader class and related functions.
 """
 
 import json
 import types
 import unittest
 
-from cutracer.analysis import TraceReader
+from cutracer.analysis import parse_filter_expr, select_records, TraceReader
 from tests.test_base import (
     BaseValidationTest,
     REG_TRACE_NDJSON,
@@ -16,6 +16,109 @@ from tests.test_base import (
     REG_TRACE_NDJSON_ZST,
     REG_TRACE_NDJSON_ZST_RECORD_COUNT,
 )
+
+
+class TestParseFilterExpr(unittest.TestCase):
+    """Tests for parse_filter_expr function."""
+
+    def test_parse_filter_int_value(self):
+        """Test parsing filter with integer value."""
+        pred = parse_filter_expr("warp=24")
+        self.assertTrue(pred({"warp": 24}))
+        self.assertFalse(pred({"warp": 25}))
+        self.assertFalse(pred({"warp": "24"}))  # String vs int
+
+    def test_parse_filter_string_value(self):
+        """Test parsing filter with string value."""
+        pred = parse_filter_expr("type=mem_trace")
+        self.assertTrue(pred({"type": "mem_trace"}))
+        self.assertFalse(pred({"type": "reg_trace"}))
+
+    def test_parse_filter_missing_field(self):
+        """Test filter returns False for missing field."""
+        pred = parse_filter_expr("warp=0")
+        self.assertFalse(pred({"type": "reg_trace"}))
+
+    def test_parse_filter_with_spaces(self):
+        """Test filter with spaces around = is handled."""
+        pred = parse_filter_expr(" warp = 24 ")
+        self.assertTrue(pred({"warp": 24}))
+
+    def test_parse_filter_invalid_no_equals(self):
+        """Test that filter without = raises ValueError."""
+        with self.assertRaises(ValueError) as ctx:
+            parse_filter_expr("warp")
+        self.assertIn("Invalid filter expression", str(ctx.exception))
+
+    def test_parse_filter_invalid_empty_field(self):
+        """Test that filter with empty field raises ValueError."""
+        with self.assertRaises(ValueError) as ctx:
+            parse_filter_expr("=24")
+        self.assertIn("empty", str(ctx.exception))
+
+
+class TestSelectRecords(unittest.TestCase):
+    """Tests for select_records function."""
+
+    def test_select_head_default(self):
+        """Test default head selection (10 records)."""
+        records = iter([{"i": i} for i in range(20)])
+        result = select_records(records)
+        self.assertEqual(len(result), 10)
+        self.assertEqual(result[0]["i"], 0)
+        self.assertEqual(result[9]["i"], 9)
+
+    def test_select_head_custom(self):
+        """Test custom head selection."""
+        records = iter([{"i": i} for i in range(20)])
+        result = select_records(records, head=5)
+        self.assertEqual(len(result), 5)
+        self.assertEqual(result[4]["i"], 4)
+
+    def test_select_tail(self):
+        """Test tail selection."""
+        records = iter([{"i": i} for i in range(20)])
+        result = select_records(records, tail=5)
+        self.assertEqual(len(result), 5)
+        self.assertEqual(result[0]["i"], 15)
+        self.assertEqual(result[4]["i"], 19)
+
+    def test_select_tail_overrides_head(self):
+        """Test that tail overrides head when both specified."""
+        records = iter([{"i": i} for i in range(20)])
+        result = select_records(records, head=3, tail=5)
+        self.assertEqual(len(result), 5)
+        self.assertEqual(result[0]["i"], 15)
+
+    def test_select_head_zero(self):
+        """Test head=0 returns empty list."""
+        records = iter([{"i": i} for i in range(10)])
+        result = select_records(records, head=0)
+        self.assertEqual(result, [])
+
+    def test_select_tail_zero(self):
+        """Test tail=0 returns empty list."""
+        records = iter([{"i": i} for i in range(10)])
+        result = select_records(records, tail=0)
+        self.assertEqual(result, [])
+
+    def test_select_head_more_than_available(self):
+        """Test head larger than available records."""
+        records = iter([{"i": i} for i in range(5)])
+        result = select_records(records, head=20)
+        self.assertEqual(len(result), 5)
+
+    def test_select_tail_more_than_available(self):
+        """Test tail larger than available records."""
+        records = iter([{"i": i} for i in range(5)])
+        result = select_records(records, tail=20)
+        self.assertEqual(len(result), 5)
+
+    def test_select_empty_iterator(self):
+        """Test selection from empty iterator."""
+        records = iter([])
+        result = select_records(records, head=10)
+        self.assertEqual(result, [])
 
 
 class TestTraceReaderInit(BaseValidationTest):
@@ -154,6 +257,23 @@ class TestTraceReaderEdgeCases(BaseValidationTest):
         # Second record should raise
         with self.assertRaises(json.JSONDecodeError):
             next(iterator)
+
+
+class TestIntegration(BaseValidationTest):
+    """Integration tests combining TraceReader with filter and select."""
+
+    def test_filter_and_select(self):
+        """Test combining TraceReader with filter and select_records."""
+        reader = TraceReader(REG_TRACE_NDJSON)
+        pred = parse_filter_expr("warp=0")
+
+        # Filter and select first 5
+        filtered = (r for r in reader.iter_records() if pred(r))
+        result = select_records(filtered, head=5)
+
+        self.assertLessEqual(len(result), 5)
+        for record in result:
+            self.assertEqual(record["warp"], 0)
 
 
 if __name__ == "__main__":
