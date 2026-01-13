@@ -180,6 +180,93 @@ class TestAnalyzeCommand(BaseValidationTest):
         lines = result.output.strip().split("\n")
         self.assertEqual(len(lines), 3)  # 3 data rows, no header
 
+    def test_analyze_group_by_basic(self):
+        """Test analyze with --group-by option."""
+        result = self.runner.invoke(
+            main,
+            ["analyze", str(REG_TRACE_NDJSON), "--group-by", "warp", "--head", "3"],
+        )
+        self.assertEqual(result.exit_code, 0)
+        # Should have group headers
+        self.assertIn("=== Group:", result.output)
+        self.assertIn("records) ===", result.output)
+
+    def test_analyze_group_by_with_tail(self):
+        """Test analyze with --group-by and --tail."""
+        result = self.runner.invoke(
+            main,
+            ["analyze", str(REG_TRACE_NDJSON), "--group-by", "warp", "--tail", "2"],
+        )
+        self.assertEqual(result.exit_code, 0)
+        self.assertIn("=== Group:", result.output)
+
+    def test_analyze_group_by_with_filter(self):
+        """Test analyze with --group-by and --filter."""
+        result = self.runner.invoke(
+            main,
+            [
+                "analyze",
+                str(REG_TRACE_NDJSON),
+                "--group-by",
+                "warp",
+                "--filter",
+                "warp=0",
+                "--head",
+                "5",
+            ],
+        )
+        self.assertEqual(result.exit_code, 0)
+        # Should only have warp=0 group
+        self.assertIn("=== Group: 0", result.output)
+
+    def test_analyze_group_by_json_format(self):
+        """Test analyze with --group-by and JSON format."""
+        result = self.runner.invoke(
+            main,
+            [
+                "analyze",
+                str(REG_TRACE_NDJSON),
+                "--group-by",
+                "warp",
+                "--format",
+                "json",
+                "--head",
+                "2",
+            ],
+        )
+        self.assertEqual(result.exit_code, 0)
+        self.assertIn("=== Group:", result.output)
+        # JSON output should contain brackets
+        self.assertIn("[", result.output)
+        self.assertIn("]", result.output)
+
+    def test_analyze_group_by_csv_format(self):
+        """Test analyze with --group-by and CSV format."""
+        result = self.runner.invoke(
+            main,
+            [
+                "analyze",
+                str(REG_TRACE_NDJSON),
+                "--group-by",
+                "warp",
+                "--format",
+                "csv",
+                "--head",
+                "2",
+            ],
+        )
+        self.assertEqual(result.exit_code, 0)
+        self.assertIn("=== Group:", result.output)
+
+    def test_analyze_group_by_short_option(self):
+        """Test analyze with -g short option for --group-by."""
+        result = self.runner.invoke(
+            main,
+            ["analyze", str(REG_TRACE_NDJSON), "-g", "warp", "-n", "2"],
+        )
+        self.assertEqual(result.exit_code, 0)
+        self.assertIn("=== Group:", result.output)
+
 
 if __name__ == "__main__":
     unittest.main()
