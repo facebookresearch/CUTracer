@@ -2,6 +2,8 @@ name: Test CUDA Install Script
 
 on:
     push:
+        branches:
+            - main
         paths:
             - "scripts/install_cuda.sh"
             - ".github/workflows/test_install_cuda.yml"
