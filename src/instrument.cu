@@ -13,6 +13,7 @@
 
 #include "analysis.h"
 #include "instrument.h"
+#include "log.h"
 #include "nvbit.h"
 
 /**
@@ -120,3 +121,65 @@ void instrument_memory_trace(Instr* instr, int opcode_id, CTXstate* ctx_state, i
   /* add pointer to channel_dev*/
   nvbit_add_call_arg_const_val64(instr, (uint64_t)ctx_state->channel_dev);
 }
+
+/**
+ * @brief Check if an instruction is eligible for delay instrumentation.
+ *
+ * Returns true for synchronization-related instructions where injecting
+ * delays can help expose race conditions or timing-sensitive bugs.
+ */
+bool is_delay_eligible(Instr* instr) {
+  const char* sass = instr->getSass();
+  if (sass == nullptr) {
+    return false;
+  }
+
+  // mbarrier try_wait: tlx.barrier_wait(barrier, phase)
+  if (strstr(sass, "SYNCS.PHASECHK.TRANS64.TRYWAIT") != nullptr) {
+    return true;
+  }
+
+  // mbarrier arrive: tlx.barrier_arrive(barrier)
+  if (strstr(sass, "SYNCS.ARRIVE.TRANS64.RED.A1T0") != nullptr) {
+    return true;
+  }
+
+  // TMA load: tlx.async_descriptor_load(...)
+  if (strstr(sass, "UTMALDG.2D") != nullptr) {
+    return true;
+  }
+
+  // MMA wait: tlx.async_dot_wait(...)
+  if (strstr(sass, "WARPGROUP.DEPBAR.LE") != nullptr) {
+    return true;
+  }
+
+  return false;
+}
+
+/**
+ * @brief Instruments an instruction to inject a random delay.
+ *
+ * Inserts a call to the `instrument_delay` device function before the
+ * instruction. The delay is computed on the host side as a random value
+ * within the configured range, so each instruction gets a unique delay value.
+ * This introduces timing variation to help expose potential race conditions.
+ *
+ * @param instr The instruction to instrument
+ * @param max_delay_ns Maximum delay in nanoseconds (random value 0 to max_delay_ns)
+ */
+void instrument_random_delay(Instr* instr, uint32_t max_delay_ns) {
+  /* Generate random delay on host side - each instruction gets a different value */
+  uint32_t delay_ns = (max_delay_ns > 0) ? (rand() % max_delay_ns) : 0;
+
+  loprintf_v("Instrumenting instruction: %s at PC 0x%lx with delay %u ns\n", instr->getSass(), instr->getOffset(),
+             delay_ns);
+
+  /* insert call to the instrumentation function with its arguments */
+  nvbit_insert_call(instr, "instrument_delay", IPOINT_BEFORE);
+  /* guard predicate value */
+  nvbit_add_call_arg_guard_pred_val(instr);
+  /* delay in nanoseconds - generated on host, unique per instruction */
+  nvbit_add_call_arg_const_val32(instr, delay_ns);
+}
+

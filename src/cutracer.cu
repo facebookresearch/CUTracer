@@ -240,6 +240,11 @@ bool instrument_function_if_needed(CUcontext ctx, CUfunction func) {
         // Full register tracing.
         instrument_register_trace(instr, opcode_id, ctx_state, operands);
       }
+
+      // Random delay instrumentation for synchronization instructions
+      if (is_instrument_type_enabled(InstrumentType::RANDOM_DELAY) && is_delay_eligible(instr)) {
+        instrument_random_delay(instr, random_delay_max_ns);
+      }
     }
 
     // Statically identify special instructions for this function:

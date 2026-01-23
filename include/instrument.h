@@ -15,9 +15,10 @@
  * @brief Instrumentation types for different data collection modes
  */
 enum class InstrumentType {
-  OPCODE_ONLY,  // Lightweight: only collect opcode information
-  REG_TRACE,    // Medium: collect register values
-  MEM_TRACE     // Heavy: collect memory access information
+  OPCODE_ONLY,   // Lightweight: only collect opcode information
+  REG_TRACE,     // Medium: collect register values
+  MEM_TRACE,     // Heavy: collect memory access information
+  RANDOM_DELAY   // Inject random delays on synchronization instructions
 };
 
 /**
@@ -68,5 +69,25 @@ void instrument_register_trace(Instr* instr, int opcode_id, CTXstate* ctx_state,
  * @param mref_idx Memory reference index
  */
 void instrument_memory_trace(Instr* instr, int opcode_id, CTXstate* ctx_state, int mref_idx);
+
+/**
+ * @brief Insert random delay instrumentation for synchronization instructions
+ *
+ * Injects a random delay before eligible synchronization instructions.
+ * The delay is computed on the host side, so each instruction gets a unique
+ * random value. This is useful for exposing potential race conditions.
+ *
+ * @param instr The instruction to instrument
+ * @param max_delay_ns Maximum random delay in nanoseconds
+ */
+void instrument_random_delay(Instr* instr, uint32_t max_delay_ns);
+
+/**
+ * @brief Check if an instruction is eligible for delay instrumentation
+ *
+ * @param instr The instruction to check
+ * @return true if the instruction is eligible for delay instrumentation
+ */
+bool is_delay_eligible(Instr* instr);
 
 #endif /* INSTRUMENT_H */

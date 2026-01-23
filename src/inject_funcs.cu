@@ -9,6 +9,7 @@
  * See LICENSE-BSD file in the root directory for NVIDIA's license terms.
  */
 
+#include <cuda_runtime.h>
 #include <stdarg.h>
 #include <stdint.h>
 
@@ -136,4 +137,33 @@ extern "C" __device__ __noinline__ void instrument_opcode(int pred, int opcode_i
     ChannelDev* channel_dev = (ChannelDev*)pchannel_dev;
     channel_dev->push(&oi, sizeof(opcode_only_t));
   }
+}
+
+/**
+ * @brief Device function to inject delay before any instrumented instruction.
+ *
+ * Injects a nanosleep delay before an instruction to expose potential race
+ * conditions. The delay value is computed on the host during instrumentation,
+ * so each instruction receives a unique, fixed delay value.
+ *
+ * Uses __nanosleep() intrinsic on SM 7.0+ (Volta and later), with a fallback
+ * to busy-wait using clock64() on older architectures.
+ *
+ * @param pred Guard predicate value (from nvbit_add_call_arg_guard_pred_val)
+ * @param delay_ns Delay in nanoseconds (passed from host, 0 = no delay)
+ */
+extern "C" __device__ __noinline__ void instrument_delay(int pred, uint32_t delay_ns) {
+  if (!pred) {
+    return;
+  }
+
+#if defined(__CUDA_ARCH__) && (__CUDA_ARCH__ >= 700)
+  __nanosleep(delay_ns);
+#else
+  // Fallback: busy-wait using clock64 (approximate 2 cycles per ns)
+  uint64_t delay_cycles = delay_ns * 2;
+  uint64_t start = clock64();
+  while ((clock64() - start) < delay_cycles) {
+  }
+#endif
 }

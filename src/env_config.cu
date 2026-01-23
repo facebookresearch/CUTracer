@@ -31,6 +31,9 @@ int trace_format_ndjson;
 // Zstd compression level
 int zstd_compression_level;
 
+// Random delay max value in nanoseconds for synchronization instrumentation
+uint32_t random_delay_max_ns;
+
 /**
  * @brief Parses a comma-separated string of kernel name filters for substring matching.
  *
@@ -236,6 +239,30 @@ void init_config_from_env() {
   if (zstd_compression_level < 1 || zstd_compression_level > 22) {
     printf("WARNING: Invalid CUTRACER_ZSTD_LEVEL=%d. Using default=22.\n", zstd_compression_level);
     zstd_compression_level = 22;
+  }
+
+  // Random delay configuration for synchronization instrumentation
+  // Use int64_t to detect overflow before casting to uint32_t
+  const char* random_delay_env = getenv("CUTRACER_RANDOM_DELAY_NS");
+  if (random_delay_env) {
+    int64_t delay_val = atoll(random_delay_env);
+    if (delay_val < 0) {
+      fprintf(stderr, "FATAL: CUTRACER_RANDOM_DELAY_NS=%s is negative. Must be 0-%u.\n",
+              random_delay_env, UINT32_MAX);
+      exit(1);
+    }
+    if (delay_val > UINT32_MAX) {
+      fprintf(stderr, "FATAL: CUTRACER_RANDOM_DELAY_NS=%s exceeds maximum value of %u.\n",
+              random_delay_env, UINT32_MAX);
+      exit(1);
+    }
+    random_delay_max_ns = (uint32_t)delay_val;
+    enabled_instrument_types.insert(InstrumentType::RANDOM_DELAY);
+    loprintf("CUTRACER_RANDOM_DELAY_NS = %u (random delay enabled for synchronization instructions)\n",
+             random_delay_max_ns);
+  } else {
+    random_delay_max_ns = 0;
+    loprintf("CUTRACER_RANDOM_DELAY_NS = 0 (disabled)\n");
   }
 
   std::string pad(100, '-');
