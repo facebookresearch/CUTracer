@@ -247,13 +247,12 @@ void init_config_from_env() {
   if (random_delay_env) {
     int64_t delay_val = atoll(random_delay_env);
     if (delay_val < 0) {
-      fprintf(stderr, "FATAL: CUTRACER_RANDOM_DELAY_NS=%s is negative. Must be 0-%u.\n",
-              random_delay_env, UINT32_MAX);
+      fprintf(stderr, "FATAL: CUTRACER_RANDOM_DELAY_NS=%s is negative. Must be 0-%u.\n", random_delay_env, UINT32_MAX);
       exit(1);
     }
     if (delay_val > UINT32_MAX) {
-      fprintf(stderr, "FATAL: CUTRACER_RANDOM_DELAY_NS=%s exceeds maximum value of %u.\n",
-              random_delay_env, UINT32_MAX);
+      fprintf(stderr, "FATAL: CUTRACER_RANDOM_DELAY_NS=%s exceeds maximum value of %u.\n", random_delay_env,
+              UINT32_MAX);
       exit(1);
     }
     random_delay_max_ns = (uint32_t)delay_val;

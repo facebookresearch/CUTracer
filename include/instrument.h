@@ -15,10 +15,10 @@
  * @brief Instrumentation types for different data collection modes
  */
 enum class InstrumentType {
-  OPCODE_ONLY,   // Lightweight: only collect opcode information
-  REG_TRACE,     // Medium: collect register values
-  MEM_TRACE,     // Heavy: collect memory access information
-  RANDOM_DELAY   // Inject random delays on synchronization instructions
+  OPCODE_ONLY,  // Lightweight: only collect opcode information
+  REG_TRACE,    // Medium: collect register values
+  MEM_TRACE,    // Heavy: collect memory access information
+  RANDOM_DELAY  // Inject random delays on synchronization instructions
 };
 
 /**
