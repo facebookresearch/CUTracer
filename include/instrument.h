@@ -88,8 +88,8 @@ void instrument_random_delay(Instr* instr, uint32_t max_delay_ns);
 static const std::vector<const char*> DELAY_INJECTION_PATTERNS = {
     "SYNCS.PHASECHK.TRANS64.TRYWAIT",  // mbarrier try_wait
     "SYNCS.ARRIVE.TRANS64.RED.A1T0",   // mbarrier arrive
-    "UTMALDG.2D",                       // TMA load
-    "WARPGROUP.DEPBAR.LE",              // MMA wait
+    "UTMALDG.2D",                      // TMA load
+    "WARPGROUP.DEPBAR.LE",             // MMA wait
 };
 
 /**
