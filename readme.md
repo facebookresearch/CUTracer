@@ -73,10 +73,11 @@ CUDA_INJECTION64_PATH=~/CUTracer/lib/cutracer.so \
 
 ## Configuration (env vars)
 
--   `CUTRACER_INSTRUMENT`: comma-separated modes: `opcode_only`, `reg_trace`, `mem_trace`
--   `CUTRACER_ANALYSIS`: comma-separated analyses: `proton_instr_histogram`, `deadlock_detection`
+-   `CUTRACER_INSTRUMENT`: comma-separated modes: `opcode_only`, `reg_trace`, `mem_trace`, `random_delay`
+-   `CUTRACER_ANALYSIS`: comma-separated analyses: `proton_instr_histogram`, `deadlock_detection`, `random_delay`
     -   Enabling `proton_instr_histogram` auto-enables `opcode_only`
     -   Enabling `deadlock_detection` auto-enables `reg_trace`
+    -   Enabling `random_delay` requires `CUTRACER_RANDOM_DELAY_NS` to be set
 -   `KERNEL_FILTERS`: comma-separated substrings matching unmangled or mangled kernel names
 -   `INSTR_BEGIN`, `INSTR_END`: static instruction index gate during instrumentation
 -   `TOOL_VERBOSE`: 0/1/2
@@ -135,14 +136,16 @@ CUTRACER_ANALYSIS=deadlock_detection \
 python ./test_hang.py
 ```
 
-### Data Race Detection
+### Data Race Detection (random_delay)
 
--   Data races depend on timing and often pass by luck. Currently uses random delay injection to detect races by injecting random delays before synchronization instructions, disrupting the timing and forcing hidden races to show up
+-   Data races depend on timing and often pass by luck. This analysis uses random delay injection to detect races by injecting random delays before synchronization instructions, disrupting the timing and forcing hidden races to show up
+-   Requires `CUTRACER_RANDOM_DELAY_NS` to be set
 
 Example:
 
 ```bash
 CUTRACER_RANDOM_DELAY_NS=1000 \
+CUTRACER_ANALYSIS=random_delay \
 CUDA_INJECTION64_PATH=~/CUTracer/lib/cutracer.so \
 python3 your_kernel.py
 ```

@@ -36,6 +36,11 @@ enum class AnalysisType {
    * @brief Enables deadlock detection analysis.
    */
   DEADLOCK_DETECTION = 2,
+
+  /**
+   * @brief Enables random delay injection for data race detection.
+   */
+  RANDOM_DELAY = 3,
 };
 
 // Configuration variables

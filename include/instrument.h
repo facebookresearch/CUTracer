@@ -83,11 +83,22 @@ void instrument_memory_trace(Instr* instr, int opcode_id, CTXstate* ctx_state, i
 void instrument_random_delay(Instr* instr, uint32_t max_delay_ns);
 
 /**
- * @brief Check if an instruction is eligible for delay instrumentation
+ * @brief SASS instruction patterns for delay injection.
+ */
+static const std::vector<const char*> DELAY_INJECTION_PATTERNS = {
+    "SYNCS.PHASECHK.TRANS64.TRYWAIT",  // mbarrier try_wait
+    "SYNCS.ARRIVE.TRANS64.RED.A1T0",   // mbarrier arrive
+    "UTMALDG.2D",                       // TMA load
+    "WARPGROUP.DEPBAR.LE",              // MMA wait
+};
+
+/**
+ * @brief Check if an instruction should have delay injected
  *
  * @param instr The instruction to check
- * @return true if the instruction is eligible for delay instrumentation
+ * @param patterns Vector of SASS substrings to match against
+ * @return true if the instruction matches any delay injection pattern
  */
-bool is_delay_eligible(Instr* instr);
+bool isInstrForDelayInjection(Instr* instr, const std::vector<const char*>& patterns);
 
 #endif /* INSTRUMENT_H */

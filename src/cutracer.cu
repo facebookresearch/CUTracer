@@ -242,7 +242,8 @@ bool instrument_function_if_needed(CUcontext ctx, CUfunction func) {
       }
 
       // Random delay instrumentation for synchronization instructions
-      if (is_instrument_type_enabled(InstrumentType::RANDOM_DELAY) && is_delay_eligible(instr)) {
+      if (is_instrument_type_enabled(InstrumentType::RANDOM_DELAY) &&
+          isInstrForDelayInjection(instr, DELAY_INJECTION_PATTERNS)) {
         instrument_random_delay(instr, random_delay_max_ns);
       }
     }

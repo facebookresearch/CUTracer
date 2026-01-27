@@ -105,6 +105,16 @@ static void get_var_uint32(uint32_t& var, const char* env_name, uint32_t default
   loprintf("%s = %u (%s)\n", env_name, var, description);
 }
 
+static void get_var_uint64(uint64_t& var, const char* env_name, uint64_t default_val, const char* description) {
+  const char* env_val = getenv(env_name);
+  if (env_val) {
+    var = (uint64_t)strtoull(env_val, nullptr, 10);
+  } else {
+    var = default_val;
+  }
+  loprintf("%s = %lu (%s)\n", env_name, var, description);
+}
+
 static void get_var_str(std::string& var, const char* env_name, const std::string& default_val,
                         const char* description) {
   const char* env_val = getenv(env_name);
@@ -136,6 +146,33 @@ void init_instrumentation(const std::string& instrument_str) {
     enabled_instrument_types.insert(InstrumentType::MEM_TRACE);
     loprintf("  - Enabled: mem_trace (memory access tracing)\n");
   }
+  if (instrument_str.find("random_delay") != std::string::npos) {
+    enabled_instrument_types.insert(InstrumentType::RANDOM_DELAY);
+    loprintf("  - Enabled: random_delay (random delay injection)\n");
+  }
+}
+
+void parse_random_delay_ns() {
+  uint64_t delay_val = 0;
+  get_var_uint64(delay_val, "CUTRACER_RANDOM_DELAY_NS", 0,
+                 "Max random delay in nanoseconds for synchronization instructions");
+
+  // If random_delay analysis is enabled but no valid delay value, error out.
+  if (delay_val == 0 && is_analysis_type_enabled(AnalysisType::RANDOM_DELAY)) {
+    fprintf(stderr,
+            "FATAL: CUTRACER_ANALYSIS includes 'random_delay' but CUTRACER_RANDOM_DELAY_NS is not set or invalid.\n"
+            "Please set CUTRACER_RANDOM_DELAY_NS to a positive value (in nanoseconds).\n"
+            "Example: export CUTRACER_RANDOM_DELAY_NS=1000000  (1ms max delay)\n");
+    exit(1);
+  }
+
+  // Validate range: nanosleep uses uint32_t, so delay must fit in 32 bits.
+  if (delay_val > UINT32_MAX) {
+    fprintf(stderr, "FATAL: CUTRACER_RANDOM_DELAY_NS=%lu exceeds maximum value of %u.\n", delay_val, UINT32_MAX);
+    exit(1);
+  }
+
+  random_delay_max_ns = (uint32_t)delay_val;
 }
 
 void init_analysis(const std::string& analysis_str) {
@@ -168,6 +205,17 @@ void init_analysis(const std::string& analysis_str) {
     if (!is_instrument_type_enabled(InstrumentType::REG_TRACE)) {
       enabled_instrument_types.insert(InstrumentType::REG_TRACE);
       loprintf("  - deadlock_detection: forcing reg_trace instrumentation\n");
+    }
+  }
+
+  // random_delay: enable analysis type and ensure RANDOM_DELAY instrumentation is on
+  // Note: CUTRACER_RANDOM_DELAY_NS is validated later in init_config_from_env()
+  if (analysis_str.find("random_delay") != std::string::npos) {
+    enabled_analysis_types.insert(AnalysisType::RANDOM_DELAY);
+    loprintf("  - Enabled: random_delay\n");
+    if (!is_instrument_type_enabled(InstrumentType::RANDOM_DELAY)) {
+      enabled_instrument_types.insert(InstrumentType::RANDOM_DELAY);
+      loprintf("  - random_delay: forcing random_delay instrumentation\n");
     }
   }
 }
@@ -209,7 +257,7 @@ void init_config_from_env() {
   get_var_str(kernel_filters_env, "KERNEL_FILTERS", "", "Kernel name filters");
   std::string analysis_str;
   get_var_str(analysis_str, "CUTRACER_ANALYSIS", "",
-              "Analysis types to enable (proton_instr_histogram, deadlock_detection)");
+              "Analysis types to enable (proton_instr_histogram, deadlock_detection, random_delay)");
 
   //===== Initializations ==========
   // Get kernel name filters
@@ -241,28 +289,8 @@ void init_config_from_env() {
     zstd_compression_level = 22;
   }
 
-  // Random delay configuration for synchronization instrumentation
-  // Use int64_t to detect overflow before casting to uint32_t
-  const char* random_delay_env = getenv("CUTRACER_RANDOM_DELAY_NS");
-  if (random_delay_env) {
-    int64_t delay_val = atoll(random_delay_env);
-    if (delay_val < 0) {
-      fprintf(stderr, "FATAL: CUTRACER_RANDOM_DELAY_NS=%s is negative. Must be 0-%u.\n", random_delay_env, UINT32_MAX);
-      exit(1);
-    }
-    if (delay_val > UINT32_MAX) {
-      fprintf(stderr, "FATAL: CUTRACER_RANDOM_DELAY_NS=%s exceeds maximum value of %u.\n", random_delay_env,
-              UINT32_MAX);
-      exit(1);
-    }
-    random_delay_max_ns = (uint32_t)delay_val;
-    enabled_instrument_types.insert(InstrumentType::RANDOM_DELAY);
-    loprintf("CUTRACER_RANDOM_DELAY_NS = %u (random delay enabled for synchronization instructions)\n",
-             random_delay_max_ns);
-  } else {
-    random_delay_max_ns = 0;
-    loprintf("CUTRACER_RANDOM_DELAY_NS = 0 (disabled)\n");
-  }
+  // Parse and validate CUTRACER_RANDOM_DELAY_NS
+  parse_random_delay_ns();
 
   std::string pad(100, '-');
   loprintf("%s\n", pad.c_str());

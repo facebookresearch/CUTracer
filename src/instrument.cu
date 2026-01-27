@@ -123,35 +123,22 @@ void instrument_memory_trace(Instr* instr, int opcode_id, CTXstate* ctx_state, i
 }
 
 /**
- * @brief Check if an instruction is eligible for delay instrumentation.
+ * @brief Check if an instruction should have delay injected.
  *
- * Returns true for synchronization-related instructions where injecting
- * delays can help expose race conditions or timing-sensitive bugs.
+ * @param instr The instruction to check
+ * @param patterns Vector of SASS substrings to match against
+ * @return true if the instruction's SASS matches any pattern
  */
-bool is_delay_eligible(Instr* instr) {
+bool isInstrForDelayInjection(Instr* instr, const std::vector<const char*>& patterns) {
   const char* sass = instr->getSass();
   if (sass == nullptr) {
     return false;
   }
 
-  // mbarrier try_wait: tlx.barrier_wait(barrier, phase)
-  if (strstr(sass, "SYNCS.PHASECHK.TRANS64.TRYWAIT") != nullptr) {
-    return true;
-  }
-
-  // mbarrier arrive: tlx.barrier_arrive(barrier)
-  if (strstr(sass, "SYNCS.ARRIVE.TRANS64.RED.A1T0") != nullptr) {
-    return true;
-  }
-
-  // TMA load: tlx.async_descriptor_load(...)
-  if (strstr(sass, "UTMALDG.2D") != nullptr) {
-    return true;
-  }
-
-  // MMA wait: tlx.async_dot_wait(...)
-  if (strstr(sass, "WARPGROUP.DEPBAR.LE") != nullptr) {
-    return true;
+  for (const char* pattern : patterns) {
+    if (strstr(sass, pattern) != nullptr) {
+      return true;
+    }
   }
 
   return false;
