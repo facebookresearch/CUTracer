@@ -13,6 +13,7 @@
 
 #include "analysis.h"
 #include "instrument.h"
+#include "log.h"
 #include "nvbit.h"
 
 /**
@@ -120,3 +121,52 @@ void instrument_memory_trace(Instr* instr, int opcode_id, CTXstate* ctx_state, i
   /* add pointer to channel_dev*/
   nvbit_add_call_arg_const_val64(instr, (uint64_t)ctx_state->channel_dev);
 }
+
+/**
+ * @brief Check if an instruction should have delay injected.
+ *
+ * @param instr The instruction to check
+ * @param patterns Vector of SASS substrings to match against
+ * @return true if the instruction's SASS matches any pattern
+ */
+bool shouldInjectDelay(Instr* instr, const std::vector<const char*>& patterns) {
+  const char* sass = instr->getSass();
+  if (sass == nullptr) {
+    return false;
+  }
+
+  for (const char* pattern : patterns) {
+    if (strstr(sass, pattern) != nullptr) {
+      return true;
+    }
+  }
+
+  return false;
+}
+
+/**
+ * @brief Instruments an instruction to inject a random delay.
+ *
+ * Inserts a call to the `instrument_delay` device function before the
+ * instruction. The delay is computed on the host side as a random value
+ * within the configured range, so each instruction gets a unique delay value.
+ * This introduces timing variation to help expose potential race conditions.
+ *
+ * @param instr The instruction to instrument
+ * @param max_delay_ns Maximum delay in nanoseconds (random value 0 to max_delay_ns)
+ */
+void instrument_random_delay(Instr* instr, uint32_t max_delay_ns) {
+  /* Generate random delay on host side - each instruction gets a different value */
+  uint32_t delay_ns = (max_delay_ns > 0) ? (rand() % max_delay_ns) : 0;
+
+  loprintf_v("Instrumenting instruction: %s at PC 0x%lx with delay %u ns\n", instr->getSass(), instr->getOffset(),
+             delay_ns);
+
+  /* insert call to the instrumentation function with its arguments */
+  nvbit_insert_call(instr, "instrument_delay", IPOINT_BEFORE);
+  /* guard predicate value */
+  nvbit_add_call_arg_guard_pred_val(instr);
+  /* delay in nanoseconds - generated on host, unique per instruction */
+  nvbit_add_call_arg_const_val32(instr, delay_ns);
+}
+
