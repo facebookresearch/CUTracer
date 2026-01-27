@@ -5,10 +5,11 @@ CUTracer is an NVBit-based CUDA binary instrumentation tool. It cleanly separate
 ## Features
 
 -   NVBit-powered, runtime attach via `CUDA_INJECTION64_PATH` (no app rebuild needed)
--   Multiple instrumentation modes: opcode-only, register trace, memory trace
+-   Multiple instrumentation modes: opcode-only, register trace, memory trace, random delay
 -   Built-in analyses:
     -   Instruction Histogram (for Proton/Triton workflows)
     -   Deadlock/Hang Detection
+    -   Data Race Detection
 -   CUDA Graph and stream-capture aware flows
 -   Deterministic kernel log file naming and CSV outputs
 
@@ -72,10 +73,11 @@ CUDA_INJECTION64_PATH=~/CUTracer/lib/cutracer.so \
 
 ## Configuration (env vars)
 
--   `CUTRACER_INSTRUMENT`: comma-separated modes: `opcode_only`, `reg_trace`, `mem_trace`
--   `CUTRACER_ANALYSIS`: comma-separated analyses: `proton_instr_histogram`, `deadlock_detection`
+-   `CUTRACER_INSTRUMENT`: comma-separated modes: `opcode_only`, `reg_trace`, `mem_trace`, `random_delay`
+-   `CUTRACER_ANALYSIS`: comma-separated analyses: `proton_instr_histogram`, `deadlock_detection`, `random_delay`
     -   Enabling `proton_instr_histogram` auto-enables `opcode_only`
     -   Enabling `deadlock_detection` auto-enables `reg_trace`
+    -   Enabling `random_delay` requires `CUTRACER_RANDOM_DELAY_NS` to be set
 -   `KERNEL_FILTERS`: comma-separated substrings matching unmangled or mangled kernel names
 -   `INSTR_BEGIN`, `INSTR_END`: static instruction index gate during instrumentation
 -   `TOOL_VERBOSE`: 0/1/2
@@ -87,6 +89,7 @@ CUDA_INJECTION64_PATH=~/CUTracer/lib/cutracer.so \
     -   Lower values (1-3): Faster compression, slightly larger output
     -   Higher values (19-22): Maximum compression, slower but smallest output
     -   Default of 22 provides maximum compression for smallest output
+- `CUTRACER_RANDOM_DELAY_NS`: Maximum random delay in nanoseconds for race detection (0 = disabled)
 
 Note: The tool sets `CUDA_MANAGED_FORCE_DEVICE_ALLOC=1` to simplify channel memory handling.
 
@@ -97,14 +100,7 @@ Note: The tool sets `CUDA_MANAGED_FORCE_DEVICE_ALLOC=1` to simplify channel memo
 -   Counts SASS instruction mnemonics per warp within regions delimited by clock reads (start/stop model; nested regions not supported)
 -   Output: one CSV per kernel launch with columns `warp_id,region_id,instruction,count`
 
-### Deadlock / Hang Detection (deadlock_detection)
-
--   Detects sustained hangs by identifying warps stuck in stable PC loops; logs and issues SIGTERM→SIGKILL if sustained
--   Requires `reg_trace` (auto-enabled)
-
-## Examples
-
-### Triton/Proton (histogram + IPC):
+Example (Triton/Proton + IPC):
 
 ```bash
 cd ~/CUTracer/tests/proton_tests
@@ -126,13 +122,32 @@ python ~/CUTracer/scripts/parse_instr_hist_trace.py \
   --output vectoradd_ipc.csv
 ```
 
-### Deadlock/Hang detection (intentional loop example):
+### Deadlock / Hang Detection (deadlock_detection)
+
+-   Detects sustained hangs by identifying warps stuck in stable PC loops; logs and issues SIGTERM→SIGKILL if sustained
+-   Requires `reg_trace` (auto-enabled)
+
+Example (intentional loop):
 
 ```bash
 cd ~/CUTracer/tests/hang_test
 CUDA_INJECTION64_PATH=~/CUTracer/lib/cutracer.so \
 CUTRACER_ANALYSIS=deadlock_detection \
 python ./test_hang.py
+```
+
+### Data Race Detection (random_delay)
+
+-   Data races depend on timing and often pass by luck. This analysis uses random delay injection to detect races by injecting random delays before synchronization instructions, disrupting the timing and forcing hidden races to show up
+-   Requires `CUTRACER_RANDOM_DELAY_NS` to be set
+
+Example:
+
+```bash
+CUTRACER_RANDOM_DELAY_NS=1000 \
+CUTRACER_ANALYSIS=random_delay \
+CUDA_INJECTION64_PATH=~/CUTracer/lib/cutracer.so \
+python3 your_kernel.py
 ```
 
 ## Troubleshooting
