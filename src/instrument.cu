@@ -129,7 +129,7 @@ void instrument_memory_trace(Instr* instr, int opcode_id, CTXstate* ctx_state, i
  * @param patterns Vector of SASS substrings to match against
  * @return true if the instruction's SASS matches any pattern
  */
-bool isInstrForDelayInjection(Instr* instr, const std::vector<const char*>& patterns) {
+bool shouldInjectDelay(Instr* instr, const std::vector<const char*>& patterns) {
   const char* sass = instr->getSass();
   if (sass == nullptr) {
     return false;

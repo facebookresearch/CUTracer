@@ -99,6 +99,6 @@ static const std::vector<const char*> DELAY_INJECTION_PATTERNS = {
  * @param patterns Vector of SASS substrings to match against
  * @return true if the instruction matches any delay injection pattern
  */
-bool isInstrForDelayInjection(Instr* instr, const std::vector<const char*>& patterns);
+bool shouldInjectDelay(Instr* instr, const std::vector<const char*>& patterns);
 
 #endif /* INSTRUMENT_H */
