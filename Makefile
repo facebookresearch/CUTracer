@@ -36,10 +36,10 @@ DEBUG_FLAGS := -O3 -g
 endif
 
 # Directory structure
-SRC_DIR := src/
-OBJ_DIR := obj/
-LIB_DIR := lib/
-INCLUDE_DIR := include/
+SRC_DIR := src
+OBJ_DIR := obj
+LIB_DIR := lib
+INCLUDE_DIR := include
 
 # NVBIT settings
 NVBIT_PATH=./third_party/nvbit/core
@@ -93,16 +93,16 @@ LIBS=-L$(NVBIT_PATH) -lnvbit $(ZSTD_LIB) -lpthread
 NVCC_PATH=-L $(subst bin/nvcc,lib64,$(shell which nvcc | tr -s /))
 
 # Identify inject_funcs.cu specifically
-INJECT_FUNCS_SRC := $(SRC_DIR)inject_funcs.cu
-INJECT_FUNCS_OBJ := $(OBJ_DIR)inject_funcs.o
+INJECT_FUNCS_SRC := $(SRC_DIR)/inject_funcs.cu
+INJECT_FUNCS_OBJ := $(OBJ_DIR)/inject_funcs.o
 
 # Source files (excluding inject_funcs.cu)
-CU_SRCS := $(filter-out $(INJECT_FUNCS_SRC),$(wildcard $(SRC_DIR)*.cu))
-CPP_SRCS := $(wildcard $(SRC_DIR)*.cpp)
+CU_SRCS := $(filter-out $(INJECT_FUNCS_SRC),$(wildcard $(SRC_DIR)/*.cu))
+CPP_SRCS := $(wildcard $(SRC_DIR)/*.cpp)
 
 # Object files
-REGULAR_OBJS := $(patsubst $(SRC_DIR)%.cu,$(OBJ_DIR)%.o,$(CU_SRCS))
-CPP_OBJS := $(patsubst $(SRC_DIR)%.cpp,$(OBJ_DIR)%.o,$(CPP_SRCS))
+REGULAR_OBJS := $(patsubst $(SRC_DIR)/%.cu,$(OBJ_DIR)/%.o,$(CU_SRCS))
+CPP_OBJS := $(patsubst $(SRC_DIR)/%.cpp,$(OBJ_DIR)/%.o,$(CPP_SRCS))
 
 # All objects (regular + inject_funcs + cpp)
 OBJS := $(REGULAR_OBJS) $(INJECT_FUNCS_OBJ) $(CPP_OBJS)
@@ -115,6 +115,9 @@ NVBIT_TOOL=$(LIB_DIR)/$(PROJECT).so
 
 # Main targets
 all: dirs $(NVBIT_TOOL)
+	@echo ""
+	@echo "✅ Build successful! Output: $(NVBIT_TOOL)"
+	@echo ""
 
 dirs: $(OBJ_DIR) $(LIB_DIR)
 
@@ -126,18 +129,18 @@ $(LIB_DIR):
 
 # Linking rule
 $(NVBIT_TOOL): $(OBJS) $(NVBIT_PATH)/libnvbit.a
-	$(NVCC) -arch=$(ARCH) $(DEBUG_FLAGS) $(OBJS) $(LIBS) $(NVCC_PATH) -lcuda -lcudart_static -shared -o $@
+	$(NVCC) -arch=$(ARCH) $(DEBUG_FLAGS) $(OBJS) $(LIBS) $(NVCC_PATH) -Wno-deprecated-gpu-targets -lcuda -lcudart_static -shared -o $@
 
 # Compilation rule for regular CUDA files (excluding inject_funcs.cu)
-$(REGULAR_OBJS): $(OBJ_DIR)%.o: $(SRC_DIR)%.cu
-	$(NVCC) -dc -c -std=c++17 $(INCLUDES) -Xptxas -cloning=no -Xcompiler -Wall -arch=$(ARCH) $(DEBUG_FLAGS) -Xcompiler -fPIC $< -o $@
+$(REGULAR_OBJS): $(OBJ_DIR)/%.o: $(SRC_DIR)/%.cu
+	$(NVCC) -dc -c -std=c++17 $(INCLUDES) -Xptxas -cloning=no -Wno-deprecated-gpu-targets -Xcompiler -Wall -arch=$(ARCH) $(DEBUG_FLAGS) -Xcompiler -fPIC $< -o $@
 
 # Special rule for inject_funcs.cu
 $(INJECT_FUNCS_OBJ): $(INJECT_FUNCS_SRC)
-	$(NVCC) $(INCLUDES) $(MAXRREGCOUNT_FLAG) -Xptxas -astoolspatch --keep-device-functions -arch=$(ARCH) -Xcompiler -Wall -Xcompiler -fPIC -c $< -o $@
+	$(NVCC) $(INCLUDES) $(MAXRREGCOUNT_FLAG) -Wno-deprecated-gpu-targets -Xptxas -astoolspatch --keep-device-functions -arch=$(ARCH) -Xcompiler -Wall -Xcompiler -fPIC -c $< -o $@
 
 # Compilation rule for C++ files
-$(OBJ_DIR)%.o: $(SRC_DIR)%.cpp
+$(OBJ_DIR)/%.o: $(SRC_DIR)/%.cpp
 	$(CXX) -std=c++11 $(INCLUDES) -Wall $(DEBUG_FLAGS) -fPIC -c $< -o $@
 
 clean:
