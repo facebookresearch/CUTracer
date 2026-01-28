@@ -38,6 +38,7 @@ declare -A CUDA_FULL_VERSION=(
   ["12.8"]="12.8.1"
   ["12.9"]="12.9.1"
   ["13.0"]="13.0.2"
+  ["13.1"]="13.1.1"
 )
 
 declare -A CUDA_RUNFILE=(
@@ -45,6 +46,7 @@ declare -A CUDA_RUNFILE=(
   ["12.8"]="cuda_12.8.1_570.124.06_linux"
   ["12.9"]="cuda_12.9.1_575.57.08_linux"
   ["13.0"]="cuda_13.0.2_580.95.05_linux"
+  ["13.1"]="cuda_13.1.1_590.48.01_linux"
 )
 
 declare -A CUDNN_VERSIONS=(
@@ -52,6 +54,7 @@ declare -A CUDNN_VERSIONS=(
   ["12.8"]="9.15.1.9"
   ["12.9"]="9.15.1.9"
   ["13.0"]="9.15.1.9"
+  ["13.1"]="9.15.1.9"
 )
 
 declare -A CUDA_MAJOR=(
@@ -59,6 +62,7 @@ declare -A CUDA_MAJOR=(
   ["12.8"]="12"
   ["12.9"]="12"
   ["13.0"]="13"
+  ["13.1"]="13"
 )
 
 # Create temporary directory
