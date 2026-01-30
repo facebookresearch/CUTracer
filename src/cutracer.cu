@@ -42,9 +42,6 @@
 /* logging functionality */
 #include "log.h"
 
-/* Channel used to communicate from GPU to CPU receiving thread */
-#define CHANNEL_SIZE (1l << 20)
-
 #define CUDA_CHECK_LAST_ERROR()                                                                       \
   do {                                                                                                \
     cudaError_t err = cudaGetLastError();                                                             \
@@ -223,8 +220,8 @@ bool instrument_function_if_needed(CUcontext ctx, CUfunction func) {
           }
 
           // Use new instrumentation interface for memory tracing
-          if (is_instrument_type_enabled(InstrumentType::MEM_TRACE)) {
-            instrument_memory_trace(instr, opcode_id, ctx_state, mref_idx);
+          if (is_instrument_type_enabled(InstrumentType::MEM_ADDR_TRACE)) {
+            instrument_memory_addr_trace(instr, opcode_id, ctx_state, mref_idx);
           }
           mref_idx++;
         }
