@@ -215,7 +215,7 @@ struct CTXstate {
   time_t last_hang_check_time;
 
   // Pending mem traces per warp for out-of-order arrival (mem before reg)
-  std::unordered_map<WarpKey, std::deque<mem_access_t>, WarpKey::Hash> pending_mem_by_warp;
+  std::unordered_map<WarpKey, std::deque<mem_addr_access_t>, WarpKey::Hash> pending_mem_by_warp;
 
   // Per-warp activity timestamps for inactive cleanup
   std::unordered_map<WarpKey, time_t, WarpKey::Hash> last_seen_time_by_warp;
