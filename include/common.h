@@ -15,7 +15,12 @@
 #include <stdint.h>
 
 /* Message type enum to identify different message types */
-typedef enum { MSG_TYPE_REG_INFO = 0, MSG_TYPE_MEM_ACCESS = 1, MSG_TYPE_OPCODE_ONLY = 2 } message_type_t;
+typedef enum {
+  MSG_TYPE_REG_INFO = 0,
+  MSG_TYPE_MEM_ADDR_ACCESS = 1,
+  MSG_TYPE_OPCODE_ONLY = 2,
+  MSG_TYPE_MEM_VALUE_ACCESS = 3  // Memory access with value tracing
+} message_type_t;
 
 /* Common header for all message types */
 typedef struct {
@@ -44,7 +49,7 @@ typedef struct {
 
 /* Based on NVIDIA mem_trace example with Meta modifications for message type support */
 typedef struct {
-  message_header_t header;  // Common header with type=MSG_TYPE_MEM_ACCESS
+  message_header_t header;  // Common header with type=MSG_TYPE_MEM_ADDR_ACCESS
   uint64_t kernel_launch_id;
   int cta_id_x;
   int cta_id_y;
@@ -53,7 +58,33 @@ typedef struct {
   int warp_id;
   int opcode_id;
   uint64_t addrs[32];
-} mem_access_t;
+} mem_addr_access_t;
+
+/**
+ * @brief Memory access with value tracing structure.
+ *
+ * This structure captures both memory addresses AND values for detailed
+ * data flow analysis. It is larger than mem_addr_access_t (~820 bytes vs ~300 bytes)
+ * due to the values array.
+ *
+ * Used when CUTRACER_INSTRUMENT=mem_value_trace is enabled.
+ * Always captured at IPOINT_AFTER for consistent timing semantics.
+ */
+typedef struct {
+  message_header_t header;  // type=MSG_TYPE_MEM_VALUE_ACCESS
+  uint64_t kernel_launch_id;
+  int cta_id_x;
+  int cta_id_y;
+  int cta_id_z;
+  uint64_t pc;
+  int warp_id;
+  int opcode_id;
+  int mem_space;           // Memory space: GLOBAL=1, SHARED=4, LOCAL=5 (matches InstrType::MemorySpace)
+  int is_load;             // 1=load, 0=store
+  int access_size;         // Access size in bytes (1, 2, 4, 8, 16)
+  uint64_t addrs[32];      // Memory addresses for each lane
+  uint32_t values[32][4];  // Values: [lane][reg_idx], max 128-bit (4x32-bit) per lane
+} mem_value_access_t;
 
 /**
  * @brief A lightweight data packet for instruction histogram analysis.

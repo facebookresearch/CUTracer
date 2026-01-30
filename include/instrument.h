@@ -15,10 +15,11 @@
  * @brief Instrumentation types for different data collection modes
  */
 enum class InstrumentType {
-  OPCODE_ONLY,  // Lightweight: only collect opcode information
-  REG_TRACE,    // Medium: collect register values
-  MEM_TRACE,    // Heavy: collect memory access information
-  RANDOM_DELAY  // Inject random delays on synchronization instructions
+  OPCODE_ONLY,      // Lightweight: only collect opcode information
+  REG_TRACE,        // Medium: collect register values
+  MEM_ADDR_TRACE,   // Heavy: collect memory access information (address only)
+  MEM_VALUE_TRACE,  // Heavy: collect memory access with values
+  RANDOM_DELAY      // Inject random delays on synchronization instructions
 };
 
 /**
@@ -68,7 +69,21 @@ void instrument_register_trace(Instr* instr, int opcode_id, CTXstate* ctx_state,
  * @param ctx_state The context state containing channel information
  * @param mref_idx Memory reference index
  */
-void instrument_memory_trace(Instr* instr, int opcode_id, CTXstate* ctx_state, int mref_idx);
+void instrument_memory_addr_trace(Instr* instr, int opcode_id, CTXstate* ctx_state, int mref_idx);
+
+/**
+ * @brief Insert memory access tracing with value capture instrumentation
+ *
+ * Collects memory addresses AND values for data flow analysis.
+ * Always uses IPOINT_AFTER for consistent timing semantics.
+ *
+ * @param instr The instruction to instrument
+ * @param opcode_id The opcode identifier for this instruction
+ * @param ctx_state The context state containing channel information
+ * @param mref_idx Memory reference index
+ * @param mem_space Memory space type (obtained via instr->getMemorySpace() in cutracer.cu)
+ */
+void instrument_memory_value_trace(Instr* instr, int opcode_id, CTXstate* ctx_state, int mref_idx, int mem_space);
 
 /**
  * @brief Insert random delay instrumentation for synchronization instructions

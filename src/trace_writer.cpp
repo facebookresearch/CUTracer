@@ -147,6 +147,18 @@ void TraceWriter::flush() {
 // Private Helpers
 // ============================================================================
 
+template <typename T>
+void serialize_common_fields(nlohmann::json& j, const T* data) {
+  j["grid_launch_id"] = data->kernel_launch_id;
+  j["cta"] = {data->cta_id_x, data->cta_id_y, data->cta_id_z};
+  j["warp"] = data->warp_id;
+  j["opcode_id"] = data->opcode_id;
+
+  std::stringstream pc_ss;
+  pc_ss << "0x" << std::hex << data->pc;
+  j["pc"] = pc_ss.str();
+}
+
 bool TraceWriter::write_data(const char* data, size_t size, const char* data_type) {
   if (fd_ < 0) return false;
 
@@ -249,12 +261,7 @@ void TraceWriter::serialize_reg_info(nlohmann::json& j, const reg_info_t* reg) {
 
   using json = nlohmann::json;
 
-  // Basic fields
-  j["grid_launch_id"] = reg->kernel_launch_id;
-  j["cta"] = {reg->cta_id_x, reg->cta_id_y, reg->cta_id_z};
-  j["warp"] = reg->warp_id;
-  j["opcode_id"] = reg->opcode_id;
-  j["pc"] = reg->pc;
+  serialize_common_fields(j, reg);
 
   // CRITICAL: Transpose register array
   // C layout: reg_vals[thread][reg] → JSON: regs[reg][thread]
@@ -280,15 +287,10 @@ void TraceWriter::serialize_reg_info(nlohmann::json& j, const reg_info_t* reg) {
   }
 }
 
-void TraceWriter::serialize_mem_access(nlohmann::json& j, const mem_access_t* mem) {
+void TraceWriter::serialize_mem_access(nlohmann::json& j, const mem_addr_access_t* mem) {
   if (!mem) return;
 
-  // Basic fields
-  j["grid_launch_id"] = mem->kernel_launch_id;
-  j["cta"] = {mem->cta_id_x, mem->cta_id_y, mem->cta_id_z};
-  j["warp"] = mem->warp_id;
-  j["opcode_id"] = mem->opcode_id;
-  j["pc"] = mem->pc;
+  serialize_common_fields(j, mem);
 
   // Convert address array (32 addresses)
   std::vector<uint64_t> addrs(mem->addrs, mem->addrs + 32);
@@ -298,12 +300,39 @@ void TraceWriter::serialize_mem_access(nlohmann::json& j, const mem_access_t* me
 void TraceWriter::serialize_opcode_only(nlohmann::json& j, const opcode_only_t* opcode) {
   if (!opcode) return;
 
-  // Basic fields (minimal - opcode_only is lightweight)
-  j["grid_launch_id"] = opcode->kernel_launch_id;
-  j["cta"] = {opcode->cta_id_x, opcode->cta_id_y, opcode->cta_id_z};
-  j["warp"] = opcode->warp_id;
-  j["opcode_id"] = opcode->opcode_id;
-  j["pc"] = opcode->pc;
+  serialize_common_fields(j, opcode);
+}
+
+void TraceWriter::serialize_mem_value_access(nlohmann::json& j, const mem_value_access_t* mem) {
+  if (!mem) return;
+
+  using json = nlohmann::json;
+
+  serialize_common_fields(j, mem);
+
+  // Memory access metadata
+  j["mem_space"] = mem->mem_space;
+  j["is_load"] = (mem->is_load == 1);
+  j["access_size"] = mem->access_size;
+
+  // Convert address array (32 addresses)
+  std::vector<uint64_t> addrs(mem->addrs, mem->addrs + 32);
+  j["addrs"] = addrs;
+
+  // Convert values array (32 lanes x up to 4 registers based on access_size)
+  // Only include registers needed for the access size
+  int regs_needed = (mem->access_size + 3) / 4;
+  if (regs_needed > 4) regs_needed = 4;
+
+  json::array_t values_array;
+  for (int lane = 0; lane < 32; lane++) {
+    json::array_t lane_vals;
+    for (int r = 0; r < regs_needed; r++) {
+      lane_vals.push_back(mem->values[lane][r]);
+    }
+    values_array.push_back(lane_vals);
+  }
+  j["values"] = values_array;
 }
 
 // ============================================================================
@@ -344,8 +373,8 @@ void TraceWriter::write_text_format(const TraceRecord& record) {
       break;
     }
 
-    case MSG_TYPE_MEM_ACCESS: {
-      const mem_access_t* mem = record.data.mem_access;
+    case MSG_TYPE_MEM_ADDR_ACCESS: {
+      const mem_addr_access_t* mem = record.data.mem_access;
 
       // Print header
       fprintf(file_handle_, "CTX %p - kernel_launch_id %ld - CTA %d,%d,%d - warp %d - PC %ld - %s:\n", record.context,
@@ -394,8 +423,13 @@ void TraceWriter::write_json_format(const TraceRecord& record) {
       case MSG_TYPE_REG_INFO:
         j["type"] = "reg_trace";
         break;
-      case MSG_TYPE_MEM_ACCESS:
-        j["type"] = "mem_trace";
+      case MSG_TYPE_MEM_ADDR_ACCESS:
+        j["type"] = "mem_addr_trace";
+        j["ipoint"] = "B";  // IPOINT_BEFORE
+        break;
+      case MSG_TYPE_MEM_VALUE_ACCESS:
+        j["type"] = "mem_value_trace";
+        j["ipoint"] = "A";  // IPOINT_AFTER
         break;
       case MSG_TYPE_OPCODE_ONLY:
         j["type"] = "opcode_only";
@@ -427,8 +461,11 @@ void TraceWriter::write_json_format(const TraceRecord& record) {
       case MSG_TYPE_REG_INFO:
         serialize_reg_info(j, record.data.reg_info);
         break;
-      case MSG_TYPE_MEM_ACCESS:
+      case MSG_TYPE_MEM_ADDR_ACCESS:
         serialize_mem_access(j, record.data.mem_access);
+        break;
+      case MSG_TYPE_MEM_VALUE_ACCESS:
+        serialize_mem_value_access(j, record.data.mem_value_access);
         break;
       case MSG_TYPE_OPCODE_ONLY:
         serialize_opcode_only(j, record.data.opcode_only);
