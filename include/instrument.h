@@ -81,8 +81,9 @@ void instrument_memory_addr_trace(Instr* instr, int opcode_id, CTXstate* ctx_sta
  * @param opcode_id The opcode identifier for this instruction
  * @param ctx_state The context state containing channel information
  * @param mref_idx Memory reference index
+ * @param mem_space Memory space type (obtained via instr->getMemorySpace() in cutracer.cu)
  */
-void instrument_memory_value_trace(Instr* instr, int opcode_id, CTXstate* ctx_state, int mref_idx);
+void instrument_memory_value_trace(Instr* instr, int opcode_id, CTXstate* ctx_state, int mref_idx, int mem_space);
 
 /**
  * @brief Insert random delay instrumentation for synchronization instructions
