@@ -410,8 +410,8 @@ static uint64_t get_kernel_launch_id(const message_header_t* header) {
       return ((const reg_info_t*)header)->kernel_launch_id;
     case MSG_TYPE_OPCODE_ONLY:
       return ((const opcode_only_t*)header)->kernel_launch_id;
-    case MSG_TYPE_MEM_ACCESS:
-      return ((const mem_access_t*)header)->kernel_launch_id;
+    case MSG_TYPE_MEM_ADDR_ACCESS:
+      return ((const mem_addr_access_t*)header)->kernel_launch_id;
     default:
       return 0;  // Invalid/unknown message type - no kernel ID available
   }
@@ -990,7 +990,7 @@ static void check_kernel_hang(CTXstate* ctx_state, uint64_t current_kernel_launc
  * Meta's enhancements transform this from a simple single-purpose function to a
  * versatile multi-analysis pipeline:
  *  - **Generic Message-Passing System**: The original function only handled one
- *    data type (`mem_access_t`). This version uses a `message_header_t` to
+ *    data type (`mem_addr_access_t`). This version uses a `message_header_t` to
  *    identify different packet types (`reg_info_t`, `opcode_only_t`, etc.) and
  *    dispatch them to the appropriate analysis logic.
  *  - **Instruction Histogram Analysis**: It contains the complete host-side logic
@@ -1148,8 +1148,8 @@ void* recv_thread_fun(void* args) {
           }
           num_processed_bytes += sizeof(opcode_only_t);
 
-        } else if (header->type == MSG_TYPE_MEM_ACCESS) {
-          mem_access_t* mem = (mem_access_t*)&recv_buffer[num_processed_bytes];
+        } else if (header->type == MSG_TYPE_MEM_ADDR_ACCESS) {
+          mem_addr_access_t* mem = (mem_addr_access_t*)&recv_buffer[num_processed_bytes];
 
           // Get SASS string for trace output
           std::string sass_str_cpp;
@@ -1171,7 +1171,7 @@ void* recv_thread_fun(void* args) {
             ctx_state->trace_writer->write_trace(record);
           }
 
-          num_processed_bytes += sizeof(mem_access_t);
+          num_processed_bytes += sizeof(mem_addr_access_t);
         } else {
           // Unknown message type, print error and break loop
           // TODO: handle error message in our current log mechanism
