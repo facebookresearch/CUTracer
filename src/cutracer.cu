@@ -42,9 +42,6 @@
 /* logging functionality */
 #include "log.h"
 
-/* Channel used to communicate from GPU to CPU receiving thread */
-#define CHANNEL_SIZE (1l << 20)
-
 #define CUDA_CHECK_LAST_ERROR()                                                                       \
   do {                                                                                                \
     cudaError_t err = cudaGetLastError();                                                             \
