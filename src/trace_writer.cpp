@@ -306,6 +306,43 @@ void TraceWriter::serialize_opcode_only(nlohmann::json& j, const opcode_only_t* 
   j["pc"] = opcode->pc;
 }
 
+void TraceWriter::serialize_mem_value_access(nlohmann::json& j, const mem_value_access_t* mem) {
+  if (!mem) return;
+
+  using json = nlohmann::json;
+
+  // Basic fields
+  j["grid_launch_id"] = mem->kernel_launch_id;
+  j["cta"] = {mem->cta_id_x, mem->cta_id_y, mem->cta_id_z};
+  j["warp"] = mem->warp_id;
+  j["opcode_id"] = mem->opcode_id;
+  j["pc"] = mem->pc;
+
+  // Memory access metadata
+  j["mem_space"] = mem->mem_space;
+  j["is_load"] = (mem->is_load == 1);
+  j["access_size"] = mem->access_size;
+
+  // Convert address array (32 addresses)
+  std::vector<uint64_t> addrs(mem->addrs, mem->addrs + 32);
+  j["addrs"] = addrs;
+
+  // Convert values array (32 lanes x up to 4 registers based on access_size)
+  // Only include registers needed for the access size
+  int regs_needed = (mem->access_size + 3) / 4;
+  if (regs_needed > 4) regs_needed = 4;
+
+  json::array_t values_array;
+  for (int lane = 0; lane < 32; lane++) {
+    json::array_t lane_vals;
+    for (int r = 0; r < regs_needed; r++) {
+      lane_vals.push_back(mem->values[lane][r]);
+    }
+    values_array.push_back(lane_vals);
+  }
+  j["values"] = values_array;
+}
+
 // ============================================================================
 // Format-specific output methods
 // ============================================================================
@@ -396,6 +433,11 @@ void TraceWriter::write_json_format(const TraceRecord& record) {
         break;
       case MSG_TYPE_MEM_ADDR_ACCESS:
         j["type"] = "mem_addr_trace";
+        j["ipoint"] = "B";  // IPOINT_BEFORE
+        break;
+      case MSG_TYPE_MEM_VALUE_ACCESS:
+        j["type"] = "mem_value_trace";
+        j["ipoint"] = "A";  // IPOINT_AFTER
         break;
       case MSG_TYPE_OPCODE_ONLY:
         j["type"] = "opcode_only";
@@ -429,6 +471,9 @@ void TraceWriter::write_json_format(const TraceRecord& record) {
         break;
       case MSG_TYPE_MEM_ADDR_ACCESS:
         serialize_mem_access(j, record.data.mem_access);
+        break;
+      case MSG_TYPE_MEM_VALUE_ACCESS:
+        serialize_mem_value_access(j, record.data.mem_value_access);
         break;
       case MSG_TYPE_OPCODE_ONLY:
         serialize_opcode_only(j, record.data.opcode_only);

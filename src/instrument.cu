@@ -172,3 +172,99 @@ void instrument_random_delay(Instr* instr, uint32_t max_delay_ns) {
   /* delay in nanoseconds - generated on host, unique per instruction */
   nvbit_add_call_arg_const_val32(instr, delay_ns);
 }
+
+/**
+ * @brief Instruments a memory instruction to trace memory access with values.
+ *
+ * This function instruments memory instructions to capture both addresses AND
+ * values for detailed data flow analysis. Unlike instrument_memory_trace() which
+ * uses IPOINT_BEFORE, this function uses IPOINT_AFTER to capture values after
+ * the memory operation completes.
+ *
+ * For Global/Local memory: values are read from registers
+ *   - Load instructions: read from destination register (value is in reg after load)
+ *   - Store instructions: read from source register (source reg is not modified by store)
+ *
+ * For Shared memory: values are read directly from memory using address space conversion
+ *
+ * @param instr The instruction to instrument
+ * @param opcode_id The opcode identifier for this instruction
+ * @param ctx_state The context state containing channel information
+ * @param mref_idx Memory reference index
+ * @param mem_space Memory space type (obtained via instr->getMemorySpace() in cutracer.cu)
+ */
+void instrument_memory_value_trace(Instr* instr, int opcode_id, CTXstate* ctx_state, int mref_idx, int mem_space) {
+  bool is_load = instr->isLoad();
+  int access_size = instr->getSize();
+
+  // Use IPOINT_AFTER for consistent timing semantics
+  nvbit_insert_call(instr, "instrument_mem_value", IPOINT_AFTER);
+
+  // Guard predicate value
+  nvbit_add_call_arg_guard_pred_val(instr);
+  // Opcode id
+  nvbit_add_call_arg_const_val32(instr, opcode_id);
+  // Memory reference 64 bit address
+  nvbit_add_call_arg_mref_addr64(instr, mref_idx);
+  // Access size in bytes
+  nvbit_add_call_arg_const_val32(instr, access_size);
+  // Memory space type (GLOBAL=1, SHARED=4, LOCAL=5)
+  nvbit_add_call_arg_const_val32(instr, mem_space);
+  // Is load operation (1=load, 0=store)
+  nvbit_add_call_arg_const_val32(instr, is_load ? 1 : 0);
+
+  // For Global/Local memory, we need to pass register values
+  // For Shared memory, device function will read directly from memory
+  int num_regs = 0;
+  std::vector<int> value_reg_nums;
+
+  // InstrType::MemorySpace::SHARED = 4
+  if (mem_space != 4) {
+    // Find the register operand that holds the value
+    // For load: destination register (usually first REG operand)
+    // For store: source register (usually last REG operand that's not part of address)
+    int num_operands = instr->getNumOperands();
+    int regs_needed = (access_size + 3) / 4;  // Number of 32-bit registers needed
+    if (regs_needed > 4) regs_needed = 4;     // Cap at 4 (128 bits)
+
+    for (int i = 0; i < num_operands && (int)value_reg_nums.size() < regs_needed; i++) {
+      const InstrType::operand_t* op = instr->getOperand(i);
+      if (op->type == InstrType::OperandType::REG) {
+        // For load: first REG operand is the destination
+        // For store: we want the source data register, which is typically at a different position
+        // The MREF operand contains address, REG operands are data
+        if (is_load) {
+          // First REG operand is destination for loads
+          for (int reg_idx = 0; reg_idx < regs_needed && (int)value_reg_nums.size() < regs_needed; reg_idx++) {
+            value_reg_nums.push_back(op->u.reg.num + reg_idx);
+          }
+          break;  // Found destination register(s)
+        } else {
+          // For stores, we want the source data register
+          // Skip if this looks like an address register (part of MREF)
+          // Typically for stores like STG [R10], R8 - R8 is the source
+          // We collect all REG operands that aren't part of address
+          for (int reg_idx = 0; reg_idx < regs_needed && (int)value_reg_nums.size() < regs_needed; reg_idx++) {
+            value_reg_nums.push_back(op->u.reg.num + reg_idx);
+          }
+        }
+      }
+    }
+    num_regs = value_reg_nums.size();
+  }
+
+  // Number of register values to follow
+  nvbit_add_call_arg_const_val32(instr, num_regs);
+  // Pointer to channel_dev
+  nvbit_add_call_arg_const_val64(instr, (uint64_t)ctx_state->channel_dev);
+  // Kernel launch id (set at launch time)
+  nvbit_add_call_arg_launch_val64(instr, 0);
+  // Instruction offset (PC)
+  nvbit_add_call_arg_const_val64(instr, instr->getOffset());
+
+  // Add register values as variadic arguments
+  for (int reg_num : value_reg_nums) {
+    nvbit_add_call_arg_reg_val(instr, reg_num, true);
+  }
+}
+
