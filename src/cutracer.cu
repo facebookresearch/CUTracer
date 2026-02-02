@@ -223,6 +223,11 @@ bool instrument_function_if_needed(CUcontext ctx, CUfunction func) {
           if (is_instrument_type_enabled(InstrumentType::MEM_ADDR_TRACE)) {
             instrument_memory_addr_trace(instr, opcode_id, ctx_state, mref_idx);
           }
+          // Memory value tracing (captures addresses + values at IPOINT_AFTER)
+          if (is_instrument_type_enabled(InstrumentType::MEM_VALUE_TRACE)) {
+            int mem_space = (int)instr->getMemorySpace();
+            instrument_memory_value_trace(instr, opcode_id, ctx_state, mref_idx, mem_space);
+          }
           mref_idx++;
         }
       }
