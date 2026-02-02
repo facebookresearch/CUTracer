@@ -15,10 +15,10 @@
  * @brief Instrumentation types for different data collection modes
  */
 enum class InstrumentType {
-  OPCODE_ONLY,  // Lightweight: only collect opcode information
-  REG_TRACE,    // Medium: collect register values
-  MEM_TRACE,    // Heavy: collect memory access information
-  RANDOM_DELAY  // Inject random delays on synchronization instructions
+  OPCODE_ONLY,     // Lightweight: only collect opcode information
+  REG_TRACE,       // Medium: collect register values
+  MEM_ADDR_TRACE,  // Heavy: collect memory access information (address only)
+  RANDOM_DELAY     // Inject random delays on synchronization instructions
 };
 
 /**
@@ -68,7 +68,7 @@ void instrument_register_trace(Instr* instr, int opcode_id, CTXstate* ctx_state,
  * @param ctx_state The context state containing channel information
  * @param mref_idx Memory reference index
  */
-void instrument_memory_trace(Instr* instr, int opcode_id, CTXstate* ctx_state, int mref_idx);
+void instrument_memory_addr_trace(Instr* instr, int opcode_id, CTXstate* ctx_state, int mref_idx);
 
 /**
  * @brief Insert random delay instrumentation for synchronization instructions

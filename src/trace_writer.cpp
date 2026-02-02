@@ -280,7 +280,7 @@ void TraceWriter::serialize_reg_info(nlohmann::json& j, const reg_info_t* reg) {
   }
 }
 
-void TraceWriter::serialize_mem_access(nlohmann::json& j, const mem_access_t* mem) {
+void TraceWriter::serialize_mem_access(nlohmann::json& j, const mem_addr_access_t* mem) {
   if (!mem) return;
 
   // Basic fields
@@ -344,8 +344,8 @@ void TraceWriter::write_text_format(const TraceRecord& record) {
       break;
     }
 
-    case MSG_TYPE_MEM_ACCESS: {
-      const mem_access_t* mem = record.data.mem_access;
+    case MSG_TYPE_MEM_ADDR_ACCESS: {
+      const mem_addr_access_t* mem = record.data.mem_access;
 
       // Print header
       fprintf(file_handle_, "CTX %p - kernel_launch_id %ld - CTA %d,%d,%d - warp %d - PC %ld - %s:\n", record.context,
@@ -394,8 +394,8 @@ void TraceWriter::write_json_format(const TraceRecord& record) {
       case MSG_TYPE_REG_INFO:
         j["type"] = "reg_trace";
         break;
-      case MSG_TYPE_MEM_ACCESS:
-        j["type"] = "mem_trace";
+      case MSG_TYPE_MEM_ADDR_ACCESS:
+        j["type"] = "mem_addr_trace";
         break;
       case MSG_TYPE_OPCODE_ONLY:
         j["type"] = "opcode_only";
@@ -427,7 +427,7 @@ void TraceWriter::write_json_format(const TraceRecord& record) {
       case MSG_TYPE_REG_INFO:
         serialize_reg_info(j, record.data.reg_info);
         break;
-      case MSG_TYPE_MEM_ACCESS:
+      case MSG_TYPE_MEM_ADDR_ACCESS:
         serialize_mem_access(j, record.data.mem_access);
         break;
       case MSG_TYPE_OPCODE_ONLY:

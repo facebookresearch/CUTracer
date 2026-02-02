@@ -101,8 +101,11 @@ void instrument_register_trace(Instr* instr, int opcode_id, CTXstate* ctx_state,
  *    instruction's program counter (PC) alongside the memory address. This
  *    allows for more detailed analysis by linking each memory access to a
  *    specific kernel launch and instruction.
+ *
+ * Note: This function implements `mem_addr_trace` mode which only captures
+ * memory addresses, not values. For value tracing, use `mem_value_trace` mode.
  */
-void instrument_memory_trace(Instr* instr, int opcode_id, CTXstate* ctx_state, int mref_idx) {
+void instrument_memory_addr_trace(Instr* instr, int opcode_id, CTXstate* ctx_state, int mref_idx) {
   /* insert call to the instrumentation function with its
    * arguments */
   nvbit_insert_call(instr, "instrument_mem", IPOINT_BEFORE);
@@ -169,4 +172,3 @@ void instrument_random_delay(Instr* instr, uint32_t max_delay_ns) {
   /* delay in nanoseconds - generated on host, unique per instruction */
   nvbit_add_call_arg_const_val32(instr, delay_ns);
 }
-

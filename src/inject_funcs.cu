@@ -87,9 +87,9 @@ extern "C" __device__ __noinline__ void instrument_mem(int pred, int opcode_id, 
   const int laneid = get_laneid();
   const int first_laneid = __ffs(active_mask) - 1;
 
-  mem_access_t ma;
+  mem_addr_access_t ma;
 
-  ma.header.type = MSG_TYPE_MEM_ACCESS;
+  ma.header.type = MSG_TYPE_MEM_ADDR_ACCESS;
 
   /* collect memory address information from other threads */
   for (int i = 0; i < 32; i++) {
@@ -107,7 +107,7 @@ extern "C" __device__ __noinline__ void instrument_mem(int pred, int opcode_id, 
   /* first active lane pushes information on the channel */
   if (first_laneid == laneid) {
     ChannelDev* channel_dev = (ChannelDev*)pchannel_dev;
-    channel_dev->push(&ma, sizeof(mem_access_t));
+    channel_dev->push(&ma, sizeof(mem_addr_access_t));
   }
 }
 
