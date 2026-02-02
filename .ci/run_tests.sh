@@ -142,6 +142,133 @@ build_vectoradd() {
   return 0
 }
 
+# Function to build vectoradd_smem test (shared memory version)
+build_vectoradd_smem() {
+  echo "🔨 Building vectoradd_smem test..."
+
+  cd "$PROJECT_ROOT/tests/vectoradd_smem"
+
+  # Clean and build
+  make clean
+  make -j$(nproc)
+
+  # Verify the test executable was built
+  if [ ! -f "$PROJECT_ROOT/tests/vectoradd_smem/vectoradd_smem" ]; then
+    echo "❌ vectoradd_smem test not found!"
+    return 1
+  fi
+
+  echo "✅ vectoradd_smem test built successfully"
+  ls -la "$PROJECT_ROOT/tests/vectoradd_smem/vectoradd_smem"
+
+  return 0
+}
+
+# Function to run vectoradd_smem with a specific instrument mode
+run_vectoradd_smem() {
+  local instrument_mode=$1
+  echo "  -> Running vectoradd_smem with CUTRACER_INSTRUMENT=$instrument_mode..."
+
+  cd "$PROJECT_ROOT/tests/vectoradd_smem"
+
+  # Clean up old trace files
+  rm -f *.ndjson *.ndjson.zst *.log
+
+  if ! CUDA_INJECTION64_PATH="$PROJECT_ROOT/lib/cutracer.so" \
+       CUTRACER_INSTRUMENT="$instrument_mode" \
+       ./vectoradd_smem >cutracer_output.log 2>&1; then
+    exit_code=$?
+    echo "❌ vectoradd_smem with $instrument_mode failed with exit code: $exit_code"
+    echo "     === CUTracer Output ==="
+    cat cutracer_output.log
+    return 1
+  fi
+
+  echo "  ✅ vectoradd_smem with $instrument_mode completed successfully"
+  return 0
+}
+
+# Function to get the trace file from a directory
+get_smem_trace_file() {
+  local trace_dir=$1
+  # Find the ndjson file (prefer uncompressed, fall back to zstd)
+  local trace_file=$(ls -1 "$trace_dir"/kernel_*.ndjson 2>/dev/null | head -n 1)
+  if [ -z "$trace_file" ]; then
+    trace_file=$(ls -1 "$trace_dir"/kernel_*.ndjson.zst 2>/dev/null | head -n 1)
+  fi
+  echo "$trace_file"
+}
+
+# Function to verify memory values in trace
+verify_mem_values() {
+  local trace_file=$1
+  echo "  🔍 Verifying memory values in trace..."
+
+  if [ -z "$trace_file" ] || [ ! -f "$trace_file" ]; then
+    echo "❌ Trace file not found: $trace_file"
+    return 1
+  fi
+
+  # Decompress if needed
+  local cat_cmd="cat"
+  if [[ "$trace_file" == *.zst ]]; then
+    cat_cmd="zstd -dc"
+  fi
+
+  # Check 1: trace contains 'values' field
+  local values_count=$($cat_cmd "$trace_file" | jq -c 'select(.values != null)' 2>/dev/null | wc -l)
+
+  if [ "$values_count" -lt 1 ]; then
+    echo "❌ FAILED: No 'values' field found in trace"
+    echo "     First few lines of trace:"
+    $cat_cmd "$trace_file" | head -5
+    return 1
+  fi
+  echo "  ✅ Found $values_count lines with values"
+
+  # Check 2: values arrays are not empty
+  local empty_values=$($cat_cmd "$trace_file" | jq -c 'select(.values != null and (.values | length) == 0)' 2>/dev/null | wc -l)
+
+  if [ "$empty_values" -gt 0 ]; then
+    echo "❌ FAILED: Found $empty_values lines with empty values array"
+    return 1
+  fi
+  echo "  ✅ All values arrays are non-empty"
+
+  # Check 3: values format is correct [low, high] pairs
+  local valid_format=$($cat_cmd "$trace_file" | jq -c 'select(.values != null) | .values[0] | length' 2>/dev/null | head -1)
+
+  if [ "$valid_format" != "2" ]; then
+    echo "❌ FAILED: values format incorrect, expected [low, high] pairs, got length: $valid_format"
+    return 1
+  fi
+  echo "  ✅ Values format is correct [low_32bit, high_32bit]"
+
+  # Check 4: Verify computation results (sin²(i) + cos²(i) = 1.0)
+  # 1.0 in IEEE 754 double = [0, 1072693248] or near [4294967295, 1072693247] (precision error)
+  local result_ones=$($cat_cmd "$trace_file" | jq -c 'select(.sass_str | test("STG")) | .values[]? | select(.[1] == 1072693248 or .[1] == 1072693247)' 2>/dev/null | wc -l)
+
+  if [ "$result_ones" -lt 1 ]; then
+    echo "⚠️  WARNING: Expected some result values ≈ 1.0, found $result_ones"
+    echo "     This may indicate incorrect value capture. Checking STG values..."
+    $cat_cmd "$trace_file" | jq -c 'select(.sass_str | test("STG")) | .values[0]' 2>/dev/null | head -3
+  else
+    echo "  ✅ Found $result_ones values ≈ 1.0 (sin²+cos²=1 verified)"
+  fi
+
+  # Check 5: Verify addrs field is also present (mem_value_trace should have both)
+  local addrs_count=$($cat_cmd "$trace_file" | jq -c 'select(.addrs != null)' 2>/dev/null | wc -l)
+
+  if [ "$addrs_count" -lt 1 ]; then
+    echo "⚠️  WARNING: No 'addrs' field found in trace (mem_value_trace should include addresses)"
+  else
+    echo "  ✅ Found $addrs_count lines with addrs (addresses also captured)"
+  fi
+
+  echo "  ✅ Memory value verification passed!"
+  return 0
+}
+
 # Function to run the complete vectoradd test suite
 test_vectoradd() {
   echo "🧪 Testing vectoradd (baseline, with CUTracer, and validation)..."
@@ -816,6 +943,42 @@ test_python_module() {
   return 0
 }
 
+# Function to test mem_value_trace (memory value tracing)
+test_mem_value_trace() {
+  echo "🧪 Testing memory value tracing (mem_value_trace)..."
+
+  # Build vectoradd_smem test (uses shared memory, good for value verification)
+  if ! build_vectoradd_smem; then
+    echo "❌ Failed to build vectoradd_smem"
+    return 1
+  fi
+
+  # Run with mem_value_trace mode
+  if ! run_vectoradd_smem "mem_value_trace"; then
+    echo "❌ Failed to run vectoradd_smem with mem_value_trace"
+    return 1
+  fi
+
+  # Get the trace file
+  local trace_file=$(get_smem_trace_file "$PROJECT_ROOT/tests/vectoradd_smem")
+  if [ -z "$trace_file" ]; then
+    echo "❌ No trace file found in vectoradd_smem directory"
+    ls -la "$PROJECT_ROOT/tests/vectoradd_smem"
+    return 1
+  fi
+  echo "  📄 Found trace file: $trace_file"
+
+  # Verify memory values
+  if ! verify_mem_values "$trace_file"; then
+    echo "❌ Memory value verification failed"
+    return 1
+  fi
+
+  echo "✅ mem_value_trace test passed!"
+  cd "$PROJECT_ROOT"
+  return 0
+}
+
 # Function to run all tests
 run_all_tests() {
   echo "🚀 Running all CUTracer tests..."
@@ -848,6 +1011,12 @@ run_all_tests() {
     return 1
   fi
 
+  build_vectoradd_smem
+  if ! test_mem_value_trace; then
+    echo "❌ mem_value_trace test failed"
+    return 1
+  fi
+
   echo "🎉 All tests passed successfully!"
   return 0
 }
@@ -857,13 +1026,16 @@ build_cutracer
 # Main execution
 case "$TEST_TYPE" in
 "build-only")
-  build_cutracer && build_vectoradd
+  build_cutracer && build_vectoradd && build_vectoradd_smem
   ;;
 "vectoradd")
   build_vectoradd && test_vectoradd && test_py_add_with_kernel_filters
   ;;
 "trace-formats")
   build_vectoradd && test_trace_formats
+  ;;
+"mem-value")
+  build_vectoradd_smem && test_mem_value_trace
   ;;
 "proton")
   test_proton

@@ -98,6 +98,7 @@ third_party/nvbit
 third_party/nlohmann
 
 tests/vectoradd/vectoradd
+tests/vectoradd_smem/vectoradd_smem
 .cache/
 compile_commands.json
 
