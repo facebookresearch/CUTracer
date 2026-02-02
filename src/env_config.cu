@@ -142,9 +142,9 @@ void init_instrumentation(const std::string& instrument_str) {
     enabled_instrument_types.insert(InstrumentType::REG_TRACE);
     loprintf("  - Enabled: reg_trace (register value tracing)\n");
   }
-  if (instrument_str.find("mem_trace") != std::string::npos) {
-    enabled_instrument_types.insert(InstrumentType::MEM_TRACE);
-    loprintf("  - Enabled: mem_trace (memory access tracing)\n");
+  if (instrument_str.find("mem_addr_trace") != std::string::npos) {
+    enabled_instrument_types.insert(InstrumentType::MEM_ADDR_TRACE);
+    loprintf("  - Enabled: mem_addr_trace (memory access address tracing)\n");
   }
   if (instrument_str.find("random_delay") != std::string::npos) {
     enabled_instrument_types.insert(InstrumentType::RANDOM_DELAY);
@@ -252,7 +252,7 @@ void init_config_from_env() {
                  "End of the instruction interval where to apply instrumentation");
   std::string instrument_str;
   get_var_str(instrument_str, "CUTRACER_INSTRUMENT", "",
-              "Instrumentation types to enable (opcode_only,reg_trace,mem_trace)");
+              "Instrumentation types to enable (opcode_only,reg_trace,mem_addr_trace)");
   std::string kernel_filters_env;
   get_var_str(kernel_filters_env, "KERNEL_FILTERS", "", "Kernel name filters");
   std::string analysis_str;

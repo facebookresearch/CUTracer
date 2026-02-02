@@ -15,7 +15,7 @@
 #include <stdint.h>
 
 /* Message type enum to identify different message types */
-typedef enum { MSG_TYPE_REG_INFO = 0, MSG_TYPE_MEM_ACCESS = 1, MSG_TYPE_OPCODE_ONLY = 2 } message_type_t;
+typedef enum { MSG_TYPE_REG_INFO = 0, MSG_TYPE_MEM_ADDR_ACCESS = 1, MSG_TYPE_OPCODE_ONLY = 2 } message_type_t;
 
 /* Common header for all message types */
 typedef struct {
@@ -44,7 +44,7 @@ typedef struct {
 
 /* Based on NVIDIA mem_trace example with Meta modifications for message type support */
 typedef struct {
-  message_header_t header;  // Common header with type=MSG_TYPE_MEM_ACCESS
+  message_header_t header;  // Common header with type=MSG_TYPE_MEM_ADDR_ACCESS
   uint64_t kernel_launch_id;
   int cta_id_x;
   int cta_id_y;
@@ -53,7 +53,7 @@ typedef struct {
   int warp_id;
   int opcode_id;
   uint64_t addrs[32];
-} mem_access_t;
+} mem_addr_access_t;
 
 /**
  * @brief A lightweight data packet for instruction histogram analysis.
