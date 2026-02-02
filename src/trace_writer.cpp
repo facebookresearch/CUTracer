@@ -147,6 +147,18 @@ void TraceWriter::flush() {
 // Private Helpers
 // ============================================================================
 
+template <typename T>
+void serialize_common_fields(nlohmann::json& j, const T* data) {
+  j["grid_launch_id"] = data->kernel_launch_id;
+  j["cta"] = {data->cta_id_x, data->cta_id_y, data->cta_id_z};
+  j["warp"] = data->warp_id;
+  j["opcode_id"] = data->opcode_id;
+
+  std::stringstream pc_ss;
+  pc_ss << "0x" << std::hex << data->pc;
+  j["pc"] = pc_ss.str();
+}
+
 bool TraceWriter::write_data(const char* data, size_t size, const char* data_type) {
   if (fd_ < 0) return false;
 
@@ -249,12 +261,7 @@ void TraceWriter::serialize_reg_info(nlohmann::json& j, const reg_info_t* reg) {
 
   using json = nlohmann::json;
 
-  // Basic fields
-  j["grid_launch_id"] = reg->kernel_launch_id;
-  j["cta"] = {reg->cta_id_x, reg->cta_id_y, reg->cta_id_z};
-  j["warp"] = reg->warp_id;
-  j["opcode_id"] = reg->opcode_id;
-  j["pc"] = reg->pc;
+  serialize_common_fields(j, reg);
 
   // CRITICAL: Transpose register array
   // C layout: reg_vals[thread][reg] → JSON: regs[reg][thread]
@@ -283,12 +290,7 @@ void TraceWriter::serialize_reg_info(nlohmann::json& j, const reg_info_t* reg) {
 void TraceWriter::serialize_mem_access(nlohmann::json& j, const mem_addr_access_t* mem) {
   if (!mem) return;
 
-  // Basic fields
-  j["grid_launch_id"] = mem->kernel_launch_id;
-  j["cta"] = {mem->cta_id_x, mem->cta_id_y, mem->cta_id_z};
-  j["warp"] = mem->warp_id;
-  j["opcode_id"] = mem->opcode_id;
-  j["pc"] = mem->pc;
+  serialize_common_fields(j, mem);
 
   // Convert address array (32 addresses)
   std::vector<uint64_t> addrs(mem->addrs, mem->addrs + 32);
@@ -298,12 +300,7 @@ void TraceWriter::serialize_mem_access(nlohmann::json& j, const mem_addr_access_
 void TraceWriter::serialize_opcode_only(nlohmann::json& j, const opcode_only_t* opcode) {
   if (!opcode) return;
 
-  // Basic fields (minimal - opcode_only is lightweight)
-  j["grid_launch_id"] = opcode->kernel_launch_id;
-  j["cta"] = {opcode->cta_id_x, opcode->cta_id_y, opcode->cta_id_z};
-  j["warp"] = opcode->warp_id;
-  j["opcode_id"] = opcode->opcode_id;
-  j["pc"] = opcode->pc;
+  serialize_common_fields(j, opcode);
 }
 
 void TraceWriter::serialize_mem_value_access(nlohmann::json& j, const mem_value_access_t* mem) {
@@ -311,12 +308,7 @@ void TraceWriter::serialize_mem_value_access(nlohmann::json& j, const mem_value_
 
   using json = nlohmann::json;
 
-  // Basic fields
-  j["grid_launch_id"] = mem->kernel_launch_id;
-  j["cta"] = {mem->cta_id_x, mem->cta_id_y, mem->cta_id_z};
-  j["warp"] = mem->warp_id;
-  j["opcode_id"] = mem->opcode_id;
-  j["pc"] = mem->pc;
+  serialize_common_fields(j, mem);
 
   // Memory access metadata
   j["mem_space"] = mem->mem_space;
