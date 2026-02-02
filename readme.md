@@ -1,6 +1,6 @@
 # CUTracer
 
-CUTracer is an NVBit-based CUDA binary instrumentation tool. It cleanly separates lightweight data collection (instrumentation) from host-side processing (analysis). Typical workflows include per-warp instruction histograms (delimited by GPU clock reads) and kernel hang detection.
+CUTracer is an [NVBit-based](https://github.com/NVlabs/NVBit) CUDA binary instrumentation tool. It cleanly separates lightweight data collection (instrumentation) from host-side processing (analysis). Typical workflows include per-warp instruction histograms (delimited by GPU clock reads) and kernel hang detection.
 
 ## Features
 
