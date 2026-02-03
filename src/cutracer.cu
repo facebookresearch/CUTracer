@@ -74,6 +74,9 @@ std::map<uint64_t, KernelDimensions> kernel_launch_to_dimensions_map;
 // map to store the iteration count for each kernel
 static std::map<CUfunction, uint32_t> kernel_iter_map;
 
+/* Set used to avoid re-instrumenting the same functions multiple times */
+std::unordered_set<CUfunction> already_instrumented;
+
 /* ===== Main Functionality ===== */
 /**
  * @brief Conditionally instruments a CUDA function by delegating to specialized
@@ -114,6 +117,12 @@ bool instrument_function_if_needed(CUcontext ctx, CUfunction func) {
   bool any_related_function_matched = kernel_filters.empty();
   /* iterate on function */
   for (auto f : related_functions) {
+    /* "recording" function was instrumented, if set insertion failed
+     * we have already encountered this function */
+    if (!already_instrumented.insert(f).second) {
+      continue;
+    }
+
     // Get function name (both mangled and unmangled versions)
     const char* unmangled_name = nvbit_get_func_name(ctx, f, false);
     const char* mangled_name = nvbit_get_func_name(ctx, f, true);
