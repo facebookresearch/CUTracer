@@ -114,7 +114,15 @@ bool instrument_function_if_needed(CUcontext ctx, CUfunction func) {
   /* add kernel itself to the related function vector */
   related_functions.push_back(func);
 
-  bool any_related_function_matched = kernel_filters.empty();
+  // Only instrument by default if:
+  // 1. No kernel filters specified (user wants all kernels), AND
+  // 2. Some instrumentation type is enabled (user wants trace data)
+  //
+  // If no instrumentation is enabled (CUTRACER_INSTRUMENT not set),
+  // we skip instrumentation and TraceWriter creation to avoid empty trace files.
+  // The kernel launch info is still logged to cutracer_main.log regardless.
+  bool any_related_function_matched = kernel_filters.empty() && has_any_instrumentation_enabled();
+
   /* iterate on function */
   for (auto f : related_functions) {
     /* "recording" function was instrumented, if set insertion failed
@@ -405,20 +413,25 @@ static bool enter_kernel_launch(CUcontext ctx, CUfunction func, uint64_t& kernel
     kernel_launch_id++;
   }
 
-  // Create TraceWriter for all trace modes (0/1/2)
+  // Create TraceWriter for each kernel launch (per-launch trace files)
   // Note: log_open_kernel_file() has been removed - TraceWriter now handles all trace output
   if (should_instrument) {
-    if (!ctx_state->trace_writer) {
-      std::string base_filename = generate_kernel_log_basename(ctx, func, kernel_iter_map[func]++);
-      ctx_state->trace_writer = new TraceWriter(base_filename, trace_format_ndjson);
+    // Each launch gets its own TraceWriter for independent trace files
+    std::string base_filename = generate_kernel_log_basename(ctx, func, kernel_iter_map[func]++);
+    uint64_t current_launch_id = kernel_launch_id - 1;  // kernel_launch_id was already incremented
 
-      // Initialize trace_index for this kernel
-      if (!stream_capture && !build_graph) {
-        ctx_state->trace_index_by_kernel[kernel_launch_id - 1] = 0;
-      }
-
-      loprintf_v("Created TraceWriter for mode %d, file: %s\n", trace_format_ndjson, base_filename.c_str());
+    {
+      std::unique_lock<std::shared_mutex> lock(ctx_state->writers_mutex);
+      ctx_state->trace_writers[current_launch_id] = new TraceWriter(base_filename, trace_format_ndjson);
     }
+
+    // Initialize trace_index for this kernel
+    if (!stream_capture && !build_graph) {
+      ctx_state->trace_index_by_kernel[current_launch_id] = 0;
+    }
+
+    loprintf_v("Created TraceWriter for launch_id %lu, mode %d, file: %s\n", current_launch_id, trace_format_ndjson,
+               base_filename.c_str());
   }
   /* enable instrumented code to run */
   nvbit_enable_instrumented(ctx, func, should_instrument);
@@ -436,9 +449,15 @@ static void leave_kernel_launch(CTXstate* ctx_state, uint64_t& grid_launch_id) {
   cudaDeviceSynchronize();
   CUDA_CHECK_LAST_ERROR();
 
-  // Flush TraceWriter buffer
-  if (ctx_state->trace_writer) {
-    ctx_state->trace_writer->flush();
+  // Flush current launch's TraceWriter buffer (but don't close it yet)
+  // The recv_thread will close writers when it detects launch_id changes
+  uint64_t current_launch_id = grid_launch_id - 1;
+  {
+    std::shared_lock<std::shared_mutex> lock(ctx_state->writers_mutex);
+    auto it = ctx_state->trace_writers.find(current_launch_id);
+    if (it != ctx_state->trace_writers.end() && it->second) {
+      it->second->flush();
+    }
   }
 }
 
@@ -610,11 +629,17 @@ void nvbit_at_ctx_term(CUcontext ctx) {
   ctx_state->recv_thread_done = RecvThreadState::STOP;
   while (ctx_state->recv_thread_done != RecvThreadState::FINISHED);
 
-  // Cleanup TraceWriter
-  if (ctx_state->trace_writer) {
-    ctx_state->trace_writer->flush();
-    delete ctx_state->trace_writer;
-    ctx_state->trace_writer = nullptr;
+  // Cleanup all TraceWriters (fallback - most should be closed by recv_thread)
+  {
+    std::unique_lock<std::shared_mutex> lock(ctx_state->writers_mutex);
+    for (auto& [launch_id, writer] : ctx_state->trace_writers) {
+      if (writer) {
+        loprintf_v("Cleaning up remaining writer for launch_id %lu\n", launch_id);
+        writer->flush();
+        delete writer;
+      }
+    }
+    ctx_state->trace_writers.clear();
   }
 
   // Clean up any remaining kernel mapping entries
@@ -639,6 +664,10 @@ void nvbit_at_graph_node_launch(CUcontext ctx, CUfunction func, CUstream stream,
   uint64_t pc = nvbit_get_func_addr(ctx, func);
 
   pthread_mutex_lock(&mutex);
+
+  assert(ctx_state_map.find(ctx) != ctx_state_map.end());
+  CTXstate* ctx_state = ctx_state_map[ctx];
+
   nvbit_set_at_launch(ctx, func, (uint64_t)global_kernel_launch_id, stream, launch_handle);
   nvbit_get_func_config(ctx, func, &config);
 
@@ -663,6 +692,22 @@ void nvbit_at_graph_node_launch(CUcontext ctx, CUfunction func, CUstream stream,
   dims.blockDimX = config.blockDimX;
   dims.blockDimY = config.blockDimY;
   dims.blockDimZ = config.blockDimZ;
+  kernel_launch_to_dimensions_map[global_kernel_launch_id] = dims;
+
+  // Create TraceWriter for this graph node launch only if instrumentation is enabled
+  // Otherwise, trace files would be empty (no data to write)
+  if (has_any_instrumentation_enabled()) {
+    std::string base_filename = generate_kernel_log_basename(ctx, func, kernel_iter_map[func]++);
+    {
+      std::unique_lock<std::shared_mutex> lock(ctx_state->writers_mutex);
+      ctx_state->trace_writers[global_kernel_launch_id] = new TraceWriter(base_filename, trace_format_ndjson);
+    }
+    ctx_state->trace_index_by_kernel[global_kernel_launch_id] = 0;
+
+    loprintf_v("Created TraceWriter for graph node launch_id %lu, file: %s\n", global_kernel_launch_id,
+               base_filename.c_str());
+  }
+
   // grid id can be changed here, since nvbit_set_at_launch() has copied its
   // value above.
   global_kernel_launch_id++;
