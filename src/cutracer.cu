@@ -706,6 +706,19 @@ void nvbit_at_graph_node_launch(CUcontext ctx, CUfunction func, CUstream stream,
       (uint64_t)ctx, pc, func_name, global_kernel_launch_id, config.gridDimX, config.gridDimY, config.gridDimZ,
       config.blockDimX, config.blockDimY, config.blockDimZ, config.num_registers,
       config.shmem_static_nbytes + config.shmem_dynamic_nbytes, (uint64_t)stream);
+
+  // Store kernel launch mapping for graph node launches
+  kernel_launch_to_func_map[global_kernel_launch_id] = {ctx, func};
+  kernel_launch_to_iter_map[global_kernel_launch_id] = kernel_iter_map[func];
+
+  // Store kernel dimensions
+  KernelDimensions dims;
+  dims.gridDimX = config.gridDimX;
+  dims.gridDimY = config.gridDimY;
+  dims.gridDimZ = config.gridDimZ;
+  dims.blockDimX = config.blockDimX;
+  dims.blockDimY = config.blockDimY;
+  dims.blockDimZ = config.blockDimZ;
   // grid id can be changed here, since nvbit_set_at_launch() has copied its
   // value above.
   global_kernel_launch_id++;
