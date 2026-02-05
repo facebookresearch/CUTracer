@@ -6,9 +6,28 @@
 # Create third_party directory (if it doesn't exist)
 mkdir -p third_party
 
-# Use GitHub API to get the latest release information
-echo "Getting latest NVBit version information..."
-RELEASE_INFO=$(curl -s https://api.github.com/repos/NVlabs/NVBit/releases/latest)
+# Default NVBit version (without 'v' prefix)
+DEFAULT_NVBIT_VERSION="1.7.6"
+
+# Check NVBIT_VERSION: use default if not set, fetch latest if "latest", otherwise use specified version
+if [ -z "$NVBIT_VERSION" ]; then
+  # Use default version
+  VERSION="$DEFAULT_NVBIT_VERSION"
+  echo "Using default NVBit version: $VERSION"
+  RELEASE_INFO=$(curl -s "https://api.github.com/repos/NVlabs/NVBit/releases/tags/v${VERSION}")
+elif [ "$NVBIT_VERSION" = "latest" ]; then
+  # Fetch latest version
+  echo "Getting latest NVBit version information..."
+  RELEASE_INFO=$(curl -s https://api.github.com/repos/NVlabs/NVBit/releases/latest)
+  VERSION=$(echo $RELEASE_INFO | grep -o '"tag_name": "[^"]*' | cut -d'"' -f4)
+  echo "Latest version: $VERSION"
+else
+  # Use specified version, strip 'v' prefix if present for consistency
+  [[ "$NVBIT_VERSION" =~ ^v ]] && NVBIT_VERSION="${NVBIT_VERSION#v}"
+  VERSION="$NVBIT_VERSION"
+  echo "Using specified NVBit version: $VERSION"
+  RELEASE_INFO=$(curl -s "https://api.github.com/repos/NVlabs/NVBit/releases/tags/v${VERSION}")
+fi
 
 # Check if API call was successful
 if [ $? -ne 0 ]; then
@@ -16,9 +35,14 @@ if [ $? -ne 0 ]; then
   exit 1
 fi
 
-# Get the latest version number
-VERSION=$(echo $RELEASE_INFO | grep -o '"tag_name": "[^"]*' | cut -d'"' -f4)
-echo "Latest version: $VERSION"
+# Verify version exists (for non-latest requests)
+if [ "$NVBIT_VERSION" != "latest" ]; then
+  TAG_CHECK=$(echo $RELEASE_INFO | grep -o '"tag_name": "[^"]*' | cut -d'"' -f4)
+  if [ -z "$TAG_CHECK" ]; then
+    echo "Error: Specified version $VERSION not found."
+    exit 1
+  fi
+fi
 
 # Find the download link for the x86_64 version
 DOWNLOAD_URL=$(echo $RELEASE_INFO | grep -o '"browser_download_url": "[^"]*x86_64[^"]*\.tar\.bz2"' | cut -d'"' -f4)
@@ -82,7 +106,7 @@ echo "NVBit $VERSION has been successfully installed to third_party/nvbit direct
 # Install nlohmann/json
 echo ""
 echo "Downloading nlohmann/json..."
-JSON_VERSION="v3.11.3"
+: "${JSON_VERSION:=v3.11.3}"  # Use env var if set, otherwise default to v3.11.3
 JSON_URL="https://github.com/nlohmann/json/releases/download/${JSON_VERSION}/json.hpp"
 
 mkdir -p third_party/nlohmann
