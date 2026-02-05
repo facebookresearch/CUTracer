@@ -86,16 +86,15 @@ void instrument_memory_addr_trace(Instr* instr, int opcode_id, CTXstate* ctx_sta
 void instrument_memory_value_trace(Instr* instr, int opcode_id, CTXstate* ctx_state, int mref_idx, int mem_space);
 
 /**
- * @brief Insert random delay instrumentation for synchronization instructions
+ * @brief Instruments an instruction to inject a fixed delay.
  *
- * Injects a random delay before eligible synchronization instructions.
- * The delay is computed on the host side, so each instruction gets a unique
- * random value. This is useful for exposing potential race conditions.
+ * Inserts a call to the `instrument_delay` device function before the
+ * instruction. The delay value is a fixed value determined by CUTRACER_DELAY_NS.
  *
  * @param instr The instruction to instrument
- * @param max_delay_ns Maximum random delay in nanoseconds
+ * @param delay_ns Fixed delay in nanoseconds
  */
-void instrument_random_delay(Instr* instr, uint32_t max_delay_ns);
+void instrument_delay_injection(Instr* instr, uint32_t delay_ns);
 
 /**
  * @brief SASS instruction patterns for delay injection.

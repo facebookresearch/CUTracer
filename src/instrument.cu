@@ -148,20 +148,15 @@ bool shouldInjectDelay(Instr* instr, const std::vector<const char*>& patterns) {
 }
 
 /**
- * @brief Instruments an instruction to inject a random delay.
+ * @brief Instruments an instruction to inject a fixed delay.
  *
  * Inserts a call to the `instrument_delay` device function before the
- * instruction. The delay is computed on the host side as a random value
- * within the configured range, so each instruction gets a unique delay value.
- * This introduces timing variation to help expose potential race conditions.
+ * instruction. The delay value is a fixed value determined by CUTRACER_DELAY_NS.
  *
  * @param instr The instruction to instrument
- * @param max_delay_ns Maximum delay in nanoseconds (random value 0 to max_delay_ns)
+ * @param delay_ns Fixed delay in nanoseconds
  */
-void instrument_random_delay(Instr* instr, uint32_t max_delay_ns) {
-  /* Generate random delay on host side - each instruction gets a different value */
-  uint32_t delay_ns = (max_delay_ns > 0) ? (rand() % max_delay_ns) : 0;
-
+void instrument_delay_injection(Instr* instr, uint32_t delay_ns) {
   loprintf_v("Instrumenting instruction: %s at PC 0x%lx with delay %u ns\n", instr->getSass(), instr->getOffset(),
              delay_ns);
 
@@ -169,7 +164,7 @@ void instrument_random_delay(Instr* instr, uint32_t max_delay_ns) {
   nvbit_insert_call(instr, "instrument_delay", IPOINT_BEFORE);
   /* guard predicate value */
   nvbit_add_call_arg_guard_pred_val(instr);
-  /* delay in nanoseconds - generated on host, unique per instruction */
+  /* delay in nanoseconds */
   nvbit_add_call_arg_const_val32(instr, delay_ns);
 }
 
