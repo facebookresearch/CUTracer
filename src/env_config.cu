@@ -32,10 +32,13 @@ int trace_format_ndjson;
 int zstd_compression_level;
 
 // Delay value in nanoseconds for synchronization instrumentation
-uint32_t delay_ns;
+uint32_t g_delay_ns;
 
 // Delay config dump output path (optional)
 std::string delay_dump_path;
+
+// Delay config load path (optional)
+std::string delay_load_path;
 
 /**
  * @brief Parses a comma-separated string of kernel name filters for substring matching.
@@ -188,10 +191,22 @@ void parse_delay_config() {
     exit(1);
   }
 
-  delay_ns = (uint32_t)delay_val;
+  g_delay_ns = (uint32_t)delay_val;
 
   // Get delay config dump output path
   get_var_str(delay_dump_path, "CUTRACER_DELAY_DUMP_PATH", "", "Output path to dump delay config JSON for replay");
+
+  // Get delay load path (for replay mode)
+  get_var_str(delay_load_path, "CUTRACER_DELAY_LOAD_PATH", "",
+              "Load delay config JSON for replay mode (uses saved delay values instead of random)");
+
+  // Validate that load and dump paths are not both set
+  if (!delay_dump_path.empty() && !delay_load_path.empty()) {
+    fprintf(stderr,
+            "FATAL: Both CUTRACER_DELAY_DUMP_PATH and CUTRACER_DELAY_LOAD_PATH are set.\n"
+            "Please use only one: DUMP for recording, LOAD for replay.\n");
+    exit(1);
+  }
 }
 
 void init_analysis(const std::string& analysis_str) {
@@ -308,7 +323,7 @@ void init_config_from_env() {
     zstd_compression_level = 22;
   }
 
-  // Parse and validate delay configuration
+  // Parse and validate delay configuration (includes config paths)
   parse_delay_config();
 
   std::string pad(100, '-');

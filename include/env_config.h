@@ -83,8 +83,12 @@ extern int trace_format_ndjson;
 extern int zstd_compression_level;
 
 // Delay value in nanoseconds for random delay instrumentation
-extern uint32_t delay_ns;
+extern uint32_t g_delay_ns;
 
 // Delay dump output path (optional)
 // If set, instrumentation points will be written to this JSON file for later replay
 extern std::string delay_dump_path;
+
+// Delay load path (optional)
+// If set, instrumentation points will be read from this JSON file for replay mode
+extern std::string delay_load_path;
