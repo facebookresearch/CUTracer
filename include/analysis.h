@@ -10,7 +10,9 @@
 #include <ctime>
 #include <deque>
 #include <map>
+#include <mutex>
 #include <set>
+#include <shared_mutex>
 #include <string>
 #include <unordered_map>
 #include <unordered_set>
@@ -231,8 +233,11 @@ struct CTXstate {
   // Warp statistics tracking per kernel launch
   std::unordered_map<uint64_t, KernelWarpStats> kernel_warp_tracking;
 
-  // TraceWriter for JSON output (mode 1/2), nullptr if mode 0 (text)
-  TraceWriter* trace_writer = nullptr;
+  // Per-launch TraceWriter map for JSON output (mode 1/2)
+  // Maps kernel_launch_id -> TraceWriter*
+  // Each kernel launch gets its own trace file
+  std::map<uint64_t, TraceWriter*> trace_writers;
+  mutable std::shared_mutex writers_mutex;
 
   // Per-kernel trace index counter (monotonically increasing)
   // Maps kernel_launch_id -> current trace_index

@@ -283,7 +283,35 @@ test_vectoradd() {
   fi
   echo "  ✅ vectoradd runs successfully without CUTracer"
 
-  # 2. Test with CUTracer
+  # 2. Test injection without instrumentation (should produce no trace files)
+  echo "  -> Testing injection without CUTRACER_INSTRUMENT (should produce no trace files)..."
+  # Clean up any existing trace files
+  rm -f cutracer_*.zst kernel_*.log kernel_*.ndjson kernel_*.ndjson.zst
+
+  if ! CUDA_INJECTION64_PATH="$PROJECT_ROOT/lib/cutracer.so" \
+       ./vectoradd >injection_only_output.log 2>&1; then
+    exit_code=$?
+    echo "❌ vectoradd with injection only failed with exit code: $exit_code"
+    cat injection_only_output.log
+    return 1
+  fi
+  echo "  ✅ vectoradd with injection only completed successfully"
+
+  # Verify no trace files were generated
+  ZST_FILES=$(ls cutracer_*.zst 2>/dev/null || true)
+  LOG_FILES=$(ls kernel_*.log 2>/dev/null || true)
+  NDJSON_FILES=$(ls kernel_*.ndjson* 2>/dev/null || true)
+
+  if [ -n "$ZST_FILES" ] || [ -n "$LOG_FILES" ] || [ -n "$NDJSON_FILES" ]; then
+    echo "❌ FAILED: Trace files should NOT be generated when CUTRACER_INSTRUMENT is not set"
+    echo "     Found zst files: $ZST_FILES"
+    echo "     Found log files: $LOG_FILES"
+    echo "     Found ndjson files: $NDJSON_FILES"
+    return 1
+  fi
+  echo "  ✅ No trace files generated (as expected when CUTRACER_INSTRUMENT is not set)"
+
+  # 3. Test with CUTracer
   echo "  -> Running test with CUTracer..."
   # Clean up old logs to ensure a fresh run
   rm -f *.log

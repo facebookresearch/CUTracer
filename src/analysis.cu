@@ -1059,6 +1059,20 @@ void* recv_thread_fun(void* args) {
             if (is_analysis_type_enabled(AnalysisType::DEADLOCK_DETECTION)) {
               clear_deadlock_state(ctx_state, last_seen_kernel_launch_id);
             }
+
+            // Close the previous kernel's TraceWriter (per-launch file)
+            // Since kernels are serialized and channel is FIFO, all data for
+            // last_seen_kernel_launch_id has been processed when we see a new launch_id
+            {
+              std::unique_lock<std::shared_mutex> lock(ctx_state->writers_mutex);
+              auto it = ctx_state->trace_writers.find(last_seen_kernel_launch_id);
+              if (it != ctx_state->trace_writers.end() && it->second) {
+                it->second->flush();
+                delete it->second;
+                ctx_state->trace_writers.erase(it);
+                loprintf_v("Closed TraceWriter for launch_id %lu\n", last_seen_kernel_launch_id);
+              }
+            }
           }
           last_seen_kernel_launch_id = current_launch_id;
 
@@ -1128,17 +1142,21 @@ void* recv_thread_fun(void* args) {
             }
           }
 
-          // Unified trace output through TraceWriter for all modes
-          if (ctx_state->trace_writer) {
-            // Get trace_index (monotonically increasing per kernel)
-            uint64_t trace_idx = ctx_state->trace_index_by_kernel[ri->kernel_launch_id]++;
+          // Unified trace output through TraceWriter for all modes (per-launch files)
+          {
+            std::shared_lock<std::shared_mutex> lock(ctx_state->writers_mutex);
+            auto it = ctx_state->trace_writers.find(ri->kernel_launch_id);
+            if (it != ctx_state->trace_writers.end() && it->second) {
+              // Get trace_index (monotonically increasing per kernel)
+              uint64_t trace_idx = ctx_state->trace_index_by_kernel[ri->kernel_launch_id]++;
 
-            // Get timestamp
-            uint64_t timestamp = get_timestamp_ns();
+              // Get timestamp
+              uint64_t timestamp = get_timestamp_ns();
 
-            // Create TraceRecord and write (mode 0/1/2 handled by TraceWriter)
-            auto record = TraceRecord::create_reg_trace(ctx, sass_str_cpp, trace_idx, timestamp, ri);
-            ctx_state->trace_writer->write_trace(record);
+              // Create TraceRecord and write (mode 0/1/2 handled by TraceWriter)
+              auto record = TraceRecord::create_reg_trace(ctx, sass_str_cpp, trace_idx, timestamp, ri);
+              it->second->write_trace(record);
+            }
           }
           num_processed_bytes += sizeof(reg_info_t);
 
@@ -1165,12 +1183,16 @@ void* recv_thread_fun(void* args) {
             }
           }
 
-          // Unified TraceWriter output
-          if (ctx_state->trace_writer) {
-            uint64_t trace_idx = ctx_state->trace_index_by_kernel[mem->kernel_launch_id]++;
-            uint64_t timestamp = get_timestamp_ns();
-            auto record = TraceRecord::create_mem_trace(ctx, sass_str_cpp, trace_idx, timestamp, mem);
-            ctx_state->trace_writer->write_trace(record);
+          // Unified TraceWriter output (per-launch files)
+          {
+            std::shared_lock<std::shared_mutex> lock(ctx_state->writers_mutex);
+            auto it = ctx_state->trace_writers.find(mem->kernel_launch_id);
+            if (it != ctx_state->trace_writers.end() && it->second) {
+              uint64_t trace_idx = ctx_state->trace_index_by_kernel[mem->kernel_launch_id]++;
+              uint64_t timestamp = get_timestamp_ns();
+              auto record = TraceRecord::create_mem_trace(ctx, sass_str_cpp, trace_idx, timestamp, mem);
+              it->second->write_trace(record);
+            }
           }
 
           num_processed_bytes += sizeof(mem_addr_access_t);
@@ -1191,12 +1213,16 @@ void* recv_thread_fun(void* args) {
             }
           }
 
-          // Unified TraceWriter output
-          if (ctx_state->trace_writer) {
-            uint64_t trace_idx = ctx_state->trace_index_by_kernel[mem_value->kernel_launch_id]++;
-            uint64_t timestamp = get_timestamp_ns();
-            auto record = TraceRecord::create_mem_value_trace(ctx, sass_str_cpp, trace_idx, timestamp, mem_value);
-            ctx_state->trace_writer->write_trace(record);
+          // Unified TraceWriter output (per-launch files)
+          {
+            std::shared_lock<std::shared_mutex> lock(ctx_state->writers_mutex);
+            auto it = ctx_state->trace_writers.find(mem_value->kernel_launch_id);
+            if (it != ctx_state->trace_writers.end() && it->second) {
+              uint64_t trace_idx = ctx_state->trace_index_by_kernel[mem_value->kernel_launch_id]++;
+              uint64_t timestamp = get_timestamp_ns();
+              auto record = TraceRecord::create_mem_value_trace(ctx, sass_str_cpp, trace_idx, timestamp, mem_value);
+              it->second->write_trace(record);
+            }
           }
 
           num_processed_bytes += sizeof(mem_value_access_t);
@@ -1227,6 +1253,18 @@ void* recv_thread_fun(void* args) {
     }
     if (!local_completed_histograms.empty()) {
       dump_previous_kernel_data(last_seen_kernel_launch_id, local_completed_histograms);
+    }
+
+    // Close the last kernel's TraceWriter
+    {
+      std::unique_lock<std::shared_mutex> lock(ctx_state->writers_mutex);
+      auto it = ctx_state->trace_writers.find(last_seen_kernel_launch_id);
+      if (it != ctx_state->trace_writers.end() && it->second) {
+        it->second->flush();
+        delete it->second;
+        ctx_state->trace_writers.erase(it);
+        loprintf_v("Closed final TraceWriter for launch_id %lu\n", last_seen_kernel_launch_id);
+      }
     }
   }
 

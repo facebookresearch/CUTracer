@@ -86,7 +86,9 @@ int main(int argc, char* argv[]) {
   double sum = 0;
   for (i = 0; i < n; i++) sum += h_c[i];
   printf("Final sum = %f; sum/n = %f (should be ~1)\n", sum, sum / n);
-
+  // call kernel again
+  CUDA_SAFECALL((vecAdd<<<gridSize, blockSize>>>(d_a, d_b, d_c, n)));
+  printf("Second call to kernel\n");
   // Release device memory
   cudaFree(d_a);
   cudaFree(d_b);

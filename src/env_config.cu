@@ -264,6 +264,21 @@ bool is_instrument_type_enabled(InstrumentType type) {
   return enabled_instrument_types.count(type);
 }
 
+/**
+ * @brief Check if any instrumentation type is enabled
+ *
+ * This function checks if CUTRACER_INSTRUMENT was set to a non-empty value,
+ * meaning at least one instrumentation type (reg_trace, mem_addr_trace, etc.)
+ * is enabled. This is used to decide whether to create TraceWriter instances -
+ * if no instrumentation is enabled, there's no point creating trace files
+ * since they will be empty.
+ *
+ * @return true if at least one instrumentation type is enabled
+ */
+bool has_any_instrumentation_enabled() {
+  return !enabled_instrument_types.empty();
+}
+
 bool is_analysis_type_enabled(AnalysisType type) {
   return enabled_analysis_types.count(type);
 }
