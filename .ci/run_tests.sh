@@ -11,6 +11,8 @@ TEST_TYPE=${TEST_TYPE:-"all"}
 TIMEOUT=${TIMEOUT:-"60"}
 INSTALL_THIRD_PARTY=${INSTALL_THIRD_PARTY:-"0"} # Set to 1 to force installation
 CONDA_ENV=${CONDA_ENV:-"cutracer"}
+SKIP_BUILD=${SKIP_BUILD:-"0"}                   # Set to 1 to skip ALL builds
+SKIP_CUTRACER_BUILD=${SKIP_CUTRACER_BUILD:-"0"} # Set to 1 to skip CUTracer build only
 
 echo "Running CUTracer tests..."
 echo "DEBUG: $DEBUG"
@@ -18,6 +20,8 @@ echo "TEST_TYPE: $TEST_TYPE"
 echo "TIMEOUT: $TIMEOUT"
 echo "INSTALL_THIRD_PARTY: $INSTALL_THIRD_PARTY"
 echo "CONDA_ENV: $CONDA_ENV"
+echo "SKIP_BUILD: $SKIP_BUILD"
+echo "SKIP_CUTRACER_BUILD: $SKIP_CUTRACER_BUILD"
 
 # Define project root path (absolute path)
 PROJECT_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -373,7 +377,7 @@ test_vectoradd() {
 test_trace_formats() {
   echo "🧪 Testing all trace formats (Unified TraceWriter Implementation)..."
   echo "   Testing with combined instrumentation: reg_trace + mem_trace"
-  echo "   Testing with py_add and kernel filter: vectorized_elementwise_kernel"
+  echo "   Testing with PT2 compiled kernel filter: triton_poi_fused"
   cd "$PROJECT_ROOT/tests/py_add"
 
   # Initialize result tracking variables
@@ -404,13 +408,13 @@ test_trace_formats() {
   if ! TRACE_FORMAT_NDJSON=0 \
        CUDA_INJECTION64_PATH="$PROJECT_ROOT/lib/cutracer.so" \
        CUTRACER_INSTRUMENT=reg_trace,mem_trace \
-       KERNEL_FILTERS=vectorized_elementwise_kernel \
+       KERNEL_FILTERS=triton_poi_fused \
        python ./test_add.py >mode0_run.log 2>&1; then
     echo "    ❌ Mode 0 execution failed"
     mode0_status="failed"
   else
-    # Find generated .log file
-    mode0_file=$(ls -1t kernel_*vectorized_elementwise_kernel*.log 2>/dev/null | head -n 1)
+    # Find generated .log file (PT2 compiled Triton kernel)
+    mode0_file=$(ls -1t kernel_*triton_poi_fused*.log 2>/dev/null | head -n 1)
     if [ -z "$mode0_file" ]; then
       echo "    ❌ No .log file generated"
       mode0_status="failed"
@@ -456,13 +460,13 @@ test_trace_formats() {
   if ! TRACE_FORMAT_NDJSON=2 \
        CUDA_INJECTION64_PATH="$PROJECT_ROOT/lib/cutracer.so" \
        CUTRACER_INSTRUMENT=reg_trace,mem_trace \
-       KERNEL_FILTERS=vectorized_elementwise_kernel \
+       KERNEL_FILTERS=triton_poi_fused \
        python ./test_add.py >mode2_run.log 2>&1; then
     echo "    ❌ Mode 2 execution failed"
     mode2_status="failed"
   else
-    # Find generated .ndjson file
-    mode2_file=$(ls -1t kernel_*vectorized_elementwise_kernel*.ndjson 2>/dev/null | head -n 1)
+    # Find generated .ndjson file (PT2 compiled Triton kernel)
+    mode2_file=$(ls -1t kernel_*triton_poi_fused*.ndjson 2>/dev/null | head -n 1)
     if [ -z "$mode2_file" ]; then
       echo "    ❌ No .ndjson file generated"
       mode2_status="failed"
@@ -513,13 +517,13 @@ test_trace_formats() {
   if ! TRACE_FORMAT_NDJSON=1 \
        CUDA_INJECTION64_PATH="$PROJECT_ROOT/lib/cutracer.so" \
        CUTRACER_INSTRUMENT=reg_trace,mem_trace \
-       KERNEL_FILTERS=vectorized_elementwise_kernel \
+       KERNEL_FILTERS=triton_poi_fused \
        python ./test_add.py >mode1_run.log 2>&1; then
     echo "    ❌ Mode 1 execution failed"
     mode1_status="failed"
   else
-    # Find generated .ndjson.zst file
-    mode1_file=$(ls -1t kernel_*vectorized_elementwise_kernel*.ndjson.zst 2>/dev/null | head -n 1)
+    # Find generated .ndjson.zst file (PT2 compiled Triton kernel)
+    mode1_file=$(ls -1t kernel_*triton_poi_fused*.ndjson.zst 2>/dev/null | head -n 1)
     if [ -z "$mode1_file" ]; then
       echo "    ❌ No .ndjson.zst file generated"
       mode1_status="failed"
@@ -737,7 +741,7 @@ test_py_add_with_kernel_filters() {
   if ! TRACE_FORMAT_NDJSON=0 \
        CUDA_INJECTION64_PATH=$PROJECT_ROOT/lib/cutracer.so \
        CUTRACER_INSTRUMENT=reg_trace \
-       KERNEL_FILTERS=vectorized_elementwise_kernel \
+       KERNEL_FILTERS=triton_poi_fused \
        python ./test_add.py >py_add_output.log 2>&1; then
     echo "❌ Python script test_add.py failed to execute."
     echo "     === Python script output ==="
@@ -749,9 +753,9 @@ test_py_add_with_kernel_filters() {
   cat py_add_output.log
 
   # Find logs that match the kernel filter
-  matching_logs=$(ls kernel*vectorized_elementwise_kernel*.log 2>/dev/null)
+  matching_logs=$(ls kernel*triton_poi_fused*.log 2>/dev/null)
   if [ -z "$matching_logs" ]; then
-    echo "❌ Test failed: No log file generated for kernel containing 'vectorized_elementwise_kernel'."
+    echo "❌ Test failed: No log file generated for kernel containing 'triton_poi_fused'."
     echo "     Listing current directory contents:"
     ls -la
     cd "$PROJECT_ROOT"
@@ -760,7 +764,7 @@ test_py_add_with_kernel_filters() {
 
   # Ensure ALL generated kernel logs match the filter
   all_kernel_logs=$(ls kernel*.log 2>/dev/null)
-  unmatched_logs=$(echo "$all_kernel_logs" | grep -v "vectorized_elementwise_kernel")
+  unmatched_logs=$(echo "$all_kernel_logs" | grep -v "triton_poi_fused")
 
   if [ -n "$unmatched_logs" ]; then
     echo "❌ Test failed: Found kernel logs that should have been filtered out:"
@@ -775,10 +779,18 @@ test_py_add_with_kernel_filters() {
   first_log=$(echo "$matching_logs" | head -n 1)
   echo "🔎 Inspecting log file: $first_log"
 
-  if grep -q "CTA 0,0,0 - warp 0 - @P0 EXIT" "$first_log"; then
-    echo "✅ Test successful: Found 'CTA 0,0,0 - warp 0 - @P0 EXIT' in the log."
+  # Use same pattern as vectoradd test for consistency
+  # Triton kernels use "EXIT ;:" format (no predicate prefix like @P0)
+  exit_pattern="CTA [0-9]+,[0-9]+,[0-9]+ - warp [0-9]+ - .*EXIT"
+  if grep -qE "$exit_pattern" "$first_log"; then
+    echo "✅ Test successful: Found EXIT pattern in the log."
+    echo "   Matching line:"
+    grep -m 1 -E "$exit_pattern" "$first_log"
   else
-    echo "❌ Test failed: Did not find 'CTA 0,0,0 - warp 0 - @P0 EXIT' in $first_log."
+    echo "❌ Test failed: Did not find EXIT pattern in $first_log."
+    echo "   Expected pattern: $exit_pattern"
+    echo "   === Searching for similar patterns ==="
+    grep -i "exit" "$first_log" | head -5 || echo "No EXIT patterns found"
     cd "$PROJECT_ROOT"
     return 1
   fi
@@ -1049,21 +1061,46 @@ run_all_tests() {
   return 0
 }
 
-build_cutracer
+# Build CUTracer (can be skipped with SKIP_BUILD=1 or SKIP_CUTRACER_BUILD=1)
+if [ "$SKIP_BUILD" = "1" ]; then
+  echo "⏭️ Skipping ALL builds (SKIP_BUILD=1)"
+elif [ "$SKIP_CUTRACER_BUILD" = "1" ]; then
+  echo "⏭️ Skipping CUTracer build (SKIP_CUTRACER_BUILD=1)"
+else
+  build_cutracer
+fi
 
 # Main execution
+# Helper function to conditionally run build_vectoradd
+maybe_build_vectoradd() {
+  if [ "$SKIP_BUILD" = "1" ]; then
+    echo "⏭️ Skipping vectoradd build (SKIP_BUILD=1)"
+    return 0
+  fi
+  build_vectoradd
+}
+
+# Helper function to conditionally run build_vectoradd_smem
+maybe_build_vectoradd_smem() {
+  if [ "$SKIP_BUILD" = "1" ]; then
+    echo "⏭️ Skipping vectoradd_smem build (SKIP_BUILD=1)"
+    return 0
+  fi
+  build_vectoradd_smem
+}
+
 case "$TEST_TYPE" in
 "build-only")
   build_cutracer && build_vectoradd && build_vectoradd_smem
   ;;
 "vectoradd")
-  build_vectoradd && test_vectoradd && test_py_add_with_kernel_filters
+  maybe_build_vectoradd && test_vectoradd && test_py_add_with_kernel_filters
   ;;
 "trace-formats")
-  build_vectoradd && test_trace_formats
+  test_trace_formats
   ;;
 "mem-value")
-  build_vectoradd_smem && test_mem_value_trace
+  maybe_build_vectoradd_smem && test_mem_value_trace
   ;;
 "proton")
   test_proton
