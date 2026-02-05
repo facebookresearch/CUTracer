@@ -98,7 +98,7 @@ std::unordered_set<CUfunction> already_instrumented;
  *
  * @param ctx The CUDA context of the function.
  * @param func The `CUfunction` to inspect and potentially instrument.
- * @return `true` if any related function was matched by the filters, `false` otherwise.
+ * @return `true` if instrumentation should be enabled, `false` otherwise.
  */
 bool instrument_function_if_needed(CUcontext ctx, CUfunction func) {
   assert(ctx_state_map.find(ctx) != ctx_state_map.end());
@@ -114,45 +114,34 @@ bool instrument_function_if_needed(CUcontext ctx, CUfunction func) {
   /* add kernel itself to the related function vector */
   related_functions.push_back(func);
 
-  bool any_related_function_matched = kernel_filters.empty();
+  // No filters specified implies we want to instrument all functions
+  bool should_instrument = kernel_filters.empty();
   /* iterate on function */
   for (auto f : related_functions) {
-    /* "recording" function was instrumented, if set insertion failed
-     * we have already encountered this function */
-    if (!already_instrumented.insert(f).second) {
-      continue;
-    }
-
-    // Get function name (both mangled and unmangled versions)
     const char* unmangled_name = nvbit_get_func_name(ctx, f, false);
     const char* mangled_name = nvbit_get_func_name(ctx, f, true);
 
-    // Check if function name contains any of the patterns
-    bool should_instrument = true;  // Default to true if no filters specified
-
-    if (!kernel_filters.empty()) {
-      should_instrument = false;  // Start with false when we have filters
-      for (const auto& filter : kernel_filters) {
-        if ((unmangled_name && strstr(unmangled_name, filter.c_str()) != NULL) ||
-            (mangled_name && strstr(mangled_name, filter.c_str()) != NULL)) {
-          should_instrument = true;
-          any_related_function_matched = true;  // Mark that at least one kernel matched
-          loprintf_v("Found matching kernel for filter '%s': %s (mangled: %s)\n", filter.c_str(),
-                     unmangled_name ? unmangled_name : "unknown", mangled_name ? mangled_name : "unknown");
-          break;
-        }
+    // Check if the current function matches any kernel filter
+    bool kernel_filter_matched = kernel_filters.empty();
+    for (const auto& filter : kernel_filters) {
+      if ((unmangled_name && strstr(unmangled_name, filter.c_str()) != NULL) ||
+          (mangled_name && strstr(mangled_name, filter.c_str()) != NULL)) {
+        kernel_filter_matched = true;
+        // Update return value (determines if instrumented code should run)
+        should_instrument = true;
+        loprintf_v("Found matching kernel for filter '%s': %s (mangled: %s)\n", filter.c_str(),
+                   unmangled_name ? unmangled_name : "unknown", mangled_name ? mangled_name : "unknown");
+        break;
       }
-    } else if (verbose) {
-      loprintf("Instrumenting kernel: %s (mangled: %s)\n", unmangled_name ? unmangled_name : "unknown",
-               mangled_name ? mangled_name : "unknown");
+    }
+
+    // Skip if filter not matched or already instrumented
+    if (!kernel_filter_matched || !already_instrumented.insert(f).second) {
+      continue;
     }
 
     const std::vector<Instr*>& instrs = nvbit_get_instrs(ctx, f);
     loprintf_v("Inspecting kernel %s at address 0x%lx\n", nvbit_get_func_name(ctx, f), nvbit_get_func_addr(ctx, f));
-
-    if (!should_instrument) {
-      continue;
-    }
     if (dump_cubin) {
       std::string kernel_hash_hex = compute_kernel_name_hash_hex(ctx, f);
       std::string cubin_filename = std::string(nvbit_get_func_name(ctx, f)) + "_0x" + kernel_hash_hex + ".cubin";
@@ -262,22 +251,20 @@ bool instrument_function_if_needed(CUcontext ctx, CUfunction func) {
     // Statically identify special instructions for this function:
     // - "clock" (CS2R SR_CLOCKLO) used for histogram region boundaries
     // - "EXIT" used as a candidate signal for warp completion on host side
-    if (should_instrument) {
-      for (std::map<int, std::string>::const_iterator it_sass = ctx_state->id_to_sass_map[f].begin();
-           it_sass != ctx_state->id_to_sass_map[f].end(); ++it_sass) {
-        const char* sass_cstr = it_sass->second.c_str();
-        if (strstr(sass_cstr, "CS2R") && strstr(sass_cstr, "SR_CLOCKLO")) {
-          ctx_state->clock_opcode_ids[f].insert(it_sass->first);
-        }
-        // Simple substring detection for EXIT mnemonic (predication handled by extract on host side)
-        if (strstr(sass_cstr, "EXIT")) {
-          ctx_state->exit_opcode_ids[f].insert(it_sass->first);
-        }
+    for (std::map<int, std::string>::const_iterator it_sass = ctx_state->id_to_sass_map[f].begin();
+         it_sass != ctx_state->id_to_sass_map[f].end(); ++it_sass) {
+      const char* sass_cstr = it_sass->second.c_str();
+      if (strstr(sass_cstr, "CS2R") && strstr(sass_cstr, "SR_CLOCKLO")) {
+        ctx_state->clock_opcode_ids[f].insert(it_sass->first);
+      }
+      // Simple substring detection for EXIT mnemonic (predication handled by extract on host side)
+      if (strstr(sass_cstr, "EXIT")) {
+        ctx_state->exit_opcode_ids[f].insert(it_sass->first);
       }
     }
     /* ============================================ */
   }
-  return any_related_function_matched;
+  return should_instrument;
 }
 
 // Reference code from NVIDIA nvbit mem_trace tool
