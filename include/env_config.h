@@ -63,6 +63,9 @@ void init_config_from_env();
 // Check if a specific instrumentation type is enabled
 bool is_instrument_type_enabled(InstrumentType type);
 
+// Check if any instrumentation type is enabled
+bool has_any_instrumentation_enabled();
+
 // Check if a specific analysis type is enabled
 bool is_analysis_type_enabled(AnalysisType type);
 
