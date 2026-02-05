@@ -30,6 +30,7 @@ from .json_validator import (
     validate_json_trace,
 )
 from .schema_loader import (
+    DELAY_CONFIG_SCHEMA,
     MEM_ACCESS_SCHEMA,
     OPCODE_ONLY_SCHEMA,
     REG_INFO_SCHEMA,
@@ -68,5 +69,6 @@ __all__ = [
     "REG_INFO_SCHEMA",
     "MEM_ACCESS_SCHEMA",
     "OPCODE_ONLY_SCHEMA",
+    "DELAY_CONFIG_SCHEMA",
     "SCHEMAS_BY_TYPE",
 ]
