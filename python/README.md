@@ -90,7 +90,8 @@ python/
 │           ├── __init__.py
 │           ├── reg_trace.schema.json
 │           ├── mem_trace.schema.json
-│           └── opcode_only.schema.json
+│           ├── opcode_only.schema.json
+│           └── delay_config.schema.json
 ├── tests/                           # Unit tests
 │   ├── __init__.py
 │   ├── test_base.py                 # Base test class and utilities
