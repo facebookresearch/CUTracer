@@ -1,4 +1,6 @@
 # Copyright (c) Meta Platforms, Inc. and affiliates.
+import os
+
 import torch
 import triton
 import triton.language as tl
@@ -49,4 +51,8 @@ def test_tensor_add():
 
 
 if __name__ == "__main__":
+    pid = os.getpid()
+    print("=" * 60)
+    print(f"Process ID: {pid}")
+    print("=" * 60)
     test_tensor_add()
