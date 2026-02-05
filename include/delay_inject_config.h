@@ -88,4 +88,44 @@ void register_delay_instrumentation_point(KernelDelayInjectConfig* kdc, Instr* i
  */
 void finalize_delay_config();
 
+/**
+ * @brief Load delay configuration from a JSON file for replay mode.
+ *
+ * @param filepath Path to the JSON config file
+ * @return true if loading succeeded, false otherwise
+ */
+bool load_delay_config(const std::string& filepath);
+
+/**
+ * @brief Check if delay replay mode is active.
+ *
+ * Delay replay mode uses a previously saved delay config file to deterministically
+ * reproduce the same instrumentation pattern.
+ *
+ * @return true if delay replay mode is active, false otherwise
+ */
+bool is_delay_replay_mode();
+
+/**
+ * @brief Look up an instrumentation point configuration for replay.
+ *
+ * @param replay_points Pointer to the instrumentation points map (from get_replay_instrumentation_points)
+ * @param pc_offset The program counter offset of the instruction
+ * @param[out] enabled Output: whether the point is enabled
+ * @param[out] delay_ns Output: the delay value in nanoseconds
+ * @return true if found, false if not found
+ */
+bool lookup_replay_config(const std::map<uint64_t, DelayInstrumentationPoint>* replay_points, uint64_t pc_offset,
+                          bool& enabled, uint32_t& delay_ns);
+
+/**
+ * @brief Get the instrumentation points map for a kernel in replay mode.
+ *
+ * Should be called once per kernel before the instruction iteration loop.
+ *
+ * @param kernel_name The kernel name to look up
+ * @return Pointer to the instrumentation points map, or nullptr if not found
+ */
+const std::map<uint64_t, DelayInstrumentationPoint>* get_replay_instrumentation_points(const std::string& kernel_name);
+
 #endif /* DELAY_INJECT_CONFIG_H */

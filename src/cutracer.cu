@@ -166,14 +166,20 @@ bool instrument_function_if_needed(CUcontext ctx, CUfunction func) {
     loprintf_v("Inspecting kernel %s at address 0x%lx\n", nvbit_get_func_name(ctx, f), nvbit_get_func_addr(ctx, f));
     if (dump_cubin) {
       std::string kernel_hash_hex = compute_kernel_name_hash_hex(ctx, f);
-      std::string cubin_filename = std::string(nvbit_get_func_name(ctx, f)) + "_0x" + kernel_hash_hex + ".cubin";
+      std::string cubin_filename = std::string(unmangled_name) + "_0x" + kernel_hash_hex + ".cubin";
       nvbit_dump_cubin(ctx, f, cubin_filename.c_str());
     }
 
     // Create kernel delay config if dump path is set (for exporting to JSON)
     KernelDelayInjectConfig* kernel_delay_config = nullptr;
     if (!delay_dump_path.empty() && is_instrument_type_enabled(InstrumentType::RANDOM_DELAY)) {
-      kernel_delay_config = create_kernel_delay_config(nvbit_get_func_name(ctx, f));
+      kernel_delay_config = create_kernel_delay_config(mangled_name);
+    }
+
+    // Get replay instrumentation points once for replay mode
+    const std::map<uint64_t, DelayInstrumentationPoint>* replay_points = nullptr;
+    if (is_delay_replay_mode() && is_instrument_type_enabled(InstrumentType::RANDOM_DELAY)) {
+      replay_points = get_replay_instrumentation_points(mangled_name);
     }
 
     uint32_t cnt = 0;
@@ -273,18 +279,37 @@ bool instrument_function_if_needed(CUcontext ctx, CUfunction func) {
       // Delay instrumentation for synchronization instructions
       if (is_instrument_type_enabled(InstrumentType::RANDOM_DELAY) &&
           shouldInjectDelay(instr, DELAY_INJECTION_PATTERNS)) {
-        bool enabled = generate_random_delay_enabled();
+        bool enabled;
+        uint32_t delay_ns;
+        bool found = true;
 
-        // Register the point for config output if kernel_delay_config was created
-        if (kernel_delay_config) {
-          register_delay_instrumentation_point(kernel_delay_config, instr, delay_ns, enabled);
+        if (is_delay_replay_mode()) {
+          // Replay mode: always use config values, no random
+          uint64_t pc_offset = instr->getOffset();
+          found = lookup_replay_config(replay_points, pc_offset, enabled, delay_ns);
+          if (!found) {
+            // Point not found in config - skip instrumentation for this point
+            loprintf("Replay mode: kernel=%s pc=0x%lx NOT FOUND in config, skipping\n", unmangled_name, pc_offset);
+          }
+        } else {
+          // Random mode: generate random on/off with 50% probability
+          enabled = generate_random_delay_enabled();
+          delay_ns = g_delay_ns;
+
+          // Register the point for config output if kernel_delay_config was created
+          if (kernel_delay_config) {
+            register_delay_instrumentation_point(kernel_delay_config, instr, delay_ns, enabled);
+          }
         }
 
-        if (enabled) {
+        if (found && enabled) {
           instrument_delay_injection(instr, delay_ns);
         }
-        loprintf_v("Delay injection: kernel=%s pc=0x%lx sass='%s' enabled=%s\n", unmangled_name, instr->getOffset(),
-                   instr->getSass(), enabled ? "true" : "false");
+        if (found) {
+          loprintf_v("Delay injection: kernel=%s pc=0x%lx sass='%s' enabled=%s delay=%u%s\n", unmangled_name,
+                     instr->getOffset(), instr->getSass(), enabled ? "true" : "false", enabled ? delay_ns : 0,
+                     is_delay_replay_mode() ? " [REPLAY]" : "");
+        }
       }
     }
 
@@ -304,6 +329,7 @@ bool instrument_function_if_needed(CUcontext ctx, CUfunction func) {
     }
     /* ============================================ */
   }
+
   return should_instrument;
 }
 
@@ -691,7 +717,7 @@ void nvbit_at_graph_node_launch(CUcontext ctx, CUfunction func, CUstream stream,
 void nvbit_at_init() {
   // Initialize configuration from environment variables
   init_config_from_env();
-  // Initialize delay JSON config for export
+  // Initialize delay JSON config for export (also loads replay config if specified)
   init_delay_json_config();
   /* set mutex as recursive */
   pthread_mutexattr_t attr;
