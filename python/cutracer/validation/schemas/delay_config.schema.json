@@ -1,0 +1,83 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://github.com/facebookresearch/CUTracer/schemas/delay_config.schema.json",
+  "title": "CUTracer Delay Injection Configuration",
+  "description": "Schema for delay injection configuration files used for deterministic replay of random delay instrumentation",
+  "type": "object",
+  "required": ["version", "delay_ns", "kernels"],
+  "properties": {
+    "version": {
+      "type": "string",
+      "description": "Configuration file format version",
+      "pattern": "^[0-9]+\\.[0-9]+$",
+      "examples": ["1.0"]
+    },
+    "delay_ns": {
+      "type": "integer",
+      "minimum": 0,
+      "description": "Default delay value in nanoseconds used during instrumentation"
+    },
+    "kernels": {
+      "type": "object",
+      "description": "Map of kernel configurations, keyed by kernel_name + timestamp",
+      "additionalProperties": {
+        "$ref": "#/definitions/KernelDelayConfig"
+      }
+    }
+  },
+  "additionalProperties": false,
+  "definitions": {
+    "KernelDelayConfig": {
+      "type": "object",
+      "description": "Delay configuration for a single kernel",
+      "required": ["kernel_name", "timestamp", "instrumentation_points"],
+      "properties": {
+        "kernel_name": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Name of the CUDA kernel"
+        },
+        "timestamp": {
+          "type": "string",
+          "description": "ISO 8601 timestamp when the kernel was instrumented",
+          "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}\\.[0-9]{3}$",
+          "examples": ["2026-02-03T21:15:21.567"]
+        },
+        "instrumentation_points": {
+          "type": "object",
+          "description": "Map of instrumentation points, keyed by pc_offset as string",
+          "additionalProperties": {
+            "$ref": "#/definitions/InstrumentationPoint"
+          }
+        }
+      },
+      "additionalProperties": false
+    },
+    "InstrumentationPoint": {
+      "type": "object",
+      "description": "A single delay instrumentation point",
+      "required": ["pc", "sass", "delay", "on"],
+      "properties": {
+        "pc": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Program counter offset for the instruction"
+        },
+        "sass": {
+          "type": "string",
+          "description": "SASS assembly instruction string"
+        },
+        "delay": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Delay value in nanoseconds for this instrumentation point"
+        },
+        "on": {
+          "type": "boolean",
+          "description": "Whether delay injection is enabled for this point"
+        }
+      },
+      "additionalProperties": false
+    }
+  }
+}
