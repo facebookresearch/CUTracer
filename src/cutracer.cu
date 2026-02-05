@@ -43,6 +43,9 @@
 /* logging functionality */
 #include "log.h"
 
+/* delay configuration */
+#include "delay_inject_config.h"
+
 #define CUDA_CHECK_LAST_ERROR()                                                                       \
   do {                                                                                                \
     cudaError_t err = cudaGetLastError();                                                             \
@@ -166,6 +169,13 @@ bool instrument_function_if_needed(CUcontext ctx, CUfunction func) {
       std::string cubin_filename = std::string(nvbit_get_func_name(ctx, f)) + "_0x" + kernel_hash_hex + ".cubin";
       nvbit_dump_cubin(ctx, f, cubin_filename.c_str());
     }
+
+    // Create kernel delay config if dump path is set (for exporting to JSON)
+    KernelDelayInjectConfig* kernel_delay_config = nullptr;
+    if (!delay_dump_path.empty() && is_instrument_type_enabled(InstrumentType::RANDOM_DELAY)) {
+      kernel_delay_config = create_kernel_delay_config(nvbit_get_func_name(ctx, f));
+    }
+
     uint32_t cnt = 0;
     /* iterate on all the static instructions in the function */
     for (auto instr : instrs) {
@@ -264,6 +274,12 @@ bool instrument_function_if_needed(CUcontext ctx, CUfunction func) {
       if (is_instrument_type_enabled(InstrumentType::RANDOM_DELAY) &&
           shouldInjectDelay(instr, DELAY_INJECTION_PATTERNS)) {
         bool enabled = generate_random_delay_enabled();
+
+        // Register the point for config output if kernel_delay_config was created
+        if (kernel_delay_config) {
+          register_delay_instrumentation_point(kernel_delay_config, instr, delay_ns, enabled);
+        }
+
         if (enabled) {
           instrument_delay_injection(instr, delay_ns);
         }
@@ -641,6 +657,9 @@ void nvbit_at_ctx_term(CUcontext ctx) {
   // Cleanup log handle system
 
   cleanup_log_handle();
+
+  // Finalize delay configuration (saves to JSON if path is set)
+  finalize_delay_config();
 }
 
 // Reference code from NVIDIA nvbit mem_trace tool
@@ -672,6 +691,8 @@ void nvbit_at_graph_node_launch(CUcontext ctx, CUfunction func, CUstream stream,
 void nvbit_at_init() {
   // Initialize configuration from environment variables
   init_config_from_env();
+  // Initialize delay JSON config for export
+  init_delay_json_config();
   /* set mutex as recursive */
   pthread_mutexattr_t attr;
   pthread_mutexattr_init(&attr);

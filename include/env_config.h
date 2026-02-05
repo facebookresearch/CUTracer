@@ -84,3 +84,7 @@ extern int zstd_compression_level;
 
 // Delay value in nanoseconds for random delay instrumentation
 extern uint32_t delay_ns;
+
+// Delay dump output path (optional)
+// If set, instrumentation points will be written to this JSON file for later replay
+extern std::string delay_dump_path;
