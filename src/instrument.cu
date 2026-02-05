@@ -157,9 +157,6 @@ bool shouldInjectDelay(Instr* instr, const std::vector<const char*>& patterns) {
  * @param delay_ns Fixed delay in nanoseconds
  */
 void instrument_delay_injection(Instr* instr, uint32_t delay_ns) {
-  loprintf_v("Instrumenting instruction: %s at PC 0x%lx with delay %u ns\n", instr->getSass(), instr->getOffset(),
-             delay_ns);
-
   /* insert call to the instrumentation function with its arguments */
   nvbit_insert_call(instr, "instrument_delay", IPOINT_BEFORE);
   /* guard predicate value */

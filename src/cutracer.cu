@@ -15,6 +15,7 @@
 #include <unistd.h>
 
 #include <map>
+#include <random>
 #include <regex>
 #include <string>
 #include <unordered_map>
@@ -65,6 +66,24 @@ bool skip_callback_flag = false;
 
 /* The kernel launch is identified by a global id */
 uint64_t global_kernel_launch_id = 0;
+
+/* Random number generator for delay injection on/off control.
+ * Uses std::random_device to seed std::mt19937 for true randomness
+ * across different runs/processes. */
+static std::mt19937 g_delay_rng;
+static bool g_delay_rng_initialized = false;
+
+/* Generate random enabled state (50% probability) */
+static bool generate_random_delay_enabled() {
+  if (!g_delay_rng_initialized) {
+    // Seed with std::random_device for true randomness each run
+    std::random_device rd;
+    g_delay_rng.seed(rd());
+    g_delay_rng_initialized = true;
+  }
+  std::uniform_int_distribution<int> dist(0, 1);
+  return dist(g_delay_rng) == 1;
+}
 
 // Global mapping tables for kernel launch tracking
 std::map<uint64_t, std::pair<CUcontext, CUfunction>> kernel_launch_to_func_map;
@@ -244,7 +263,12 @@ bool instrument_function_if_needed(CUcontext ctx, CUfunction func) {
       // Delay instrumentation for synchronization instructions
       if (is_instrument_type_enabled(InstrumentType::RANDOM_DELAY) &&
           shouldInjectDelay(instr, DELAY_INJECTION_PATTERNS)) {
-        instrument_delay_injection(instr, delay_ns);
+        bool enabled = generate_random_delay_enabled();
+        if (enabled) {
+          instrument_delay_injection(instr, delay_ns);
+        }
+        loprintf_v("Delay injection: kernel=%s pc=0x%lx sass='%s' enabled=%s\n", unmangled_name, instr->getOffset(),
+                   instr->getSass(), enabled ? "true" : "false");
       }
     }
 
