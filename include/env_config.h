@@ -82,6 +82,5 @@ extern int trace_format_ndjson;
 // Default: 9 (good compression with reasonable speed)
 extern int zstd_compression_level;
 
-// Random delay max value in nanoseconds for mbarrier instrumentation
-// Default: 0 (disabled)
-extern uint32_t random_delay_max_ns;
+// Delay value in nanoseconds for random delay instrumentation
+extern uint32_t delay_ns;

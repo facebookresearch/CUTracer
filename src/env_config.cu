@@ -31,8 +31,8 @@ int trace_format_ndjson;
 // Zstd compression level
 int zstd_compression_level;
 
-// Random delay max value in nanoseconds for synchronization instrumentation
-uint32_t random_delay_max_ns;
+// Delay value in nanoseconds for synchronization instrumentation
+uint32_t delay_ns;
 
 /**
  * @brief Parses a comma-separated string of kernel name filters for substring matching.
@@ -166,27 +166,26 @@ void init_instrumentation(const std::string& instrument_str) {
   }
 }
 
-void parse_random_delay_ns() {
+void parse_delay_config() {
   uint64_t delay_val = 0;
-  get_var_uint64(delay_val, "CUTRACER_RANDOM_DELAY_NS", 0,
-                 "Max random delay in nanoseconds for synchronization instructions");
+  get_var_uint64(delay_val, "CUTRACER_DELAY_NS", 0, "Delay in nanoseconds for synchronization instructions");
 
   // If random_delay analysis is enabled but no valid delay value, error out.
   if (delay_val == 0 && is_analysis_type_enabled(AnalysisType::RANDOM_DELAY)) {
     fprintf(stderr,
-            "FATAL: CUTRACER_ANALYSIS includes 'random_delay' but CUTRACER_RANDOM_DELAY_NS is not set or invalid.\n"
-            "Please set CUTRACER_RANDOM_DELAY_NS to a positive value (in nanoseconds).\n"
-            "Example: export CUTRACER_RANDOM_DELAY_NS=1000000  (1ms max delay)\n");
+            "FATAL: CUTRACER_ANALYSIS includes 'random_delay' but no delay value is set.\n"
+            "Please set CUTRACER_DELAY_NS to a positive value (in nanoseconds).\n"
+            "Example: export CUTRACER_DELAY_NS=1000000  (1ms delay)\n");
     exit(1);
   }
 
   // Validate range: nanosleep uses uint32_t, so delay must fit in 32 bits.
   if (delay_val > UINT32_MAX) {
-    fprintf(stderr, "FATAL: CUTRACER_RANDOM_DELAY_NS=%lu exceeds maximum value of %u.\n", delay_val, UINT32_MAX);
+    fprintf(stderr, "FATAL: Delay value %lu exceeds maximum value of %u.\n", delay_val, UINT32_MAX);
     exit(1);
   }
 
-  random_delay_max_ns = (uint32_t)delay_val;
+  delay_ns = (uint32_t)delay_val;
 }
 
 void init_analysis(const std::string& analysis_str) {
@@ -223,7 +222,7 @@ void init_analysis(const std::string& analysis_str) {
   }
 
   // random_delay: enable analysis type and ensure RANDOM_DELAY instrumentation is on
-  // Note: CUTRACER_RANDOM_DELAY_NS is validated later in init_config_from_env()
+  // Note: CUTRACER_DELAY_NS is validated later in init_config_from_env()
   if (analysis_str.find("random_delay") != std::string::npos) {
     enabled_analysis_types.insert(AnalysisType::RANDOM_DELAY);
     loprintf("  - Enabled: random_delay\n");
@@ -303,8 +302,8 @@ void init_config_from_env() {
     zstd_compression_level = 22;
   }
 
-  // Parse and validate CUTRACER_RANDOM_DELAY_NS
-  parse_random_delay_ns();
+  // Parse and validate delay configuration
+  parse_delay_config();
 
   std::string pad(100, '-');
   loprintf("%s\n", pad.c_str());
