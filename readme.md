@@ -77,7 +77,7 @@ CUDA_INJECTION64_PATH=~/CUTracer/lib/cutracer.so \
 -   `CUTRACER_ANALYSIS`: comma-separated analyses: `proton_instr_histogram`, `deadlock_detection`, `random_delay`
     -   Enabling `proton_instr_histogram` auto-enables `opcode_only`
     -   Enabling `deadlock_detection` auto-enables `reg_trace`
-    -   Enabling `random_delay` requires `CUTRACER_RANDOM_DELAY_NS` to be set
+    -   Enabling `random_delay` requires `CUTRACER_DELAY_NS` to be set
 -   `KERNEL_FILTERS`: comma-separated substrings matching unmangled or mangled kernel names
 -   `INSTR_BEGIN`, `INSTR_END`: static instruction index gate during instrumentation
 -   `TOOL_VERBOSE`: 0/1/2
@@ -89,7 +89,9 @@ CUDA_INJECTION64_PATH=~/CUTracer/lib/cutracer.so \
     -   Lower values (1-3): Faster compression, slightly larger output
     -   Higher values (19-22): Maximum compression, slower but smallest output
     -   Default of 22 provides maximum compression for smallest output
-- `CUTRACER_RANDOM_DELAY_NS`: Maximum random delay in nanoseconds for race detection (0 = disabled)
+- `CUTRACER_DELAY_NS`: Fixed delay value in nanoseconds for race detection (required for `random_delay` analysis)
+- `CUTRACER_DELAY_DUMP_PATH`: Output path for delay config JSON file (for recording instrumentation patterns)
+- `CUTRACER_DELAY_LOAD_PATH`: Input path for delay config JSON file (for replay mode - deterministic reproduction)
 
 Note: The tool sets `CUDA_MANAGED_FORCE_DEVICE_ALLOC=1` to simplify channel memory handling.
 
@@ -138,17 +140,32 @@ python ./test_hang.py
 
 ### Data Race Detection (random_delay)
 
--   Data races depend on timing and often pass by luck. This analysis uses random delay injection to detect races by injecting random delays before synchronization instructions, disrupting the timing and forcing hidden races to show up
--   Requires `CUTRACER_RANDOM_DELAY_NS` to be set
+-   Data races depend on timing and often pass by luck. This analysis uses random delay injection to detect races by injecting delays before synchronization instructions, disrupting the timing and forcing hidden races to show up
+-   Each instrumentation point is randomly enabled/disabled (50% probability) with a fixed delay value
+-   Requires `CUTRACER_DELAY_NS` to be set
 
 Example:
 
 ```bash
-CUTRACER_RANDOM_DELAY_NS=1000 \
+CUTRACER_DELAY_NS=10000 \
 CUTRACER_ANALYSIS=random_delay \
 CUDA_INJECTION64_PATH=~/CUTracer/lib/cutracer.so \
 python3 your_kernel.py
 ```
+
+#### Delay Dump and Replay
+
+CUTracer supports dumping delay configurations to JSON for deterministic reproduction of data races:
+
+- **Dump mode**: Set `CUTRACER_DELAY_DUMP_PATH` to save the random instrumentation pattern to a JSON file
+- **Replay mode**: Set `CUTRACER_DELAY_LOAD_PATH` to load a saved config and reproduce the exact same delay pattern
+
+**Note**: You cannot use both at the same time.
+
+**Workflow**:
+1. Run with `CUTRACER_DELAY_DUMP_PATH=/tmp/config.json` to record the delay pattern
+2. When a failure occurs, save the config file
+3. Replay with `CUTRACER_DELAY_LOAD_PATH=/tmp/config.json` to reproduce deterministically
 
 ## Troubleshooting
 
