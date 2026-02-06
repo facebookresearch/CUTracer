@@ -29,6 +29,7 @@ test_trace_formats_clp() {
     mode3_status="failed"
   else
     # Find generated .clp file (PT2 compiled Triton kernel)
+    # shellcheck disable=SC2012,SC2155
     mode3_archive=$(ls -1dt kernel_*triton_poi_fused*.clp 2>/dev/null | head -n 1)
     if [ -z "$mode3_archive" ]; then
       echo "    ❌ No .clp archive generated"
@@ -36,6 +37,7 @@ test_trace_formats_clp() {
     else
       echo "    ✅ Found: $mode3_archive"
       # Get compressed archive size
+      # shellcheck disable=SC2155
       local compressed_archive_size=$(du -sb "$mode3_archive" 2>/dev/null | cut -f1)
       echo "       Compressed archive size: $compressed_archive_size bytes"
 
@@ -44,6 +46,7 @@ test_trace_formats_clp() {
       # Decompress CLP archive with clp-s
       clp-s x "$mode3_archive" decompressed
       # Get decompressed file size
+      # shellcheck disable=SC2155
       local decompressed_size=$(du -sb decompressed 2>/dev/null | cut -f1)
       local ratio=$(awk "BEGIN {printf \"%.1f\", ($decompressed_size / $compressed_archive_size)}")
 
@@ -54,6 +57,7 @@ test_trace_formats_clp() {
 
       # Validate CLP Archive with decompressed JSON
       echo "    🔍 Validating CLP Archive format..."
+      # shellcheck disable=SC2012,SC2155
       decompressed_file=$(ls -1t decompressed/* 2>/dev/null | head -n 1)
       mv "$decompressed_file" decompressed/mode3_decompressed.ndjson
       decompressed_file="decompressed/mode3_decompressed.ndjson"
@@ -110,7 +114,7 @@ test_trace_formats_clp() {
   # Clean up
   rm -rf kernel_*triton_poi_fused*.clp
   rm -rf decompressed
-  rm *.log
+  rm mode3_validation.log
 
   # Determine overall result - all four must pass
   if [ "$mode3_status" = "passed" ]; then
