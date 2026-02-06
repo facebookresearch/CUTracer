@@ -19,10 +19,10 @@
 #include "nvbit.h"
 
 enum class TraceMode : std::uint8_t {
-    TEXT = 0,
-    COMPRESSED_NDJSON = 1,
-    UNCOMPRESSED_NDJSON = 2,
-    CLP = 3,
+  TEXT = 0,
+  COMPRESSED_NDJSON = 1,
+  UNCOMPRESSED_NDJSON = 2,
+  CLP = 3,
 };
 
 /**
