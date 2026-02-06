@@ -17,7 +17,7 @@ test_trace_formats_clp() {
   test_dir=$PROJECT_ROOT/tests/py_add
   cd $test_dir
 
-# Clean old clp files
+  # Clean old clp files
   rm -rf kernel_*triton_poi_fused*.clp
 
   if ! TRACE_FORMAT_NDJSON=3 \
@@ -32,7 +32,7 @@ test_trace_formats_clp() {
     mode3_archive=$(ls -1dt kernel_*triton_poi_fused*.clp 2>/dev/null | head -n 1)
     if [ -z "$mode3_archive" ]; then
       echo "    ❌ No .clp archive generated"
-      mode1_status="failed"
+      mode3_status="failed"
     else
       echo "    ✅ Found: $mode3_archive"
       # Get compressed archive size
@@ -58,29 +58,40 @@ test_trace_formats_clp() {
       mv "$decompressed_file" decompressed/mode3_decompressed.ndjson
       decompressed_file="decompressed/mode3_decompressed.ndjson"
       if python3 "$PROJECT_ROOT/scripts/validate_trace.py" --no-color json $decompressed_file >mode3_validation.log 2>&1; then
-        mode3_status="passed"
-
         # Count each trace type separately
         mode3_reg_count=$(grep -ac '"type":"reg_trace"' $decompressed_file 2>/dev/null | tr -d '[:space:]')
         mode3_mem_count=$(grep -ac '"type":"mem_trace"' $decompressed_file 2>/dev/null | tr -d '[:space:]')
         mode3_total_count=$(wc -l < $decompressed_file 2>/dev/null | tr -d '[:space:]')
 
-        echo "    ✅ Mode 3 validation passed"
-        echo "       📊 Record breakdown:"
-        echo "          reg_trace:  $mode3_reg_count records"
-        echo "          mem_trace:  $mode3_mem_count records"
-        echo "          Total:      $mode3_total_count records"
+        # Directly query the CLP file without decompression, and make sure the count matches
+        mode3_reg_count_clp=$(clp-s s "$mode3_archive" 'type: reg_trace' 2>/dev/null | wc -l)
+        mode3_mem_count_clp=$(clp-s s "$mode3_archive" 'type: mem_trace' 2>/dev/null | wc -l)
+        mode3_archive_total_count_clp=$(clp-s s "$mode3_archive" '*' 2>/dev/null | wc -l)
 
-        # Show first record of each type (formatted)
+        if [ "$mode3_reg_count" = "$mode3_reg_count_clp" ] && \
+           [ "$mode3_mem_count" = "$mode3_mem_count_clp" ] && \
+           [ "$mode3_total_count" = "$mode3_archive_total_count_clp" ]; then
+          mode3_status="passed"
+          echo "    ✅ Mode 3 validation passed (CLP query)"
+        else
+          mode3_status="failed"
+          echo "    ❌ Mode 3 validation failed (CLP query)"
+        fi
+        echo "       📊 Record breakdown:"
+        echo "          reg_trace:  $mode3_reg_count records (ndjson), $mode3_reg_count_clp records (CLP query)"
+        echo "          mem_trace:  $mode3_mem_count records (ndjson), $mode3_mem_count_clp records (CLP query)"
+        echo "          Total:      $mode3_total_count records (ndjson), $mode3_archive_total_count_clp records (CLP query)"
+
+        # Show first record of each type from CLP Query (formatted)
         echo "       First reg_trace record (formatted):"
-        grep -a '"type":"reg_trace"' $decompressed_file | head -1 | python3 -m json.tool | head -20 | sed 's/^/         /'
+        clp-s s "$mode3_archive" 'type: reg_trace' | head -1 | python3 -m json.tool | head -20 | sed 's/^/         /'
 
         if [ "$mode3_mem_count" -gt 0 ]; then
           echo "       First mem_trace record (formatted):"
-          grep -a '"type":"mem_trace"' $decompressed_file | head -1 | python3 -m json.tool | head -20 | sed 's/^/         /'
+          clp-s s "$mode3_archive" 'type: mem_trace' | head -1 | python3 -m json.tool | head -20 | sed 's/^/         /'
         fi
       else
-        echo "    ❌ Mode 3 validation failed"
+        echo "    ❌ Mode 3 decompressed JSON validation failed"
         echo "    === Validation errors ==="
         cat mode3_validation.log
         mode3_status="failed"
@@ -95,6 +106,11 @@ test_trace_formats_clp() {
   echo "  ═══════════════════════════════════════════"
   echo "  Mode 3 (CLP):           $mode3_status"
   echo "  ═══════════════════════════════════════════"
+
+  # Clean up
+  rm -rf kernel_*triton_poi_fused*.clp
+  rm -rf decompressed
+  rm *.log
 
   # Determine overall result - all four must pass
   if [ "$mode3_status" = "passed" ]; then
