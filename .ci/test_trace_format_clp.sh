@@ -15,7 +15,7 @@ test_trace_formats_clp() {
   echo "  📦 Testing Mode 3 (CLP Archive)..."
 
   test_dir=$PROJECT_ROOT/tests/py_add
-  cd $test_dir
+  cd "$test_dir"
 
   # Clean old clp files
   rm -rf kernel_*triton_poi_fused*.clp

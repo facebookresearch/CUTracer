@@ -327,7 +327,7 @@ void init_config_from_env() {
   // Validate trace format range
   if (trace_format_ndjson < 0 || trace_format_ndjson > 3) {
     printf("WARNING: Invalid TRACE_FORMAT_NDJSON=%d. Using default=1 (text).\n", trace_format_ndjson);
-    trace_format_ndjson = 0;
+    trace_format_ndjson = 1;
   }
 
   // Zstd compression level (only used when trace_format_ndjson == 1)
