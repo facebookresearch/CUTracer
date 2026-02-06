@@ -1,3 +1,8 @@
+#!/bin/bash
+# Copyright (c) Meta Platforms, Inc. and affiliates.
+# Test script for CUTracer, CLP trace format
+# It assumes that CUTracer is built and clp-s is installed in the system
+
 set -eu
 
 # Define project root path (absolute path)
