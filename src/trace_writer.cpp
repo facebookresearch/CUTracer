@@ -22,7 +22,7 @@
 // Constructor & Destructor
 // ============================================================================
 
-TraceWriter::TraceWriter(const std::string& filename, int trace_mode, size_t buffer_threshold)
+TraceWriter::TraceWriter(const std::string& filename, TraceMode trace_mode, size_t buffer_threshold)
     : filename_(filename),
       file_handle_(nullptr),
       fd_(-1),
@@ -33,8 +33,8 @@ TraceWriter::TraceWriter(const std::string& filename, int trace_mode, size_t buf
       compression_level_(zstd_compression_level) {  // Use configurable compression level from env_config
 
   // Validate trace mode
-  if (trace_mode < 0 || trace_mode > 2) {
-    fprintf(stderr, "TraceWriter: Invalid trace_mode %d (must be 0, 1, or 2)\n", trace_mode);
+  if (trace_mode < 0 || trace_mode > 3) {
+    fprintf(stderr, "TraceWriter: Invalid trace_mode %d (must be 0, 1, 2, or 3)\n", trace_mode);
     enabled_ = false;
     return;
   }
@@ -42,7 +42,7 @@ TraceWriter::TraceWriter(const std::string& filename, int trace_mode, size_t buf
   // Determine filename based on trace mode
   std::string actual_filename;
 
-  if (trace_mode == 0) {
+  if (trace_mode == TraceMode::Text) {
     // Mode 0: Text format - use FILE* for fprintf compatibility
     actual_filename = filename + ".log";
     file_handle_ = fopen(actual_filename.c_str(), "a");
@@ -53,7 +53,7 @@ TraceWriter::TraceWriter(const std::string& filename, int trace_mode, size_t buf
       return;
     }
 
-  } else if (trace_mode == 1) {
+  } else if (trace_mode == TraceMode::COMPRESSED_NDJSON) {
     // Mode 1: NDJSON + Zstd compression - use POSIX write() for reliability
     actual_filename = filename + ".ndjson.zst";
 
@@ -79,8 +79,8 @@ TraceWriter::TraceWriter(const std::string& filename, int trace_mode, size_t buf
     size_t max_compressed_size = ZSTD_compressBound(buffer_threshold);
     compressed_buffer_.resize(max_compressed_size);
 
-  } else {  // trace_mode == 2
-    // Mode 2: NDJSON uncompressed - use POSIX write() for reliability
+  } else {  // trace_mode == UNCOMPRESSED_NDJSON || trace_mode == CLP
+    // Mode 2/3: NDJSON uncompressed - use POSIX write() for reliability
     actual_filename = filename + ".ndjson";
 
     // Open with O_CREAT | O_WRONLY | O_APPEND
@@ -103,10 +103,15 @@ TraceWriter::~TraceWriter() {
     file_handle_ = nullptr;
   }
 
-  // Close file descriptor (Mode 1/2)
+  // Close file descriptor (Mode 1/2/3)
   if (fd_ >= 0) {
     close(fd_);
     fd_ = -1;
+  }
+
+  // If in CLP mode, write to CLP archive file after fd is closed
+  if (trace_mode_ == TraceMode::CLP) {
+    write_clp_archive();
   }
 
   // Release Zstd compression context
@@ -124,7 +129,7 @@ bool TraceWriter::write_trace(const TraceRecord& record) {
   if (!enabled_) return false;
 
   // Dispatch based on trace mode
-  if (trace_mode_ == 0) {
+  if (trace_mode_ == TraceMode::TEXT) {
     write_text_format(record);
   } else {
     write_json_format(record);
@@ -135,9 +140,9 @@ bool TraceWriter::write_trace(const TraceRecord& record) {
 
 void TraceWriter::flush() {
   // Dispatch based on trace mode
-  if (trace_mode_ == 1) {
+  if (trace_mode_ == TraceMode::COMPRESSED_NDJSON) {
     write_compressed();
-  } else if (trace_mode_ == 2) {
+  } else if (trace_mode_ == TraceMode::UNCOMPRESSED_NDJSON || trace_mode_ == TraceMode::CLP) {
     write_uncompressed();
   }
   // Mode 0 (text) doesn't buffer, so no flush needed
@@ -220,6 +225,25 @@ void TraceWriter::write_uncompressed() {
   // json_buffer_ is now empty (moved-from state)
   // Write from the temporary buffer
   write_data(temp_buffer.data(), temp_buffer.size(), "bytes");
+}
+
+void TraceWriter::write_clp_archive() {
+  // Write to CLP archive file from uncompressed ndjson file
+  std::string uncompressed_ndjson_file = filename_ + ".ndjson";
+  std::string clp_archive_file = filename_ + ".clp";
+  std::string clp_run_cmd = "clp-s c --single-file-archive " + clp_archive_file + " " + uncompressed_ndjson_file;
+  // run the clp command line to compress and remove the uncompressed ndjson file
+  int rc = std::system(clp_run_cmd.c_str());
+  if (rc != 0) {
+    fprintf(stderr, "TraceWriter: clp-s command line failed with error code %d\n", rc);
+    return;
+  }
+  // remove the uncompressed ndjson file
+  int ec = std::remove(uncompressed_ndjson_file.c_str());
+  if (ec != 0) {
+    fprintf(stderr, "TraceWriter: Failed to remove uncompressed ndjson file with error code %d\n", ec);
+    return;
+  }
 }
 
 void TraceWriter::write_compressed() {
@@ -480,7 +504,7 @@ void TraceWriter::write_json_format(const TraceRecord& record) {
     // Check if buffer threshold reached
     if (json_buffer_.size() >= buffer_threshold_) {
       // Dispatch based on trace mode
-      if (trace_mode_ == 1) {
+      if (trace_mode_ == TraceMode::COMPRESSED_NDJSON) {
         write_compressed();
       } else {
         write_uncompressed();
