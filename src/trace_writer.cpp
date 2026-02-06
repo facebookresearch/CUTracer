@@ -22,12 +22,12 @@
 // Constructor & Destructor
 // ============================================================================
 
-TraceWriter::TraceWriter(const std::string& filename, TraceMode trace_mode, size_t buffer_threshold)
+TraceWriter::TraceWriter(const std::string& filename, int trace_mode, size_t buffer_threshold)
     : filename_(filename),
       file_handle_(nullptr),
       fd_(-1),
       buffer_threshold_(buffer_threshold),
-      trace_mode_(trace_mode),
+      trace_mode_(static_cast<TraceMode>(trace_mode)),
       enabled_(true),
       zstd_ctx_(nullptr),
       compression_level_(zstd_compression_level) {  // Use configurable compression level from env_config
@@ -42,7 +42,7 @@ TraceWriter::TraceWriter(const std::string& filename, TraceMode trace_mode, size
   // Determine filename based on trace mode
   std::string actual_filename;
 
-  if (trace_mode == TraceMode::Text) {
+  if (trace_mode_ == TraceMode::TEXT) {
     // Mode 0: Text format - use FILE* for fprintf compatibility
     actual_filename = filename + ".log";
     file_handle_ = fopen(actual_filename.c_str(), "a");
@@ -53,7 +53,7 @@ TraceWriter::TraceWriter(const std::string& filename, TraceMode trace_mode, size
       return;
     }
 
-  } else if (trace_mode == TraceMode::COMPRESSED_NDJSON) {
+  } else if (trace_mode_ == TraceMode::COMPRESSED_NDJSON) {
     // Mode 1: NDJSON + Zstd compression - use POSIX write() for reliability
     actual_filename = filename + ".ndjson.zst";
 
