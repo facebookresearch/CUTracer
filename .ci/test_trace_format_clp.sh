@@ -30,7 +30,7 @@ test_trace_formats_clp() {
   else
     # Find generated .clp file (PT2 compiled Triton kernel)
     local mode3_archive
-    mode3_archive=(find . -maxdepth 1 -name 'kernel_*triton_poi_fused*.clp' -printf '%T@ %p\n' 2>/dev/null | sort -rn | head -n 1 | cut -d' ' -f2-)
+    mode3_archive=$(find . -maxdepth 1 -name 'kernel_*triton_poi_fused*.clp' -printf '%T@ %p\n' | sort -rn | head -n 1 | cut -d' ' -f2-)
     if [ -z "$mode3_archive" ]; then
       echo "    ❌ No .clp archive generated"
       mode3_status="failed"
