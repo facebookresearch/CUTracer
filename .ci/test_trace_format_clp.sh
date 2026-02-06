@@ -29,16 +29,16 @@ test_trace_formats_clp() {
     mode3_status="failed"
   else
     # Find generated .clp file (PT2 compiled Triton kernel)
-    # shellcheck disable=SC2012,SC2155
-    mode3_archive=$(ls -1dt kernel_*triton_poi_fused*.clp 2>/dev/null | head -n 1)
+    local mode3_archive
+    mode3_archive=(find . -maxdepth 1 -name 'kernel_*triton_poi_fused*.clp' -printf '%T@ %p\n' 2>/dev/null | sort -rn | head -n 1 | cut -d' ' -f2-)
     if [ -z "$mode3_archive" ]; then
       echo "    ❌ No .clp archive generated"
       mode3_status="failed"
     else
       echo "    ✅ Found: $mode3_archive"
       # Get compressed archive size
-      # shellcheck disable=SC2155
-      local compressed_archive_size=$(du -sb "$mode3_archive" 2>/dev/null | cut -f1)
+      local compressed_archive_size
+      compressed_archive_size=$(du -sb "$mode3_archive" 2>/dev/null | cut -f1)
       echo "       Compressed archive size: $compressed_archive_size bytes"
 
       # Decompress for validation
@@ -46,9 +46,10 @@ test_trace_formats_clp() {
       # Decompress CLP archive with clp-s
       clp-s x "$mode3_archive" decompressed
       # Get decompressed file size
-      # shellcheck disable=SC2155
-      local decompressed_size=$(du -sb decompressed 2>/dev/null | cut -f1)
-      local ratio=$(awk "BEGIN {printf \"%.1f\", ($decompressed_size / $compressed_archive_size)}")
+      local decompressed_size
+      decompressed_size=$(du -sb decompressed 2>/dev/null | cut -f1)
+      local ratio
+      ratio=$(awk "BEGIN {printf \"%.1f\", ($decompressed_size / $compressed_archive_size)}")
 
       echo "    ✅ Decompression successful"
       echo "       CLP Archive size:  $compressed_archive_size bytes"
@@ -57,8 +58,7 @@ test_trace_formats_clp() {
 
       # Validate CLP Archive with decompressed JSON
       echo "    🔍 Validating CLP Archive format..."
-      # shellcheck disable=SC2012,SC2155
-      decompressed_file=$(ls -1t decompressed/* 2>/dev/null | head -n 1)
+      decompressed_file=$(find decompressed -maxdepth 1 -type f -printf '%T@ %p\n' 2>/dev/null | sort -rn | head -n 1 | cut -d' ' -f2-)
       mv "$decompressed_file" decompressed/mode3_decompressed.ndjson
       decompressed_file="decompressed/mode3_decompressed.ndjson"
       if python3 "$PROJECT_ROOT/scripts/validate_trace.py" --no-color json $decompressed_file >mode3_validation.log 2>&1; then
@@ -114,7 +114,7 @@ test_trace_formats_clp() {
   # Clean up
   rm -rf kernel_*triton_poi_fused*.clp
   rm -rf decompressed
-  rm mode3_validation.log
+  rm ./*.log
 
   # Determine overall result - all four must pass
   if [ "$mode3_status" = "passed" ]; then
