@@ -4,8 +4,8 @@
 # Script to download and install third-party dependencies for CUTracer
 #
 # Environment Variables:
-#   NVBIT_VERSION  - NVBit version (default: 1.7.6, or "latest" for latest release)
-#   JSON_VERSION   - nlohmann/json version (default: 3.11.3)
+#   NVBIT_VERSION  - NVBit version (or "latest" for latest release)
+#   JSON_VERSION   - nlohmann/json version
 #
 # Usage:
 #   ./install_third_party.sh                        # Use defaults
@@ -15,7 +15,7 @@
 # ============================================================
 # Configuration: Set default values if not provided
 # ============================================================
-NVBIT_VERSION="${NVBIT_VERSION:-1.7.6}"
+NVBIT_VERSION="${NVBIT_VERSION:-1.7.7.1}"
 JSON_VERSION="${JSON_VERSION:-3.11.3}"
 
 # ============================================================

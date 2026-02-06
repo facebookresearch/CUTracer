@@ -40,6 +40,7 @@ Why random delay injection triggers the bugs:
 
 from typing import Optional
 
+import click
 import pytest
 import torch
 import triton
@@ -887,10 +888,36 @@ def print_summary_report(all_results):
 # Main: Run all tests with verbose output
 # ==============================================================================
 
-if __name__ == "__main__":
+
+@click.command()
+@click.option(
+    "--iters",
+    "-i",
+    default=100,
+    type=int,
+    help="Number of iterations for all tests (default: 100)",
+)
+@click.option(
+    "--tritonparse",
+    "tritonparse_path",
+    default=None,
+    is_flag=False,
+    flag_value="/tmp/tritonparse_logs/",
+    help="Enable tritonparse structured logging. Optionally specify output path (default: /tmp/tritonparse_logs/)",
+)
+def main(iters, tritonparse_path):
     if not is_cuda() or torch.cuda.get_device_capability()[0] != 9:
         print("Skipping: No Hopper GPU found")
-        exit(0)
+        return
+
+    if tritonparse_path:
+        import tritonparse.structured_logging
+
+        tritonparse.structured_logging.init(
+            tritonparse_path,
+            enable_trace_launch=True,
+            enable_sass_dump=True,
+        )
 
     print("=" * 70)
     print("Data Race Detection Test Suite for Hopper GEMM")
@@ -907,11 +934,21 @@ if __name__ == "__main__":
 
     # Run tests and collect results
     all_results = {}
-    all_results["Bug 1: Late barrier_wait for A"] = test_bug1_late_barrier_a()
-    all_results["Bug 2: Missing barrier_wait for B"] = test_bug2_missing_barrier_b()
+    all_results["Bug 1: Late barrier_wait for A"] = run_multiple_iterations(
+        matmul_kernel_bug1_late_barrier_a,
+        num_iterations=iters,
+    )
+    all_results["Bug 2: Missing barrier_wait for B"] = run_multiple_iterations(
+        matmul_kernel_bug2_missing_barrier_b,
+        num_iterations=iters,
+    )
 
     # Print summary report at the end
     print_summary_report(all_results)
 
     print("Test suite complete!")
     print("=" * 70)
+
+
+if __name__ == "__main__":
+    main()
