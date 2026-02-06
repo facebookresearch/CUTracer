@@ -55,6 +55,7 @@ bool DelayInjectConfig::save_to_file(const std::string& filepath) const {
   for (const auto& [kernel_name, kdc] : kernels) {
     json kernel_json;
     kernel_json["kernel_name"] = kdc.kernel_name;
+    kernel_json["kernel_checksum"] = kdc.kernel_checksum;
     kernel_json["timestamp"] = kdc.timestamp;
 
     nlohmann::ordered_json points_json = nlohmann::ordered_json::object();
@@ -89,20 +90,22 @@ void init_delay_json_config() {
   }
 }
 
-KernelDelayInjectConfig* create_kernel_delay_config(const std::string& kernel_name) {
-  // Create new entry with timestamp-based key
+KernelDelayInjectConfig* create_kernel_delay_config(const std::string& kernel_name,
+                                                    const std::string& kernel_checksum) {
+  // Create new entry with kernel_checksum-based key for robust identification
   std::string timestamp = get_current_timestamp();
-  // WORKAROUND: Use kernel_name + timestamp as key to handle multiple compilations
-  // of the same kernel (e.g., during autotuning), each compilation gets a unique entry.
-  // TODO: Use checksum-based key (e.g., hash of kernel binary) for more robust identification.
-  std::string key = kernel_name + "_" + timestamp;
+  // Use kernel_checksum as key for robust kernel identification across recompilations
+  // Same kernel with different SASS will get different entries
+  std::string key = kernel_name + "_" + kernel_checksum;
 
   KernelDelayInjectConfig kdc;
   kdc.kernel_name = kernel_name;
+  kdc.kernel_checksum = kernel_checksum;
   kdc.timestamp = timestamp;
   g_delay_inject_config.kernels[key] = kdc;
 
-  loprintf_v("Created delay config for kernel: %s (key: %s)\n", kernel_name.c_str(), key.c_str());
+  loprintf_v("Created delay config for kernel: %s (checksum: %s, key: %s)\n", kernel_name.c_str(),
+             kernel_checksum.c_str(), key.c_str());
   return &g_delay_inject_config.kernels[key];
 }
 
@@ -156,6 +159,7 @@ bool load_delay_config(const std::string& filepath) {
       for (const auto& [key, kernel_json] : config_json["kernels"].items()) {
         KernelDelayInjectConfig kdc;
         kdc.kernel_name = kernel_json.value("kernel_name", "");
+        kdc.kernel_checksum = kernel_json.value("kernel_checksum", "");
         kdc.timestamp = kernel_json.value("timestamp", "");
 
         if (kernel_json.contains("instrumentation_points")) {
@@ -192,22 +196,25 @@ bool is_delay_replay_mode() {
   return g_delay_replay_mode_active;
 }
 
-const std::map<uint64_t, DelayInstrumentationPoint>* get_replay_instrumentation_points(const std::string& kernel_name) {
+const std::map<uint64_t, DelayInstrumentationPoint>* get_replay_instrumentation_points(
+    const std::string& kernel_name, const std::string& kernel_checksum) {
   if (!g_delay_replay_mode_active) {
     return nullptr;
   }
 
-  // Search through all kernel configs to find a matching kernel name
-  // Note: The key includes timestamp, so we match by kernel_name field
+  // Search through all kernel configs to find a matching kernel by kernel_checksum
+  // Since kernel_name is encoded in the checksum, matching checksum implies matching name
   for (const auto& [key, kdc] : g_replay_config.kernels) {
-    if (kdc.kernel_name == kernel_name) {
-      loprintf_v("Replay: Found config for kernel %s with %zu instrumentation points\n", kernel_name.c_str(),
-                 kdc.instrumentation_points.size());
+    if (kdc.kernel_checksum == kernel_checksum) {
+      // Sanity check: if checksum matches, name must also match (since name is part of checksum)
+      assert(kdc.kernel_name == kernel_name && "Checksum matched but kernel name differs - hash collision?");
+      loprintf_v("Replay: Found config for kernel %s (checksum: %s) with %zu instrumentation points\n",
+                 kernel_name.c_str(), kernel_checksum.c_str(), kdc.instrumentation_points.size());
       return &kdc.instrumentation_points;
     }
   }
 
-  loprintf_v("Replay: No config found for kernel %s\n", kernel_name.c_str());
+  loprintf_v("Replay: No config found for kernel %s (checksum: %s)\n", kernel_name.c_str(), kernel_checksum.c_str());
   return nullptr;
 }
 

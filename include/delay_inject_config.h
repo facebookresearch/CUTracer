@@ -35,6 +35,10 @@ struct DelayInstrumentationPoint {
  */
 struct KernelDelayInjectConfig {
   std::string kernel_name;
+  // FNV-1a hash of kernel name + all SASS instructions (hex string).
+  // This provides robust kernel identification across recompilations:
+  // same kernel name with different SASS produces different checksum.
+  std::string kernel_checksum;
   std::string timestamp;  // ISO 8601 timestamp when kernel was instrumented
   std::map<uint64_t, DelayInstrumentationPoint> instrumentation_points;  // Keyed by pc_offset
 };
@@ -67,9 +71,10 @@ void init_delay_json_config();
  * Should be called once per kernel before the instruction iteration loop.
  *
  * @param kernel_name The kernel name
+ * @param kernel_checksum FNV-1a hash of kernel name + SASS instructions (hex string) for robust identification
  * @return Pointer to the newly created kernel config
  */
-KernelDelayInjectConfig* create_kernel_delay_config(const std::string& kernel_name);
+KernelDelayInjectConfig* create_kernel_delay_config(const std::string& kernel_name, const std::string& kernel_checksum);
 
 /**
  * @brief Register an instrumentation point for a kernel.
@@ -122,10 +127,13 @@ bool lookup_replay_config(const std::map<uint64_t, DelayInstrumentationPoint>* r
  * @brief Get the instrumentation points map for a kernel in replay mode.
  *
  * Should be called once per kernel before the instruction iteration loop.
+ * Matches kernels by kernel_checksum (computed from kernel name + SASS) for robust identification.
  *
  * @param kernel_name The kernel name to look up
+ * @param kernel_checksum The kernel checksum to match (FNV-1a hash of kernel name + SASS)
  * @return Pointer to the instrumentation points map, or nullptr if not found
  */
-const std::map<uint64_t, DelayInstrumentationPoint>* get_replay_instrumentation_points(const std::string& kernel_name);
+const std::map<uint64_t, DelayInstrumentationPoint>* get_replay_instrumentation_points(
+    const std::string& kernel_name, const std::string& kernel_checksum);
 
 #endif /* DELAY_INJECT_CONFIG_H */

@@ -99,6 +99,57 @@ static std::map<CUfunction, uint32_t> kernel_iter_map;
 /* Set used to avoid re-instrumenting the same functions multiple times */
 std::unordered_set<CUfunction> already_instrumented;
 
+/**
+ * @brief Compute a kernel checksum for robust kernel identification.
+ *
+ * Uses FNV-1a algorithm to hash the kernel name AND all SASS instruction strings.
+ * This provides robust identification across recompilations - same kernel name
+ * with different SASS (due to different compilation options, optimizations, etc.)
+ * will produce different checksums.
+ *
+ * NOTE: This uses the ORIGINAL SASS from nvbit_get_instrs() before any
+ * instrumentation is applied. The delay injection happens later and does
+ * not affect the checksum.
+ *
+ * @param kernel_name The kernel's mangled name
+ * @param instrs Vector of instructions from nvbit_get_instrs()
+ * @return Hex string of the FNV-1a hash
+ */
+static std::string compute_kernel_checksum(const std::string& kernel_name, const std::vector<Instr*>& instrs) {
+  // FNV-1a constants
+  const uint64_t FNV_OFFSET = 14695981039346656037ULL;
+  const uint64_t FNV_PRIME = 1099511628211ULL;
+
+  uint64_t hash = FNV_OFFSET;
+
+  // First, hash the kernel name
+  for (char c : kernel_name) {
+    hash ^= static_cast<uint64_t>(c);
+    hash *= FNV_PRIME;
+  }
+
+  // Then hash all SASS instructions
+  for (const auto& instr : instrs) {
+    const char* sass = instr->getSass();
+    if (sass) {
+      // Hash each character of the SASS string
+      for (const char* p = sass; *p; ++p) {
+        hash ^= static_cast<uint64_t>(*p);
+        hash *= FNV_PRIME;
+      }
+    }
+    // Also include offset for additional uniqueness
+    uint64_t offset = instr->getOffset();
+    hash ^= offset;
+    hash *= FNV_PRIME;
+  }
+
+  // Convert to hex string
+  std::ostringstream oss;
+  oss << std::hex << std::nouppercase << hash;
+  return oss.str();
+}
+
 /* ===== Main Functionality ===== */
 /**
  * @brief Conditionally instruments a CUDA function by delegating to specialized
@@ -174,15 +225,22 @@ bool instrument_function_if_needed(CUcontext ctx, CUfunction func) {
     }
 
     // Create kernel delay config if dump path is set (for exporting to JSON)
+    // Note: dump mode and replay mode are mutually exclusive
     KernelDelayInjectConfig* kernel_delay_config = nullptr;
+    std::string kernel_checksum;
     if (!delay_dump_path.empty() && is_instrument_type_enabled(InstrumentType::RANDOM_DELAY)) {
-      kernel_delay_config = create_kernel_delay_config(mangled_name);
+      assert(!is_delay_replay_mode() && "Dump and replay modes are mutually exclusive");
+      // Compute kernel checksum for robust kernel identification
+      kernel_checksum = compute_kernel_checksum(mangled_name, instrs);
+      kernel_delay_config = create_kernel_delay_config(mangled_name, kernel_checksum);
     }
 
     // Get replay instrumentation points once for replay mode
     const std::map<uint64_t, DelayInstrumentationPoint>* replay_points = nullptr;
     if (is_delay_replay_mode() && is_instrument_type_enabled(InstrumentType::RANDOM_DELAY)) {
-      replay_points = get_replay_instrumentation_points(mangled_name);
+      assert(delay_dump_path.empty() && "Dump and replay modes are mutually exclusive");
+      kernel_checksum = compute_kernel_checksum(mangled_name, instrs);
+      replay_points = get_replay_instrumentation_points(mangled_name, kernel_checksum);
     }
 
     uint32_t cnt = 0;
