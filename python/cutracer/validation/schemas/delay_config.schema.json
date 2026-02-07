@@ -30,12 +30,18 @@
     "KernelDelayConfig": {
       "type": "object",
       "description": "Delay configuration for a single kernel",
-      "required": ["kernel_name", "timestamp", "instrumentation_points"],
+      "required": ["kernel_name", "kernel_checksum", "timestamp", "instrumentation_points"],
       "properties": {
         "kernel_name": {
           "type": "string",
           "minLength": 1,
           "description": "Name of the CUDA kernel"
+        },
+        "kernel_checksum": {
+          "type": "string",
+          "description": "FNV-1a hash of kernel name + all SASS instructions (hex string). Provides robust kernel identification across recompilations.",
+          "pattern": "^[0-9a-f]+$",
+          "examples": ["a1b2c3d4e5f67890"]
         },
         "timestamp": {
           "type": "string",
