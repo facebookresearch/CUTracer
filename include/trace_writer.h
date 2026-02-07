@@ -18,6 +18,13 @@
 #include "common.h"
 #include "nvbit.h"
 
+enum class TraceMode : std::uint8_t {
+  TEXT = 0,
+  COMPRESSED_NDJSON = 1,
+  UNCOMPRESSED_NDJSON = 2,
+  CLP = 3,
+};
+
 /**
  * @brief Rich trace record combining GPU trace data with metadata.
  *
@@ -169,7 +176,7 @@ class TraceWriter {
   int fd_;  // File descriptor for POSIX write() (Mode 1/2 only)
   std::string json_buffer_;
   size_t buffer_threshold_;
-  int trace_mode_;  // 0, 1, or 2
+  TraceMode trace_mode_;
   bool enabled_;
 
   // ========== Mode 1 (Zstd compression) support ==========
@@ -231,6 +238,11 @@ class TraceWriter {
    * @brief Write record in JSON format (mode 1/2).
    */
   void write_json_format(const TraceRecord& record);
+
+  /**
+   * @brief Write CLP archive (mode 3).
+   */
+  void write_clp_archive();
 
   /**
    * @brief Write uncompressed buffer to file (mode 2).

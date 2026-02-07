@@ -321,12 +321,13 @@ void init_config_from_env() {
   init_instrumentation(instrument_str);
 
   // Trace format configuration
-  get_var_int(trace_format_ndjson, "TRACE_FORMAT_NDJSON", 1, "Trace format: 0=text, 1=NDJSON+Zstd, 2=NDJSON only");
+  get_var_int(trace_format_ndjson, "TRACE_FORMAT_NDJSON", 1,
+              "Trace format: 0=text, 1=NDJSON+Zstd, 2=NDJSON only, 3=CLP Archive");
 
   // Validate trace format range
-  if (trace_format_ndjson < 0 || trace_format_ndjson > 2) {
-    printf("WARNING: Invalid TRACE_FORMAT_NDJSON=%d. Using default=0 (text).\n", trace_format_ndjson);
-    trace_format_ndjson = 0;
+  if (trace_format_ndjson < 0 || trace_format_ndjson > 3) {
+    printf("WARNING: Invalid TRACE_FORMAT_NDJSON=%d. Using default=1 (NDJSON+Zstd).\n", trace_format_ndjson);
+    trace_format_ndjson = 1;
   }
 
   // Zstd compression level (only used when trace_format_ndjson == 1)
