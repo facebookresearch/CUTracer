@@ -70,8 +70,9 @@ class DelayConfigSchemaTest(unittest.TestCase):
             "version": "1.0",
             "delay_ns": 10000,
             "kernels": {
-                "my_kernel_2026-02-03T21:15:21.567": {
+                "my_kernel_a1b2c3d4e5f67890": {
                     "kernel_name": "my_kernel",
+                    "kernel_checksum": "a1b2c3d4e5f67890",
                     "timestamp": "2026-02-03T21:15:21.567",
                     "instrumentation_points": {
                         "10192": {
