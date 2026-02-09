@@ -286,75 +286,6 @@ bool is_analysis_type_enabled(AnalysisType type) {
   return enabled_analysis_types.count(type);
 }
 
-// Initialize all configuration variables
-void init_config_from_env() {
-  // Enable device memory allocation
-  setenv("CUDA_MANAGED_FORCE_DEVICE_ALLOC", "1", 1);
-  // Initialize log handle
-  init_log_handle();
-  // Get other configuration variables
-  get_var_int(verbose, "TOOL_VERBOSE", 0, "Enable verbosity inside the tool");
-  int dump_cubin_int = 0;
-  get_var_int(dump_cubin_int, "CUTRACER_DUMP_CUBIN", 0, "Dump cubin files for instrumented kernels");
-  dump_cubin = (dump_cubin_int != 0);
-  // If INSTRS is not set, fall back to the old INSTR_BEGIN/INSTR_END behavior
-  get_var_uint32(instr_begin_interval, "INSTR_BEGIN", 0,
-                 "Beginning of the instruction interval where to apply instrumentation");
-  get_var_uint32(instr_end_interval, "INSTR_END", UINT32_MAX,
-                 "End of the instruction interval where to apply instrumentation");
-  std::string instrument_str;
-  get_var_str(instrument_str, "CUTRACER_INSTRUMENT", "",
-              "Instrumentation types to enable (opcode_only,reg_trace,mem_addr_trace)");
-  std::string kernel_filters_env;
-  get_var_str(kernel_filters_env, "KERNEL_FILTERS", "", "Kernel name filters");
-  std::string analysis_str;
-  get_var_str(analysis_str, "CUTRACER_ANALYSIS", "",
-              "Analysis types to enable (proton_instr_histogram, deadlock_detection, random_delay)");
-
-  //===== Initializations ==========
-  // Get kernel name filters
-  parse_kernel_filters(kernel_filters_env);
-
-  // Clear enabled types at the beginning
-  enabled_instrument_types.clear();
-
-  // Initialize analysis first, as it may enable instrumentation types
-  init_analysis(analysis_str);
-  // Initialize instrumentation from user settings
-  init_instrumentation(instrument_str);
-
-  // Trace format configuration
-  get_var_int(trace_format_ndjson, "TRACE_FORMAT_NDJSON", 1,
-              "Trace format: 0=text, 1=NDJSON+Zstd, 2=NDJSON only, 3=CLP Archive");
-
-  // Validate trace format range
-  if (trace_format_ndjson < 0 || trace_format_ndjson > 3) {
-    printf("WARNING: Invalid TRACE_FORMAT_NDJSON=%d. Using default=1 (NDJSON+Zstd).\n", trace_format_ndjson);
-    trace_format_ndjson = 1;
-  }
-
-  // Zstd compression level (only used when trace_format_ndjson == 1)
-  get_var_int(zstd_compression_level, "CUTRACER_ZSTD_LEVEL", 22, "Zstd compression level (1-22, default 22)");
-
-  // Validate compression level range
-  if (zstd_compression_level < 1 || zstd_compression_level > 22) {
-    printf("WARNING: Invalid CUTRACER_ZSTD_LEVEL=%d. Using default=22.\n", zstd_compression_level);
-    zstd_compression_level = 22;
-  }
-
-// Parse and validate delay configuration (includes config paths)
-  parse_delay_config();
-
-// Parse instruction category filters (optional)
-  std::string instr_categories_str;
-  get_var_str(instr_categories_str, "CUTRACER_INSTR_CATEGORIES", "",
-              "Instruction categories to instrument (mma,tma,sync). Empty = all instructions");
-  init_instr_categories(instr_categories_str);
-
-  std::string pad(100, '-');
-  loprintf("%s\n", pad.c_str());
-}
-
 /**
  * @brief Initialize instruction category filtering from environment variable
  *
@@ -423,4 +354,73 @@ bool should_instrument_category(InstrCategory category) {
  */
 bool has_category_filter_enabled() {
   return !enabled_instr_categories.empty();
+}
+
+// Initialize all configuration variables
+void init_config_from_env() {
+  // Enable device memory allocation
+  setenv("CUDA_MANAGED_FORCE_DEVICE_ALLOC", "1", 1);
+  // Initialize log handle
+  init_log_handle();
+  // Get other configuration variables
+  get_var_int(verbose, "TOOL_VERBOSE", 0, "Enable verbosity inside the tool");
+  int dump_cubin_int = 0;
+  get_var_int(dump_cubin_int, "CUTRACER_DUMP_CUBIN", 0, "Dump cubin files for instrumented kernels");
+  dump_cubin = (dump_cubin_int != 0);
+  // If INSTRS is not set, fall back to the old INSTR_BEGIN/INSTR_END behavior
+  get_var_uint32(instr_begin_interval, "INSTR_BEGIN", 0,
+                 "Beginning of the instruction interval where to apply instrumentation");
+  get_var_uint32(instr_end_interval, "INSTR_END", UINT32_MAX,
+                 "End of the instruction interval where to apply instrumentation");
+  std::string instrument_str;
+  get_var_str(instrument_str, "CUTRACER_INSTRUMENT", "",
+              "Instrumentation types to enable (opcode_only,reg_trace,mem_addr_trace)");
+  std::string kernel_filters_env;
+  get_var_str(kernel_filters_env, "KERNEL_FILTERS", "", "Kernel name filters");
+  std::string analysis_str;
+  get_var_str(analysis_str, "CUTRACER_ANALYSIS", "",
+              "Analysis types to enable (proton_instr_histogram, deadlock_detection, random_delay)");
+
+  //===== Initializations ==========
+  // Get kernel name filters
+  parse_kernel_filters(kernel_filters_env);
+
+  // Clear enabled types at the beginning
+  enabled_instrument_types.clear();
+
+  // Initialize analysis first, as it may enable instrumentation types
+  init_analysis(analysis_str);
+  // Initialize instrumentation from user settings
+  init_instrumentation(instrument_str);
+
+  // Trace format configuration
+  get_var_int(trace_format_ndjson, "TRACE_FORMAT_NDJSON", 1,
+              "Trace format: 0=text, 1=NDJSON+Zstd, 2=NDJSON only, 3=CLP Archive");
+
+  // Validate trace format range
+  if (trace_format_ndjson < 0 || trace_format_ndjson > 3) {
+    printf("WARNING: Invalid TRACE_FORMAT_NDJSON=%d. Using default=1 (NDJSON+Zstd).\n", trace_format_ndjson);
+    trace_format_ndjson = 1;
+  }
+
+  // Zstd compression level (only used when trace_format_ndjson == 1)
+  get_var_int(zstd_compression_level, "CUTRACER_ZSTD_LEVEL", 22, "Zstd compression level (1-22, default 22)");
+
+  // Validate compression level range
+  if (zstd_compression_level < 1 || zstd_compression_level > 22) {
+    printf("WARNING: Invalid CUTRACER_ZSTD_LEVEL=%d. Using default=22.\n", zstd_compression_level);
+    zstd_compression_level = 22;
+  }
+
+  // Parse and validate delay configuration (includes config paths)
+  parse_delay_config();
+
+  // Parse instruction category filters (optional)
+  std::string instr_categories_str;
+  get_var_str(instr_categories_str, "CUTRACER_INSTR_CATEGORIES", "",
+              "Instruction categories to instrument (mma,tma,sync). Empty = all instructions");
+  init_instr_categories(instr_categories_str);
+
+  std::string pad(100, '-');
+  loprintf("%s\n", pad.c_str());
 }

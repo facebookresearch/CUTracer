@@ -24,14 +24,14 @@
 static int tests_passed = 0;
 static int tests_failed = 0;
 
-#define TEST(name) \
+#define TEST(name)                             \
   std::cout << "Testing: " << #name << "... "; \
-  if (test_##name()) { \
-    std::cout << "✅ PASSED" << std::endl; \
-    tests_passed++; \
-  } else { \
-    std::cout << "❌ FAILED" << std::endl; \
-    tests_failed++; \
+  if (test_##name()) {                         \
+    std::cout << "✅ PASSED" << std::endl;     \
+    tests_passed++;                            \
+  } else {                                     \
+    std::cout << "❌ FAILED" << std::endl;     \
+    tests_failed++;                            \
   }
 
 // ============================================================================
@@ -41,21 +41,21 @@ static int tests_failed = 0;
 bool test_detect_utcmma() {
   // Test UTCMMA detection
   const char* sass = "UTCMMA.16816.F16 R8, R16, R24, R32";
-  InstrCategory cat = detectInstrCategory(sass);
+  InstrCategory cat = detect_instr_category(sass);
   return cat == InstrCategory::MMA;
 }
 
 bool test_detect_utcmma_variants() {
   // Test different UTCMMA variants
   const char* variants[] = {
-    "UTCMMA.16816.F16 R0, R8, R16, R24",
-    "UTCMMA.16816.F32 R0, R8, R16, R24",
-    "UTCMMA.16832.F16 R0, R8, R16, R24",
-    "/*0080*/   UTCMMA.16816.F16.F16 R64, R0, UR4, R32",  // With PC prefix
+      "UTCMMA.16816.F16 R0, R8, R16, R24",
+      "UTCMMA.16816.F32 R0, R8, R16, R24",
+      "UTCMMA.16832.F16 R0, R8, R16, R24",
+      "/*0080*/   UTCMMA.16816.F16.F16 R64, R0, UR4, R32",  // With PC prefix
   };
 
   for (const char* sass : variants) {
-    if (detectInstrCategory(sass) != InstrCategory::MMA) {
+    if (detect_instr_category(sass) != InstrCategory::MMA) {
       std::cerr << "Failed for: " << sass << std::endl;
       return false;
     }
@@ -66,44 +66,39 @@ bool test_detect_utcmma_variants() {
 bool test_detect_tma_load() {
   // Test TMA load detection
   const char* sass = "UTMALDG.2D.CTA_GROUP::1 [UR8], [R16], P0";
-  InstrCategory cat = detectInstrCategory(sass);
+  InstrCategory cat = detect_instr_category(sass);
   return cat == InstrCategory::TMA;
 }
 
 bool test_detect_tma_store() {
   // Test TMA store detection
   const char* sass = "UTMASTG.2D [UR8], [R16], R32";
-  InstrCategory cat = detectInstrCategory(sass);
+  InstrCategory cat = detect_instr_category(sass);
   return cat == InstrCategory::TMA;
 }
 
 bool test_detect_sync() {
   // Test sync instruction detection
   const char* sass = "WARPGROUP.DEPBAR.LE 0x2";
-  InstrCategory cat = detectInstrCategory(sass);
+  InstrCategory cat = detect_instr_category(sass);
   return cat == InstrCategory::SYNC;
 }
 
 bool test_detect_none() {
   // Test that non-matching instructions return NONE
   const char* sass_list[] = {
-    "FADD R0, R1, R2",
-    "LDG.E.64 R8, [R16]",
-    "STG.E.64 [R16], R8",
-    "MOV R0, R1",
-    "EXIT",
-    nullptr,
+      "FADD R0, R1, R2", "LDG.E.64 R8, [R16]", "STG.E.64 [R16], R8", "MOV R0, R1", "EXIT", nullptr,
   };
 
   for (int i = 0; sass_list[i] != nullptr; i++) {
-    if (detectInstrCategory(sass_list[i]) != InstrCategory::NONE) {
+    if (detect_instr_category(sass_list[i]) != InstrCategory::NONE) {
       std::cerr << "Should be NONE: " << sass_list[i] << std::endl;
       return false;
     }
   }
 
   // Test nullptr
-  if (detectInstrCategory(nullptr) != InstrCategory::NONE) {
+  if (detect_instr_category(nullptr) != InstrCategory::NONE) {
     std::cerr << "nullptr should return NONE" << std::endl;
     return false;
   }
@@ -113,21 +108,21 @@ bool test_detect_none() {
 
 bool test_category_name() {
   // Test category name lookup
-  if (strcmp(getInstrCategoryName(InstrCategory::MMA), "MMA") != 0) return false;
-  if (strcmp(getInstrCategoryName(InstrCategory::TMA), "TMA") != 0) return false;
-  if (strcmp(getInstrCategoryName(InstrCategory::SYNC), "SYNC") != 0) return false;
-  if (strcmp(getInstrCategoryName(InstrCategory::NONE), "NONE") != 0) return false;
+  if (strcmp(get_instr_category_name(InstrCategory::MMA), "MMA") != 0) return false;
+  if (strcmp(get_instr_category_name(InstrCategory::TMA), "TMA") != 0) return false;
+  if (strcmp(get_instr_category_name(InstrCategory::SYNC), "SYNC") != 0) return false;
+  if (strcmp(get_instr_category_name(InstrCategory::NONE), "NONE") != 0) return false;
   return true;
 }
 
 bool test_pattern_description() {
   // Test pattern description lookup
-  const char* desc = getInstrPatternDescription("UTCMMA.16816.F16 R0, R8, R16, R24");
+  const char* desc = get_instr_pattern_description("UTCMMA.16816.F16 R0, R8, R16, R24");
   if (desc == nullptr) return false;
   if (strstr(desc, "Unified Tensor Core MMA") == nullptr) return false;
 
   // Non-matching should return nullptr
-  desc = getInstrPatternDescription("FADD R0, R1, R2");
+  desc = get_instr_pattern_description("FADD R0, R1, R2");
   if (desc != nullptr) return false;
 
   return true;
@@ -136,15 +131,15 @@ bool test_pattern_description() {
 bool test_is_instr_category() {
   // Test isInstrCategory helper
   const char* mma_sass = "UTCMMA.16816.F16 R0, R8, R16, R24";
-  if (!isInstrCategory(mma_sass, InstrCategory::MMA)) return false;
-  if (isInstrCategory(mma_sass, InstrCategory::TMA)) return false;
-  if (isInstrCategory(mma_sass, InstrCategory::SYNC)) return false;
+  if (!is_instr_category(mma_sass, InstrCategory::MMA)) return false;
+  if (is_instr_category(mma_sass, InstrCategory::TMA)) return false;
+  if (is_instr_category(mma_sass, InstrCategory::SYNC)) return false;
   return true;
 }
 
 bool test_get_patterns_for_category() {
   // Test getting patterns for a category
-  auto mma_patterns = getPatternsForCategory(InstrCategory::MMA);
+  auto mma_patterns = get_patterns_for_category(InstrCategory::MMA);
   if (mma_patterns.empty()) return false;
 
   // Should contain UTCMMA
@@ -158,7 +153,7 @@ bool test_get_patterns_for_category() {
   if (!found_utcmma) return false;
 
   // NONE category should have no patterns
-  auto none_patterns = getPatternsForCategory(InstrCategory::NONE);
+  auto none_patterns = get_patterns_for_category(InstrCategory::NONE);
   if (!none_patterns.empty()) return false;
 
   return true;

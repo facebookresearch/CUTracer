@@ -43,7 +43,7 @@ enum class InstrCategory {
 /**
  * @brief Get a human-readable name for an instruction category.
  */
-inline const char* getInstrCategoryName(InstrCategory cat) {
+inline const char* get_instr_category_name(InstrCategory cat) {
   switch (cat) {
     case InstrCategory::NONE:
       return "NONE";
@@ -62,9 +62,9 @@ inline const char* getInstrCategoryName(InstrCategory cat) {
  * @brief Pattern definition for instruction category matching.
  */
 struct InstrCategoryPattern {
-  const char* pattern;     // SASS substring to match
-  InstrCategory category;  // Category this pattern belongs to
-  const char* description; // Human-readable description
+  const char* pattern;      // SASS substring to match
+  InstrCategory category;   // Category this pattern belongs to
+  const char* description;  // Human-readable description
 };
 
 /**
@@ -100,7 +100,7 @@ static const std::vector<InstrCategoryPattern> INSTR_CATEGORY_PATTERNS = {
  * @param sass The SASS instruction string
  * @return The detected category, or InstrCategory::NONE if no match
  */
-inline InstrCategory detectInstrCategory(const char* sass) {
+inline InstrCategory detect_instr_category(const char* sass) {
   if (sass == nullptr) {
     return InstrCategory::NONE;
   }
@@ -120,7 +120,7 @@ inline InstrCategory detectInstrCategory(const char* sass) {
  * @param sass The SASS instruction string
  * @return The description of the matched pattern, or nullptr if no match
  */
-inline const char* getInstrPatternDescription(const char* sass) {
+inline const char* get_instr_pattern_description(const char* sass) {
   if (sass == nullptr) {
     return nullptr;
   }
@@ -141,8 +141,8 @@ inline const char* getInstrPatternDescription(const char* sass) {
  * @param category The category to check for
  * @return true if the instruction belongs to the category
  */
-inline bool isInstrCategory(const char* sass, InstrCategory category) {
-  return detectInstrCategory(sass) == category;
+inline bool is_instr_category(const char* sass, InstrCategory category) {
+  return detect_instr_category(sass) == category;
 }
 
 /**
@@ -151,7 +151,7 @@ inline bool isInstrCategory(const char* sass, InstrCategory category) {
  * @param category The category to get patterns for
  * @return Vector of pattern strings for the category
  */
-inline std::vector<const char*> getPatternsForCategory(InstrCategory category) {
+inline std::vector<const char*> get_patterns_for_category(InstrCategory category) {
   std::vector<const char*> patterns;
   for (const auto& entry : INSTR_CATEGORY_PATTERNS) {
     if (entry.category == category) {

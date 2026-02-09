@@ -298,11 +298,11 @@ void process_instruction_histogram(const opcode_only_t* ri, CTXstate* ctx_state,
   // Check if this is a categorized instruction (MMA, TMA, SYNC, etc.) and log it
   if (sass_map_for_func->count(ri->opcode_id)) {
     const std::string& sass_line = sass_map_for_func->at(ri->opcode_id);
-    InstrCategory category = detectInstrCategory(sass_line.c_str());
+    InstrCategory category = detect_instr_category(sass_line.c_str());
     if (category != InstrCategory::NONE) {
       // Log categorized instruction execution
-      loprintf_v("[%s] warp=%d pc=0x%lx sass='%s'\n",
-                 getInstrCategoryName(category), warp_id, ri->pc, sass_line.c_str());
+      loprintf_v("[%s] warp=%d pc=0x%lx sass='%s'\n", get_instr_category_name(category), warp_id, ri->pc,
+                 sass_line.c_str());
     }
   }
 
@@ -1152,10 +1152,10 @@ void* recv_thread_fun(void* args) {
               sass_str_cpp = ctx_state->id_to_sass_map[f_func][ri->opcode_id];
 
               // Check if this is a categorized instruction (MMA, TMA, SYNC, etc.) and log it
-              InstrCategory category = detectInstrCategory(sass_str_cpp.c_str());
+              InstrCategory category = detect_instr_category(sass_str_cpp.c_str());
               if (category != InstrCategory::NONE) {
-                loprintf_v("[%s] warp=%d pc=0x%lx sass='%s'\n",
-                           getInstrCategoryName(category), ri->warp_id, ri->pc, sass_str_cpp.c_str());
+                loprintf_v("[%s] warp=%d pc=0x%lx sass='%s'\n", get_instr_category_name(category), ri->warp_id, ri->pc,
+                           sass_str_cpp.c_str());
               }
             }
           }

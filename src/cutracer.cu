@@ -331,13 +331,13 @@ bool instrument_function_if_needed(CUcontext ctx, CUfunction func) {
       if (has_category_filter_enabled()) {
         // Category filtering is enabled - check if this instruction matches
         const char* sass_str = instr->getSass();
-        InstrCategory category = detectInstrCategory(sass_str);
+        InstrCategory category = detect_instr_category(sass_str);
         if (category != InstrCategory::NONE) {
           // This is a categorized instruction - check if its category is enabled
           should_instrument_this_instr = should_instrument_category(category);
           if (should_instrument_this_instr) {
             loprintf_v("Category filter: instrumenting %s instruction at pc=0x%lx: %s\n",
-                       getInstrCategoryName(category), instr->getOffset(), sass_str);
+                       get_instr_category_name(category), instr->getOffset(), sass_str);
           }
         } else {
           // Not a categorized instruction - skip when category filtering is enabled
@@ -410,12 +410,11 @@ bool instrument_function_if_needed(CUcontext ctx, CUfunction func) {
         ctx_state->exit_opcode_ids[f].insert(it_sass->first);
       }
       // Detect instruction category and log if matched
-      InstrCategory category = detectInstrCategory(sass_cstr);
+      InstrCategory category = detect_instr_category(sass_cstr);
       if (category != InstrCategory::NONE) {
-        const char* desc = getInstrPatternDescription(sass_cstr);
-        loprintf("%s detected: kernel=%s opcode_id=%d sass='%s' (%s)\n",
-                 getInstrCategoryName(category), unmangled_name, it_sass->first, sass_cstr,
-                 desc ? desc : "");
+        const char* desc = get_instr_pattern_description(sass_cstr);
+        loprintf("%s detected: kernel=%s opcode_id=%d sass='%s' (%s)\n", get_instr_category_name(category),
+                 unmangled_name, it_sass->first, sass_cstr, desc ? desc : "");
         ctx_state->category_opcode_ids[f][category].insert(it_sass->first);
       }
     }
