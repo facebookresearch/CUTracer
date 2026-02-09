@@ -9,6 +9,7 @@
 #include <stdlib.h>
 
 #include "env_config.h"
+#include "instr_category.h"
 #include "instrument.h"
 #include "log.h"
 
@@ -24,6 +25,8 @@ std::vector<std::string> kernel_filters;
 std::unordered_set<InstrumentType> enabled_instrument_types;
 // enabled analysis types
 std::unordered_set<AnalysisType> enabled_analysis_types;
+// enabled instruction categories for conditional instrumentation
+std::unordered_set<InstrCategory> enabled_instr_categories;
 
 // Trace format configuration variable
 int trace_format_ndjson;
@@ -339,9 +342,85 @@ void init_config_from_env() {
     zstd_compression_level = 22;
   }
 
-  // Parse and validate delay configuration (includes config paths)
+// Parse and validate delay configuration (includes config paths)
   parse_delay_config();
+
+// Parse instruction category filters (optional)
+  std::string instr_categories_str;
+  get_var_str(instr_categories_str, "CUTRACER_INSTR_CATEGORIES", "",
+              "Instruction categories to instrument (mma,tma,sync). Empty = all instructions");
+  init_instr_categories(instr_categories_str);
 
   std::string pad(100, '-');
   loprintf("%s\n", pad.c_str());
+}
+
+/**
+ * @brief Initialize instruction category filtering from environment variable
+ *
+ * Parses CUTRACER_INSTR_CATEGORIES environment variable and sets up enabled categories.
+ * If empty, no category filtering is applied (all instructions are instrumented).
+ * If set, only instructions matching the specified categories are instrumented.
+ *
+ * @param categories_str Comma-separated category names (e.g., "mma,tma,sync")
+ */
+void init_instr_categories(const std::string& categories_str) {
+  enabled_instr_categories.clear();
+
+  if (categories_str.empty()) {
+    // No category filtering - all instructions will be instrumented
+    return;
+  }
+
+  loprintf("Using instruction category filters: %s\n", categories_str.c_str());
+
+  // Parse comma-separated values (case-insensitive)
+  std::string str = categories_str;
+
+  // Convert to lowercase for case-insensitive matching
+  for (char& c : str) {
+    c = std::tolower(c);
+  }
+
+  if (str.find("mma") != std::string::npos) {
+    enabled_instr_categories.insert(InstrCategory::MMA);
+    loprintf("  - Enabled category: MMA (UTCMMA, HMMA, etc.)\n");
+  }
+  if (str.find("tma") != std::string::npos) {
+    enabled_instr_categories.insert(InstrCategory::TMA);
+    loprintf("  - Enabled category: TMA (UTMALDG, UTMASTG, etc.)\n");
+  }
+  if (str.find("sync") != std::string::npos) {
+    enabled_instr_categories.insert(InstrCategory::SYNC);
+    loprintf("  - Enabled category: SYNC (WARPGROUP.DEPBAR, etc.)\n");
+  }
+
+  if (enabled_instr_categories.empty()) {
+    loprintf("WARNING: CUTRACER_INSTR_CATEGORIES set but no valid categories found.\n");
+    loprintf("         Valid categories: mma, tma, sync\n");
+  }
+}
+
+/**
+ * @brief Check if a specific instruction category should be instrumented
+ *
+ * @param category The instruction category to check
+ * @return true if the category should be instrumented (either no filter or category is enabled)
+ */
+bool should_instrument_category(InstrCategory category) {
+  // If no category filter is set, instrument all categories
+  if (enabled_instr_categories.empty()) {
+    return true;
+  }
+  // Otherwise, only instrument if the category is explicitly enabled
+  return enabled_instr_categories.count(category) > 0;
+}
+
+/**
+ * @brief Check if category-based filtering is enabled
+ *
+ * @return true if CUTRACER_INSTR_CATEGORIES was set to a non-empty value
+ */
+bool has_category_filter_enabled() {
+  return !enabled_instr_categories.empty();
 }

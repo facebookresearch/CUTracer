@@ -326,15 +326,36 @@ bool instrument_function_if_needed(CUcontext ctx, CUfunction func) {
         }
       }
 
-      // Choose instrumentation based on enabled types.
-      if (is_instrument_type_enabled(InstrumentType::OPCODE_ONLY)) {
-        // Lightweight instrumentation for instruction histogram analysis.
-        // This sends minimal data (opcode_id, warp_id) to the CPU, reducing
-        // overhead.
-        instrument_opcode_only(instr, opcode_id, ctx_state);
-      } else if (is_instrument_type_enabled(InstrumentType::REG_TRACE)) {
-        // Full register tracing.
-        instrument_register_trace(instr, opcode_id, ctx_state, operands);
+      // Check if this instruction should be instrumented based on category filtering
+      bool should_instrument_this_instr = true;
+      if (has_category_filter_enabled()) {
+        // Category filtering is enabled - check if this instruction matches
+        const char* sass_str = instr->getSass();
+        InstrCategory category = detectInstrCategory(sass_str);
+        if (category != InstrCategory::NONE) {
+          // This is a categorized instruction - check if its category is enabled
+          should_instrument_this_instr = should_instrument_category(category);
+          if (should_instrument_this_instr) {
+            loprintf_v("Category filter: instrumenting %s instruction at pc=0x%lx: %s\n",
+                       getInstrCategoryName(category), instr->getOffset(), sass_str);
+          }
+        } else {
+          // Not a categorized instruction - skip when category filtering is enabled
+          should_instrument_this_instr = false;
+        }
+      }
+
+      // Choose instrumentation based on enabled types (only if this instruction should be instrumented)
+      if (should_instrument_this_instr) {
+        if (is_instrument_type_enabled(InstrumentType::OPCODE_ONLY)) {
+          // Lightweight instrumentation for instruction histogram analysis.
+          // This sends minimal data (opcode_id, warp_id) to the CPU, reducing
+          // overhead.
+          instrument_opcode_only(instr, opcode_id, ctx_state);
+        } else if (is_instrument_type_enabled(InstrumentType::REG_TRACE)) {
+          // Full register tracing.
+          instrument_register_trace(instr, opcode_id, ctx_state, operands);
+        }
       }
 
       // Delay instrumentation for synchronization instructions
@@ -377,6 +398,7 @@ bool instrument_function_if_needed(CUcontext ctx, CUfunction func) {
     // Statically identify special instructions for this function:
     // - "clock" (CS2R SR_CLOCKLO) used for histogram region boundaries
     // - "EXIT" used as a candidate signal for warp completion on host side
+    // - Categorized instructions (MMA, TMA, SYNC, etc.) for tracing
     for (std::map<int, std::string>::const_iterator it_sass = ctx_state->id_to_sass_map[f].begin();
          it_sass != ctx_state->id_to_sass_map[f].end(); ++it_sass) {
       const char* sass_cstr = it_sass->second.c_str();
@@ -386,6 +408,15 @@ bool instrument_function_if_needed(CUcontext ctx, CUfunction func) {
       // Simple substring detection for EXIT mnemonic (predication handled by extract on host side)
       if (strstr(sass_cstr, "EXIT")) {
         ctx_state->exit_opcode_ids[f].insert(it_sass->first);
+      }
+      // Detect instruction category and log if matched
+      InstrCategory category = detectInstrCategory(sass_cstr);
+      if (category != InstrCategory::NONE) {
+        const char* desc = getInstrPatternDescription(sass_cstr);
+        loprintf("%s detected: kernel=%s opcode_id=%d sass='%s' (%s)\n",
+                 getInstrCategoryName(category), unmangled_name, it_sass->first, sass_cstr,
+                 desc ? desc : "");
+        ctx_state->category_opcode_ids[f][category].insert(it_sass->first);
       }
     }
     /* ============================================ */

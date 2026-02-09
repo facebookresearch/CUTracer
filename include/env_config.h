@@ -14,6 +14,7 @@
 #include <vector>
 // Forward declaration to avoid circular dependency
 enum class InstrumentType;
+enum class InstrCategory;
 
 /**
  * @brief Defines the type of analysis to be performed on the collected trace
@@ -95,3 +96,17 @@ extern std::string delay_dump_path;
 // Delay load path (optional)
 // If set, instrumentation points will be read from this JSON file for replay mode
 extern std::string delay_load_path;
+
+// Instruction category filtering for conditional instrumentation
+// If empty, all instructions are instrumented
+// If set, only instructions in the specified categories are instrumented
+extern std::unordered_set<InstrCategory> enabled_instr_categories;
+
+// Initialize instruction category filtering from environment variable
+void init_instr_categories(const std::string& categories_str);
+
+// Check if a specific instruction category should be instrumented
+bool should_instrument_category(InstrCategory category);
+
+// Check if category-based filtering is enabled
+bool has_category_filter_enabled();
