@@ -428,7 +428,6 @@ bool instrument_function_if_needed(CUcontext ctx, CUfunction func) {
         const char* desc = get_instr_pattern_description(sass_cstr);
         loprintf("%s detected: kernel=%s opcode_id=%d sass='%s' (%s)\n", get_instr_category_name(category),
                  unmangled_name, it_sass->first, sass_cstr, desc ? desc : "");
-        ctx_state->category_opcode_ids[f][category].insert(it_sass->first);
       }
     }
     /* ============================================ */

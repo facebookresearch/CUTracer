@@ -211,9 +211,6 @@ struct CTXstate {
   std::unordered_map<CUfunction, std::unordered_set<int>> clock_opcode_ids;
   // Per-function EXIT opcode ids (statically identified at instrumentation time)
   std::unordered_map<CUfunction, std::unordered_set<int>> exit_opcode_ids;
-  // Per-function opcode IDs by instruction category (MMA, TMA, SYNC, etc.)
-  // Maps: function -> category -> set of opcode IDs
-  std::unordered_map<CUfunction, std::unordered_map<InstrCategory, std::unordered_set<int>>> category_opcode_ids;
 
   /* State for Deadlock/Hang Detection */
   std::map<WarpKey, WarpLoopState> loop_states;
