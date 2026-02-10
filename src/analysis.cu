@@ -295,17 +295,6 @@ void process_instruction_histogram(const opcode_only_t* ri, CTXstate* ctx_state,
   WarpState& current_state = warp_states[warp_id];
   bool is_clock_instruction = clock_opcode_ids->count(ri->opcode_id) > 0;
 
-  // Check if this is a categorized instruction (MMA, TMA, SYNC, etc.) and log it
-  if (sass_map_for_func->count(ri->opcode_id)) {
-    const std::string& sass_line = sass_map_for_func->at(ri->opcode_id);
-    InstrCategory category = detect_instr_category(sass_line.c_str());
-    if (category != InstrCategory::NONE) {
-      // Log categorized instruction execution
-      loprintf_v("[%s] warp=%d pc=0x%lx sass='%s'\n", get_instr_category_name(category), warp_id, ri->pc,
-                 sass_line.c_str());
-    }
-  }
-
   // This block implements the start/stop logic for regions.
   if (is_clock_instruction) {
     if (current_state.is_collecting) {
@@ -1150,13 +1139,6 @@ void* recv_thread_fun(void* args) {
             auto [f_ctx, f_func] = func_iter->second;
             if (ctx_state->id_to_sass_map.count(f_func) && ctx_state->id_to_sass_map[f_func].count(ri->opcode_id)) {
               sass_str_cpp = ctx_state->id_to_sass_map[f_func][ri->opcode_id];
-
-              // Check if this is a categorized instruction (MMA, TMA, SYNC, etc.) and log it
-              InstrCategory category = detect_instr_category(sass_str_cpp.c_str());
-              if (category != InstrCategory::NONE) {
-                loprintf_v("[%s] warp=%d pc=0x%lx sass='%s'\n", get_instr_category_name(category), ri->warp_id, ri->pc,
-                           sass_str_cpp.c_str());
-              }
             }
           }
 
