@@ -14,10 +14,11 @@ cd -- "$SCRIPT_DIR" || exit
 # --- Check for dependencies ---
 if ! command -v clang-format &>/dev/null; then
   echo "❌ Error: clang-format is not installed or not in your PATH." >&2
-  echo "Please install clang-format to use this script." >&2
-  echo "  - On Debian/Ubuntu: sudo apt install clang-format" >&2
-  echo "  - On Fedora/CentOS: sudo dnf install clang-tools-extra" >&2
-  echo "  - On macOS (Homebrew): brew install clang-format" >&2
+  echo "Please install clang-format v21.1.2 (must match CI version):" >&2
+  echo "  - Recommended: pip install clang-format==21.1.2" >&2
+  echo "  - On Debian/Ubuntu: sudo apt install clang-format (⚠️ version may differ)" >&2
+  echo "  - On Fedora/CentOS: sudo dnf install clang-tools-extra (⚠️ version may differ)" >&2
+  echo "  - On macOS (Homebrew): brew install clang-format (⚠️ version may differ)" >&2
   exit 1
 fi
 
