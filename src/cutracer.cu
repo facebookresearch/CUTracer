@@ -176,8 +176,8 @@ static bool should_instrument_instr_by_category(Instr* instr) {
   // Check if this category is enabled
   bool should_instrument = should_instrument_category(category);
   if (should_instrument) {
-    loprintf_v("Category filter: instrumenting %s instruction at pc=0x%lx: %s\n",
-               get_instr_category_name(category), instr->getOffset(), sass_str);
+    loprintf_v("Category filter: instrumenting %s instruction at pc=0x%lx: %s\n", get_instr_category_name(category),
+               instr->getOffset(), sass_str);
   }
   return should_instrument;
 }
