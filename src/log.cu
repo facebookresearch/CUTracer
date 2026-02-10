@@ -50,13 +50,16 @@ std::string compute_kernel_name_hash_hex(CUcontext ctx, CUfunction func) {
  * Builds a deterministic base filename for a kernel's trace log.
  *
  * The resulting string embeds:
- *   - A hex hash of the full mangled name (via compute_kernel_name_hash)
+ *   - A hex hash for kernel identification:
+ *     - If kernel_checksum is provided (non-empty), uses it directly
+ *     - Otherwise falls back to compute_kernel_name_hash_hex() (name-only hash)
  *   - The iteration number (decimal)
  *   - A truncated copy (first 150 chars) of the mangled name for readability
  *
  * Example: "kernel_7fa21c3_iter42__Z23my_kernelPiS_..."
  */
-std::string generate_kernel_log_basename(CUcontext ctx, CUfunction func, uint32_t iteration) {
+std::string generate_kernel_log_basename(CUcontext ctx, CUfunction func, uint32_t iteration,
+                                         const std::string& kernel_checksum) {
   const char* mangled_name_raw = nvbit_get_func_name(ctx, func, true);
   if (!mangled_name_raw) {
     mangled_name_raw = "unknown_kernel";
@@ -64,14 +67,20 @@ std::string generate_kernel_log_basename(CUcontext ctx, CUfunction func, uint32_
 
   std::string mangled_name(mangled_name_raw);
 
-  // Hash the full name to ensure uniqueness (shared with cutracer)
-  std::string name_hash_hex = compute_kernel_name_hash_hex(ctx, func);
+  // Use provided checksum if available, otherwise fall back to name-only hash
+  std::string hash_hex;
+  if (!kernel_checksum.empty()) {
+    hash_hex = kernel_checksum;
+  } else {
+    hash_hex = compute_kernel_name_hash_hex(ctx, func);
+  }
+
   // Truncate the name for the filename string part
   std::string truncated_name = mangled_name.substr(0, 150);
 
   std::stringstream ss;
   // Format to hex for the hash
-  ss << "kernel_" << name_hash_hex << "_iter" << std::dec << iteration << "_" << truncated_name;
+  ss << "kernel_" << hash_hex << "_iter" << std::dec << iteration << "_" << truncated_name;
 
   return ss.str();
 }

@@ -96,6 +96,10 @@ std::map<uint64_t, KernelDimensions> kernel_launch_to_dimensions_map;
 // map to store the iteration count for each kernel
 static std::map<CUfunction, uint32_t> kernel_iter_map;
 
+// Per-function kernel checksum (computed during instrumentation)
+// Maps CUfunction -> kernel_checksum hex string
+static std::unordered_map<CUfunction, std::string> kernel_checksum_by_func;
+
 /* Set used to avoid re-instrumenting the same functions multiple times */
 std::unordered_set<CUfunction> already_instrumented;
 
@@ -218,6 +222,12 @@ bool instrument_function_if_needed(CUcontext ctx, CUfunction func) {
 
     const std::vector<Instr*>& instrs = nvbit_get_instrs(ctx, f);
     loprintf_v("Inspecting kernel %s at address 0x%lx\n", nvbit_get_func_name(ctx, f), nvbit_get_func_addr(ctx, f));
+
+    // Compute and store kernel checksum for robust kernel identification
+    std::string kernel_checksum = compute_kernel_checksum(mangled_name, instrs);
+    kernel_checksum_by_func[f] = kernel_checksum;
+    loprintf_v("Computed kernel checksum for %s: %s\n", mangled_name, kernel_checksum.c_str());
+
     if (dump_cubin) {
       std::string kernel_hash_hex = compute_kernel_name_hash_hex(ctx, f);
       std::string cubin_filename = std::string(unmangled_name) + "_0x" + kernel_hash_hex + ".cubin";
@@ -227,11 +237,9 @@ bool instrument_function_if_needed(CUcontext ctx, CUfunction func) {
     // Create kernel delay config if dump path is set (for exporting to JSON)
     // Note: dump mode and replay mode are mutually exclusive
     KernelDelayInjectConfig* kernel_delay_config = nullptr;
-    std::string kernel_checksum;
     if (!delay_dump_path.empty() && is_instrument_type_enabled(InstrumentType::RANDOM_DELAY)) {
       assert(!is_delay_replay_mode() && "Dump and replay modes are mutually exclusive");
-      // Compute kernel checksum for robust kernel identification
-      kernel_checksum = compute_kernel_checksum(mangled_name, instrs);
+      // Reuse the kernel_checksum already computed above for trace writer
       kernel_delay_config = create_kernel_delay_config(mangled_name, kernel_checksum);
     }
 
@@ -239,7 +247,7 @@ bool instrument_function_if_needed(CUcontext ctx, CUfunction func) {
     const std::map<uint64_t, DelayInstrumentationPoint>* replay_points = nullptr;
     if (is_delay_replay_mode() && is_instrument_type_enabled(InstrumentType::RANDOM_DELAY)) {
       assert(delay_dump_path.empty() && "Dump and replay modes are mutually exclusive");
-      kernel_checksum = compute_kernel_checksum(mangled_name, instrs);
+      // Reuse the kernel_checksum already computed above for trace writer
       replay_points = get_replay_instrumentation_points(mangled_name, kernel_checksum);
     }
 
@@ -523,7 +531,9 @@ static bool enter_kernel_launch(CUcontext ctx, CUfunction func, uint64_t& kernel
   // Note: log_open_kernel_file() has been removed - TraceWriter now handles all trace output
   if (should_instrument) {
     // Each launch gets its own TraceWriter for independent trace files
-    std::string base_filename = generate_kernel_log_basename(ctx, func, kernel_iter_map[func]++);
+    // Pass kernel checksum for robust file naming across recompilations
+    std::string checksum = kernel_checksum_by_func.count(func) ? kernel_checksum_by_func[func] : "";
+    std::string base_filename = generate_kernel_log_basename(ctx, func, kernel_iter_map[func]++, checksum);
     uint64_t current_launch_id = kernel_launch_id - 1;  // kernel_launch_id was already incremented
 
     {
@@ -806,7 +816,9 @@ void nvbit_at_graph_node_launch(CUcontext ctx, CUfunction func, CUstream stream,
   // Create TraceWriter for this graph node launch only if instrumentation is enabled
   // Otherwise, trace files would be empty (no data to write)
   if (has_any_instrumentation_enabled()) {
-    std::string base_filename = generate_kernel_log_basename(ctx, func, kernel_iter_map[func]++);
+    // Pass kernel checksum for robust file naming across recompilations
+    std::string checksum = kernel_checksum_by_func.count(func) ? kernel_checksum_by_func[func] : "";
+    std::string base_filename = generate_kernel_log_basename(ctx, func, kernel_iter_map[func]++, checksum);
     {
       std::unique_lock<std::shared_mutex> lock(ctx_state->writers_mutex);
       ctx_state->trace_writers[global_kernel_launch_id] = new TraceWriter(base_filename, trace_format_ndjson);
