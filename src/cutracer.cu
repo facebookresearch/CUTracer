@@ -150,6 +150,38 @@ static std::string compute_kernel_checksum(const std::string& kernel_name, const
   return oss.str();
 }
 
+/**
+ * @brief Check if an instruction should be instrumented based on category filtering.
+ *
+ * When category filtering is enabled (CUTRACER_INSTR_CATEGORIES is set),
+ * only instructions belonging to enabled categories will be instrumented.
+ * When category filtering is disabled, all instructions are instrumented.
+ *
+ * @param instr The instruction to check
+ * @return true if the instruction should be instrumented
+ */
+static bool should_instrument_instr_by_category(Instr* instr) {
+  if (!has_category_filter_enabled()) {
+    return true;
+  }
+
+  const char* sass_str = instr->getSass();
+  InstrCategory category = detect_instr_category(sass_str);
+
+  if (category == InstrCategory::NONE) {
+    // Not a categorized instruction - skip when category filtering is enabled
+    return false;
+  }
+
+  // Check if this category is enabled
+  bool should_instrument = should_instrument_category(category);
+  if (should_instrument) {
+    loprintf_v("Category filter: instrumenting %s instruction at pc=0x%lx: %s\n",
+               get_instr_category_name(category), instr->getOffset(), sass_str);
+  }
+  return should_instrument;
+}
+
 /* ===== Main Functionality ===== */
 /**
  * @brief Conditionally instruments a CUDA function by delegating to specialized
@@ -326,27 +358,8 @@ bool instrument_function_if_needed(CUcontext ctx, CUfunction func) {
         }
       }
 
-      // Check if this instruction should be instrumented based on category filtering
-      bool should_instrument_this_instr = true;
-      if (has_category_filter_enabled()) {
-        // Category filtering is enabled - check if this instruction matches
-        const char* sass_str = instr->getSass();
-        InstrCategory category = detect_instr_category(sass_str);
-        if (category != InstrCategory::NONE) {
-          // This is a categorized instruction - check if its category is enabled
-          should_instrument_this_instr = should_instrument_category(category);
-          if (should_instrument_this_instr) {
-            loprintf_v("Category filter: instrumenting %s instruction at pc=0x%lx: %s\n",
-                       get_instr_category_name(category), instr->getOffset(), sass_str);
-          }
-        } else {
-          // Not a categorized instruction - skip when category filtering is enabled
-          should_instrument_this_instr = false;
-        }
-      }
-
-      // Choose instrumentation based on enabled types (only if this instruction should be instrumented)
-      if (should_instrument_this_instr) {
+      // Choose instrumentation based on enabled types (only if this instruction passes category filter)
+      if (should_instrument_instr_by_category(instr)) {
         if (is_instrument_type_enabled(InstrumentType::OPCODE_ONLY)) {
           // Lightweight instrumentation for instruction histogram analysis.
           // This sends minimal data (opcode_id, warp_id) to the CPU, reducing
