@@ -124,3 +124,23 @@ class StreamingGrouper:
             counts[key] += 1
 
         return dict(counts)
+
+    def all_per_group(self) -> dict[Any, list[dict]]:
+        """
+        Get all records per group.
+
+        Warning: Memory usage is unbounded - O(total records).
+        Use only when you need all records and memory is sufficient.
+
+        Returns:
+            Dict mapping group key to list of all records in that group
+        """
+        self._ensure_not_consumed()
+
+        groups: dict[Any, list[dict]] = defaultdict(list)
+
+        for record in self._records:
+            key = record.get(self._group_field)
+            groups[key].append(record)
+
+        return dict(groups)
