@@ -14,6 +14,12 @@
 
 #include <stdint.h>
 
+/* Maximum number of register operands tracked per instruction.
+ * This is a configurable buffer limit, NOT a hardware constraint.
+ * Increase if instructions with more operands need to be traced. */
+#define MAX_REG_OPERANDS 16
+#define MAX_UREG_OPERANDS 16
+
 /* Message type enum to identify different message types */
 typedef enum {
   MSG_TYPE_REG_INFO = 0,
@@ -37,14 +43,14 @@ typedef struct {
   int32_t warp_id;
   int32_t opcode_id;
   int32_t num_regs;
-  /* 32 lanes, each thread can store up to 8 register values */
-  uint32_t reg_vals[32][8];
+  /* 32 lanes, each thread can store up to MAX_REG_OPERANDS register values */
+  uint32_t reg_vals[32][MAX_REG_OPERANDS];
 
   // CUTracer extensions
-  uint64_t kernel_launch_id;  // Global kernel launch id
-  uint64_t pc;                // Program counter for the instruction
-  int32_t num_uregs;          // Number of unified registers
-  uint32_t ureg_vals[8];      // Unified registers shared by all threads in the same warp
+  uint64_t kernel_launch_id;              // Global kernel launch id
+  uint64_t pc;                            // Program counter for the instruction
+  int32_t num_uregs;                      // Number of unified registers
+  uint32_t ureg_vals[MAX_UREG_OPERANDS];  // Unified registers shared by all threads in the same warp
 } reg_info_t;
 
 /* Based on NVIDIA mem_trace example with Meta modifications for message type support */
