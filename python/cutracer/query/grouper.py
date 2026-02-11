@@ -7,11 +7,41 @@ This module provides memory-efficient grouping of trace records,
 using single-pass streaming with bounded memory per group.
 """
 
+from abc import ABC, abstractmethod
+from cutracer.query.base_grouper import StreamingGrouperBase
 from collections import Counter, defaultdict, deque
 from typing import Any, Iterator
 
 
-class StreamingGrouper:
+class StreamingGrouperBase(ABC):
+    """
+    Stream-based grouper for trace records.
+
+    Processes records in a single pass, maintaining bounded memory
+    per group using deque for tail operations.
+    """
+
+    @abstractmethod
+    def __init__(self, records: Any, group_field: str) -> None:
+        pass
+
+    @abstractmethod
+    def head_per_group(self, n: int) -> dict[Any, list[dict]]:
+        pass
+
+    @abstractmethod
+    def tail_per_group(self, n: int) -> dict[Any, list[dict]]:
+        pass
+
+    @abstractmethod
+    def count_per_group(self) -> dict[Any, int]:
+        pass
+
+    @abstractmethod
+    def all_per_group(self) -> dict[Any, list[dict]]:
+        pass
+
+class StreamingGrouper(StreamingGrouperBase):
     """
     Stream-based grouper for trace records.
 
