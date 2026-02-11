@@ -46,6 +46,9 @@
 /* delay configuration */
 #include "delay_inject_config.h"
 
+/* implicit registers collection */
+#include "implicit_regs.h"
+
 #define CUDA_CHECK_LAST_ERROR()                                                                       \
   do {                                                                                                \
     cudaError_t err = cudaGetLastError();                                                             \
@@ -295,6 +298,7 @@ bool instrument_function_if_needed(CUcontext ctx, CUfunction func) {
       }
 
       OperandLists operands;
+      OperandContext op_ctx;  // Context for implicit register collection
       int mref_idx = 0;
       int opcode_id = instr->getIdx();
       ctx_state->id_to_sass_map[f][opcode_id] = std::string(instr->getSass());
@@ -346,8 +350,16 @@ bool instrument_function_if_needed(CUcontext ctx, CUfunction func) {
           }
         } else if (op->type == InstrType::OperandType::MEM_DESC) {
           loprintf_v("  MEM_DESC operand[%d]: ureg_num=%d\n", i, op->u.mem_desc.ureg_num);
+          op_ctx.desc_urs.push_back(op->u.mem_desc.ureg_num);
         } else if (op->type == InstrType::OperandType::MREF) {
-          // TODO: double check this with NVIDIA people
+          if (op->u.mref.has_ra) {
+            operands.reg_nums.push_back(op->u.mref.ra_num);
+            op_ctx.mref_ras.push_back(op->u.mref.ra_num);
+          }
+          if (op->u.mref.has_ur) {
+            operands.ureg_nums.push_back(op->u.mref.ur_num);
+            op_ctx.mref_urs.push_back(op->u.mref.ur_num);
+          }
           if (op->u.mref.has_desc) {
             operands.ureg_nums.push_back(op->u.mref.desc_ureg_num);
             operands.ureg_nums.push_back(op->u.mref.desc_ureg_num + 1);
@@ -365,6 +377,10 @@ bool instrument_function_if_needed(CUcontext ctx, CUfunction func) {
           mref_idx++;
         }
       }
+
+      // Collect implicit registers based on instruction semantics
+      // (e.g., UTMALDG uses URb+1 for barrier address, not exposed by NVBit)
+      collect_implicit_regs(instr->getSass(), op_ctx, operands);
 
       // Choose instrumentation based on enabled types (only if this instruction passes category filter)
       if (should_instrument_instr_by_category(instr)) {
