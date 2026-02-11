@@ -52,12 +52,26 @@ def get_display_fields(
 
     Args:
         records: List of trace records
-        requested_fields: Comma-separated field names or None
+        requested_fields: Comma-separated field names, "*" or "all" for all fields, or None
 
     Returns:
         List of field names to display
     """
     if requested_fields:
+        # Handle "*" or "all" to show all available fields
+        if requested_fields.strip() in ("*", "all"):
+            if records:
+                # Collect union of all fields across all records.
+                # Use dict.fromkeys to preserve insertion order (first record's order first).
+                # This ensures fields like 'uregs' that only appear in some records
+                # are included in the output.
+                seen = dict.fromkeys(records[0].keys())
+                for record in records[1:]:
+                    for key in record:
+                        if key not in seen:
+                            seen[key] = None
+                return list(seen)
+            return DEFAULT_FIELDS
         return [f.strip() for f in requested_fields.split(",")]
 
     # Use default fields, but only if they exist in the records
@@ -168,3 +182,33 @@ def format_records_csv(
         writer.writerow(row)
 
     return output.getvalue().rstrip("\r\n").replace("\r\n", "\n").replace("\r", "")
+
+
+def format_records_ndjson(
+    records: list[dict], fields: Optional[list[str]] = None
+) -> str:
+    """
+    Format records as NDJSON (Newline-Delimited JSON).
+
+    Each record is output as a single JSON object on its own line.
+    This format is ideal for streaming and line-by-line processing.
+
+    Args:
+        records: List of trace records
+        fields: Optional list of field names to include. If None, all fields are included.
+
+    Returns:
+        NDJSON formatted string (one JSON object per line)
+    """
+    if not records:
+        return ""
+
+    lines = []
+    for record in records:
+        if fields:
+            filtered_record = {f: record.get(f) for f in fields if f in record}
+            lines.append(json.dumps(filtered_record))
+        else:
+            lines.append(json.dumps(record))
+
+    return "\n".join(lines)

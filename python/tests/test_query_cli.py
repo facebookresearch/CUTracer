@@ -441,6 +441,359 @@ class TestQueryCommand(BaseValidationTest):
         # CSV format should NOT have warp summary section
         self.assertNotIn("Warp Summary", result.output)
 
+    def test_analyze_all_records(self):
+        """Test analyze with --all flag to show all records."""
+        # First count total records
+        result_all = self.runner.invoke(
+            main, ["query", str(REG_TRACE_NDJSON), "--all", "--no-header"]
+        )
+        self.assertEqual(result_all.exit_code, 0)
+        all_lines = [line for line in result_all.output.strip().split("\n") if line]
+
+        # Compare with head 10
+        result_head = self.runner.invoke(
+            main, ["query", str(REG_TRACE_NDJSON), "--head", "10", "--no-header"]
+        )
+        head_lines = [line for line in result_head.output.strip().split("\n") if line]
+
+        # All should have >= 10 records (or same if file has exactly 10)
+        self.assertGreaterEqual(len(all_lines), len(head_lines))
+
+    def test_analyze_all_short_option(self):
+        """Test analyze with -a short option for --all."""
+        result = self.runner.invoke(
+            main, ["query", str(REG_TRACE_NDJSON), "-a", "--no-header"]
+        )
+        self.assertEqual(result.exit_code, 0)
+
+    def test_analyze_format_ndjson(self):
+        """Test analyze with NDJSON output format."""
+        result = self.runner.invoke(
+            main, ["query", str(REG_TRACE_NDJSON), "--format", "ndjson", "--head", "3"]
+        )
+        self.assertEqual(result.exit_code, 0)
+        lines = result.output.strip().split("\n")
+        self.assertEqual(len(lines), 3)
+        # Each line should be valid JSON
+        import json
+
+        for line in lines:
+            data = json.loads(line)
+            self.assertIsInstance(data, dict)
+
+    def test_analyze_filter_hex_pc(self):
+        """Test analyze with hex filter for PC value."""
+        # First get the first record's PC
+        result = self.runner.invoke(
+            main,
+            ["query", str(REG_TRACE_NDJSON), "--format", "json", "--head", "1"],
+        )
+        self.assertEqual(result.exit_code, 0)
+        import json
+
+        records = json.loads(result.output)
+        if records and "pc" in records[0]:
+            pc_value = records[0]["pc"]
+            # Filter using hex format
+            hex_pc = hex(pc_value)
+            result_hex = self.runner.invoke(
+                main,
+                [
+                    "query",
+                    str(REG_TRACE_NDJSON),
+                    "--filter",
+                    f"pc={hex_pc}",
+                    "--head",
+                    "5",
+                ],
+            )
+            self.assertEqual(result_hex.exit_code, 0)
+            # All filtered records should have this PC
+            self.assertIn(str(pc_value), result_hex.output)
+
+    def test_analyze_fields_all(self):
+        """Test analyze with --fields '*' to show all fields."""
+        result = self.runner.invoke(
+            main,
+            ["query", str(REG_TRACE_NDJSON), "--fields", "*", "--head", "1"],
+        )
+        self.assertEqual(result.exit_code, 0)
+        # Should show more than just default fields (warp, pc, sass)
+        header = result.output.strip().split("\n")[0]
+        # Check that non-default fields are included (like type, time, etc.)
+        # At minimum should have WARP, PC, SASS
+        self.assertIn("WARP", header)
+        self.assertIn("PC", header)
+
+    def test_analyze_fields_all_keyword(self):
+        """Test analyze with --fields 'all' to show all fields."""
+        result = self.runner.invoke(
+            main,
+            ["query", str(REG_TRACE_NDJSON), "--fields", "all", "--head", "1"],
+        )
+        self.assertEqual(result.exit_code, 0)
+        header = result.output.strip().split("\n")[0]
+        self.assertIn("WARP", header)
+        self.assertIn("PC", header)
+
+    def test_analyze_output_file(self):
+        """Test analyze with --output to write to file."""
+        import os
+        import tempfile
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            output_path = os.path.join(tmpdir, "output.txt")
+            result = self.runner.invoke(
+                main,
+                [
+                    "query",
+                    str(REG_TRACE_NDJSON),
+                    "--head",
+                    "3",
+                    "--output",
+                    output_path,
+                ],
+            )
+            self.assertEqual(result.exit_code, 0)
+            # Check file was created
+            self.assertTrue(os.path.exists(output_path))
+            # Check file content
+            with open(output_path) as f:
+                content = f.read()
+            lines = [line for line in content.strip().split("\n") if line]
+            self.assertEqual(len(lines), 4)  # header + 3 rows
+
+    def test_analyze_output_ndjson_file(self):
+        """Test analyze with --output and --format ndjson."""
+        import json
+        import os
+        import tempfile
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            output_path = os.path.join(tmpdir, "output.ndjson")
+            result = self.runner.invoke(
+                main,
+                [
+                    "query",
+                    str(REG_TRACE_NDJSON),
+                    "--format",
+                    "ndjson",
+                    "--head",
+                    "3",
+                    "--output",
+                    output_path,
+                ],
+            )
+            self.assertEqual(result.exit_code, 0)
+            self.assertTrue(os.path.exists(output_path))
+            # Check file content is valid NDJSON
+            with open(output_path) as f:
+                lines = f.read().strip().split("\n")
+            self.assertEqual(len(lines), 3)
+            for line in lines:
+                data = json.loads(line)
+                self.assertIsInstance(data, dict)
+
+    def test_analyze_group_by_all_records(self):
+        """Test analyze with --group-by and --all."""
+        result = self.runner.invoke(
+            main,
+            ["query", str(REG_TRACE_NDJSON), "--group-by", "warp", "--all"],
+        )
+        self.assertEqual(result.exit_code, 0)
+        self.assertIn("=== Group:", result.output)
+
+    def test_analyze_count_ndjson_format(self):
+        """Test analyze --count with NDJSON format."""
+        result = self.runner.invoke(
+            main,
+            [
+                "query",
+                str(REG_TRACE_NDJSON),
+                "--group-by",
+                "warp",
+                "--count",
+                "--format",
+                "ndjson",
+            ],
+        )
+        self.assertEqual(result.exit_code, 0)
+        import json
+
+        lines = result.output.strip().split("\n")
+        for line in lines:
+            data = json.loads(line)
+            self.assertIn("warp", data)
+            self.assertIn("count", data)
+
+    def test_query_output_compress(self):
+        """Test query with --output and --compress produces valid Zstd file."""
+        import json
+        import os
+        import tempfile
+
+        import zstandard as zstd
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            output_path = os.path.join(tmpdir, "output.ndjson.zst")
+            result = self.runner.invoke(
+                main,
+                [
+                    "query",
+                    str(REG_TRACE_NDJSON),
+                    "--format",
+                    "ndjson",
+                    "--head",
+                    "3",
+                    "--output",
+                    output_path,
+                    "--compress",
+                ],
+            )
+            self.assertEqual(result.exit_code, 0)
+            self.assertTrue(os.path.exists(output_path))
+
+            # Verify it's valid zstd compressed data
+            dctx = zstd.ZstdDecompressor()
+            with open(output_path, "rb") as f:
+                content = dctx.decompress(f.read()).decode("utf-8")
+            lines = [line for line in content.strip().split("\n") if line]
+            self.assertEqual(len(lines), 3)
+            for line in lines:
+                data = json.loads(line)
+                self.assertIsInstance(data, dict)
+
+    def test_query_compress_requires_output(self):
+        """Test that --compress without --output raises an error."""
+        result = self.runner.invoke(
+            main,
+            [
+                "query",
+                str(REG_TRACE_NDJSON),
+                "--head",
+                "3",
+                "--compress",
+            ],
+        )
+        self.assertNotEqual(result.exit_code, 0)
+        self.assertIn("--compress requires --output", result.output)
+
+    def test_query_ndjson_all_fields_heterogeneous(self):
+        """Test --fields all --format ndjson preserves all fields from heterogeneous records.
+
+        This tests the fix for the bug where fields like 'uregs' that only
+        appear in some records were missing from the NDJSON output.
+        """
+        import json
+        import os
+        import tempfile
+
+        # Create test file with heterogeneous records (different field sets)
+        test_records = [
+            {"warp": 0, "pc": "0x0", "sass": "NOP ;", "regs": [1, 2]},
+            {"warp": 0, "pc": "0x20", "sass": "ULDC ;", "regs": [], "uregs": [10, 20]},
+            {"warp": 0, "pc": "0x30", "sass": "LDG ;", "addrs": [100], "values": [200]},
+        ]
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            input_path = os.path.join(tmpdir, "hetero.ndjson")
+            output_path = os.path.join(tmpdir, "output.ndjson")
+
+            # Write test input
+            with open(input_path, "w") as f:
+                for record in test_records:
+                    f.write(json.dumps(record) + "\n")
+
+            # Run query with --fields all --format ndjson
+            result = self.runner.invoke(
+                main,
+                [
+                    "query",
+                    input_path,
+                    "--fields",
+                    "all",
+                    "--format",
+                    "ndjson",
+                    "--all",
+                    "--output",
+                    output_path,
+                ],
+            )
+            self.assertEqual(result.exit_code, 0)
+
+            # Read and verify output
+            with open(output_path) as f:
+                output_lines = f.read().strip().split("\n")
+
+            self.assertEqual(len(output_lines), 3)
+
+            # Parse each line
+            out_records = [json.loads(line) for line in output_lines]
+
+            # First record should NOT have 'uregs' (it's not in the original)
+            self.assertNotIn("uregs", out_records[0])
+            self.assertIn("regs", out_records[0])
+
+            # Second record MUST have 'uregs' (this was the bug)
+            self.assertIn("uregs", out_records[1])
+            self.assertEqual(out_records[1]["uregs"], [10, 20])
+
+            # Third record should have 'addrs' and 'values'
+            self.assertIn("addrs", out_records[2])
+            self.assertIn("values", out_records[2])
+
+    def test_query_ndjson_all_fields_preserves_original_fields(self):
+        """Test --fields all with NDJSON preserves each record's original fields exactly.
+
+        Records should only contain the fields they originally had - no extra fields
+        should be added even if other records have them.
+        """
+        import json
+        import os
+        import tempfile
+
+        test_records = [
+            {"warp": 0, "pc": "0x0", "regs": [1]},
+            {"warp": 1, "pc": "0x10", "uregs": [2]},
+        ]
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            input_path = os.path.join(tmpdir, "input.ndjson")
+            output_path = os.path.join(tmpdir, "output.ndjson")
+
+            with open(input_path, "w") as f:
+                for record in test_records:
+                    f.write(json.dumps(record) + "\n")
+
+            result = self.runner.invoke(
+                main,
+                [
+                    "query",
+                    input_path,
+                    "--fields",
+                    "all",
+                    "--format",
+                    "ndjson",
+                    "--all",
+                    "--output",
+                    output_path,
+                ],
+            )
+            self.assertEqual(result.exit_code, 0)
+
+            with open(output_path) as f:
+                output_lines = f.read().strip().split("\n")
+
+            out_records = [json.loads(line) for line in output_lines]
+
+            # First record should NOT have 'uregs' added
+            self.assertIn("regs", out_records[0])
+            self.assertNotIn("uregs", out_records[0])
+
+            # Second record should NOT have 'regs' added
+            self.assertIn("uregs", out_records[1])
+            self.assertNotIn("regs", out_records[1])
+
 
 if __name__ == "__main__":
     unittest.main()

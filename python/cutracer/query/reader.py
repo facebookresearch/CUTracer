@@ -51,9 +51,9 @@ def parse_filter_expr(filter_expr: str) -> Callable[[dict], bool]:
     if not field:
         raise ValueError("Filter field name cannot be empty")
 
-    # Try to convert value to int
+    # Try to convert value to int (supports hex with 0x, octal with 0o, binary with 0b)
     try:
-        converted_value: Any = int(value)
+        converted_value: Any = int(value, 0)
     except ValueError:
         converted_value = value
 

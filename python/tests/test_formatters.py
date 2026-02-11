@@ -86,6 +86,55 @@ class TestGetDisplayFields(unittest.TestCase):
         fields = get_display_fields(records)
         self.assertEqual(fields, ["warp"])
 
+    def test_get_display_fields_all_union(self):
+        """Test --fields all returns union of fields from all records.
+
+        This tests the fix for the bug where fields like 'uregs' that only
+        appear in some records were missing from the output.
+        """
+        records = [
+            {"warp": 0, "pc": "0x0", "regs": []},
+            {"warp": 0, "pc": "0x20", "regs": [], "uregs": [1, 2]},
+            {"warp": 0, "pc": "0x30", "addrs": [100], "values": [200]},
+        ]
+        fields = get_display_fields(records, "all")
+
+        # Should include fields from all records
+        self.assertIn("uregs", fields)
+        self.assertIn("addrs", fields)
+        self.assertIn("values", fields)
+
+        # First record's fields should come first (preserving order)
+        self.assertEqual(fields[:3], ["warp", "pc", "regs"])
+
+    def test_get_display_fields_star_union(self):
+        """Test --fields '*' also returns union of fields."""
+        records = [
+            {"warp": 0, "pc": "0x0"},
+            {"warp": 0, "pc": "0x20", "uregs": [1, 2]},
+        ]
+        fields = get_display_fields(records, "*")
+
+        self.assertIn("uregs", fields)
+        self.assertEqual(fields[:2], ["warp", "pc"])
+
+    def test_get_display_fields_all_with_spaces(self):
+        """Test --fields ' all ' with whitespace is handled."""
+        records = [
+            {"warp": 0, "pc": "0x0"},
+            {"warp": 0, "pc": "0x20", "uregs": [1, 2]},
+        ]
+        fields = get_display_fields(records, "  all  ")
+
+        self.assertIn("uregs", fields)
+
+    def test_get_display_fields_all_single_record(self):
+        """Test --fields all with single record returns that record's fields."""
+        records = [{"warp": 0, "pc": "0x0", "sass": "NOP ;"}]
+        fields = get_display_fields(records, "all")
+
+        self.assertEqual(fields, ["warp", "pc", "sass"])
+
 
 class TestFormatRecordsTable(unittest.TestCase):
     """Tests for format_records_table function."""
