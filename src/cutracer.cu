@@ -337,6 +337,7 @@ bool instrument_function_if_needed(CUcontext ctx, CUfunction func) {
               int ureg_num = std::stoi(match[1].str());
 
               operands.ureg_nums.push_back(ureg_num);
+              op_ctx.generic_urs.push_back(ureg_num);
               match_count++;
 
               loprintf_v("    Extracted UREG: UR%d\n", ureg_num);

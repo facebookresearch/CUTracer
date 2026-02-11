@@ -25,9 +25,10 @@
  * Each vector index corresponds to the nth operand of that type.
  */
 struct OperandContext {
-  std::vector<int> mref_urs;  // UR numbers from MREF operands (in order)
-  std::vector<int> mref_ras;  // RA numbers from MREF operands (in order)
-  std::vector<int> desc_urs;  // UR numbers from MEM_DESC operands (in order)
+  std::vector<int> mref_urs;     // UR numbers from MREF operands (in order)
+  std::vector<int> mref_ras;     // RA numbers from MREF operands (in order)
+  std::vector<int> desc_urs;     // UR numbers from MEM_DESC operands (in order)
+  std::vector<int> generic_urs;  // UR numbers from GENERIC operands (in order)
 };
 
 // Try to load internal implementation first
