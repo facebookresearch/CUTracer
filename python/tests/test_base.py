@@ -16,6 +16,7 @@ EXAMPLE_INPUTS_DIR = Path(__file__).parent / "example_inputs"
 # Real data file paths
 REG_TRACE_NDJSON = EXAMPLE_INPUTS_DIR / "reg_trace_sample.ndjson"
 REG_TRACE_NDJSON_ZST = EXAMPLE_INPUTS_DIR / "reg_trace_sample.ndjson.zst"
+REG_TRACE_CLP = EXAMPLE_INPUTS_DIR / "reg_trace_sample.clp"
 REG_TRACE_LOG = EXAMPLE_INPUTS_DIR / "reg_trace_sample.log"
 INVALID_SYNTAX_NDJSON = EXAMPLE_INPUTS_DIR / "invalid_syntax.ndjson"
 INVALID_SCHEMA_NDJSON = EXAMPLE_INPUTS_DIR / "invalid_schema.ndjson"

@@ -1,5 +1,5 @@
 import yscope_clp_core
-from yscope_clp_core import ClpQuery
+from yscope_clp_core import KqlQuery
 
 from cutracer.query.reader import TraceReaderBase
 
@@ -21,17 +21,21 @@ class TraceReaderCLP(TraceReaderBase):
         assert file.exists(), f"Non-exist clp archive file: {file.absolute()}"
         self._archive = file
 
-    def _filter_expr_to_clp_query(self, filter_exprs: str) -> str:
-        filter_array = filter_exprs.split(";")
+    def _filter_expr_to_clp_query(self, filter_exprs: tuple[str, ...]) -> str:
         result = []
-        for filter_clause in filter_array:
-            assert "=" in filter_clause, f"Could not find symbol = in clause: {filter_clause}"
-            lhs, _sym, rhs = filter_clause.partition("=")
-            result.append((lhs, rhs))
-        return " AND ".join(f"{lhs}: {rhs}" for lhs, rhs in result)
+        for filter_expr in filter_exprs:
+            filter_array = filter_expr.split(";")
+            for filter_clause in filter_array:
+                assert "=" in filter_clause, f"Could not find symbol = in clause: {filter_clause}"
+                lhs, _sym, rhs = filter_clause.partition("=")
+                result.append((lhs, rhs))
+        result_str = " AND ".join(f"{lhs}: {rhs}" for lhs, rhs in result)
+        if result_str:
+            return result_str
+        return "*"
 
     def iter_records(self, filter_exprs: str) -> Generator:
-        clp_query: ClpQuery = self._filter_expr_to_clp_query(filter_exprs)
-        with yscope_clp_core.search_archive(self._archive. clp_query) as record_iter:
+        clp_query = KqlQuery(self._filter_expr_to_clp_query(filter_exprs))
+        with yscope_clp_core.search_archive(self._archive, clp_query) as record_iter:
             for next_record in record_iter:
                 yield next_record.get_kv_pairs()

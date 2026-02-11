@@ -322,7 +322,7 @@ def query_command(
     if compress and not output_file:
         raise click.ClickException("--compress requires --output")
 
-    USE_CLP = True if file.absolute.endswith(".clp") else False
+    USE_CLP = True if file.name.endswith(".clp") else False
     if USE_CLP:
         from cutracer.query.clp import TraceReaderCLP
         TraceReader = TraceReaderCLP
