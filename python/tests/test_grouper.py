@@ -6,7 +6,7 @@ Unit tests for StreamingGrouper class.
 
 import unittest
 
-from cutracer.analysis.grouper import StreamingGrouper
+from cutracer.query.grouper import StreamingGrouper
 
 
 class TestStreamingGrouperInit(unittest.TestCase):

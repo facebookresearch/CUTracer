@@ -1,9 +1,9 @@
 # Copyright (c) Meta Platforms, Inc. and affiliates.
 
 """
-CLI implementation for the analyze subcommand.
+CLI implementation for the query subcommand.
 
-Provides command-line interface for analyzing CUTracer trace files.
+Provides command-line interface for querying and viewing CUTracer trace files.
 """
 
 import csv
@@ -13,15 +13,15 @@ from pathlib import Path
 from typing import Any, Optional
 
 import click
-from cutracer.analysis.formatters import (
+from cutracer.query.formatters import (
     format_records_csv,
     format_records_json,
     format_records_table,
     get_display_fields,
 )
-from cutracer.analysis.grouper import StreamingGrouper
-from cutracer.analysis.reader import parse_filter_expr, select_records, TraceReader
-from cutracer.analysis.warp_summary import (
+from cutracer.query.grouper import StreamingGrouper
+from cutracer.query.reader import parse_filter_expr, select_records, TraceReader
+from cutracer.query.warp_summary import (
     compute_warp_summary,
     format_warp_summary_text,
     warp_summary_to_dict,
@@ -89,7 +89,7 @@ def _output_groups(
             click.echo(format_warp_summary_text(warp_summary))
 
 
-@click.command(name="analyze")
+@click.command(name="query")
 @click.argument("file", type=click.Path(exists=True, path_type=Path))
 @click.option(
     "--head",
@@ -154,7 +154,7 @@ def _output_groups(
     default=None,
     help="Show only top N groups by count (requires --group-by --count).",
 )
-def analyze_command(
+def query_command(
     file: Path,
     head: int,
     tail: Optional[int],
@@ -167,20 +167,20 @@ def analyze_command(
     top: Optional[int],
 ) -> None:
     """
-    Analyze trace data from FILE.
+    Query and view trace data from FILE.
 
     Reads NDJSON trace files (plain or Zstd-compressed) and displays
     records in a formatted table.
 
     \b
     Examples:
-      cutracer analyze trace.ndjson
-      cutracer analyze trace.ndjson.zst --head 20
-      cutracer analyze trace.ndjson --tail 5
-      cutracer analyze trace.ndjson --filter "warp=24"
-      cutracer analyze trace.ndjson --group-by warp
-      cutracer analyze trace.ndjson --group-by warp --count
-      cutracer analyze trace.ndjson --group-by sass --count --top 20
+      cutracer query trace.ndjson
+      cutracer query trace.ndjson.zst --head 20
+      cutracer query trace.ndjson --tail 5
+      cutracer query trace.ndjson --filter "warp=24"
+      cutracer query trace.ndjson --group-by warp
+      cutracer query trace.ndjson --group-by warp --count
+      cutracer query trace.ndjson --group-by sass --count --top 20
     """
     # Validate option combinations
     if count and not group_by:
