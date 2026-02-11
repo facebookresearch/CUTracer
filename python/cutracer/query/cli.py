@@ -21,7 +21,7 @@ from cutracer.query.formatters import (
     get_display_fields,
 )
 from cutracer.query.grouper import StreamingGrouper
-from cutracer.query.reader import build_filter_predicate, select_records
+from cutracer.query.reader import build_filter_predicate, select_records, TraceReader
 from cutracer.query.warp_summary import (
     compute_warp_summary,
     format_warp_summary_text,

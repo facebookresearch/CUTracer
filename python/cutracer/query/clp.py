@@ -27,9 +27,10 @@ class TraceReaderCLP(TraceReaderBase):
         for filter_expr in filter_exprs:
             filter_array = filter_expr.split(";")
             for filter_clause in filter_array:
-                assert "=" in filter_clause, (
-                    f"Could not find symbol = in clause: {filter_clause}"
-                )
+                if "=" not in filter_clause:
+                    raise ValueError(
+                        f"Invalid filter expression: '{filter_clause}'. Expected format: 'field=value'"
+                    )
                 lhs, _sym, rhs = filter_clause.partition("=")
                 result.append((lhs, rhs))
         result_str = " AND ".join(f"{lhs}: {rhs}" for lhs, rhs in result)
