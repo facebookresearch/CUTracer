@@ -38,7 +38,6 @@ class TestQueryCommand(BaseValidationTest):
         result = self.runner.invoke(
             main, ["query", str(str(self.clp_archive_path.absolute())), "--head", "5"]
         )
-        print(result.output)
         self.assertEqual(result.exit_code, 0)
         lines = [line for line in result.stdout.strip().split("\n") if line]
         self.assertEqual(len(lines), 6)  # header + 5 data rows
