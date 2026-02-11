@@ -7,8 +7,8 @@ This module provides the TraceReader class for reading and iterating
 over trace records from NDJSON files (plain or Zstd-compressed).
 """
 
-from abc import ABC, abstractmethod
 import json
+from abc import ABC, abstractmethod
 from collections import deque
 from itertools import islice
 from pathlib import Path
@@ -184,6 +184,7 @@ class TraceReaderBase(ABC):
     @abstractmethod
     def iter_records(self) -> Iterator[dict]:
         pass
+
 
 class TraceReader(TraceReaderBase):
     """

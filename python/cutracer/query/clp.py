@@ -1,9 +1,9 @@
+from typing import Generator
+
 import yscope_clp_core
+from cutracer.query.reader import TraceReaderBase
 from yscope_clp_core import KqlQuery
 
-from cutracer.query.reader import TraceReaderBase
-
-from typing import Generator
 
 class TraceReaderCLP(TraceReaderBase):
     """
@@ -17,6 +17,7 @@ class TraceReaderCLP(TraceReaderBase):
         >>> for record in reader.iter_records():
         ...     print(record["sass"])
     """
+
     def __init__(self, file):
         assert file.exists(), f"Non-exist clp archive file: {file.absolute()}"
         self._archive = file
@@ -26,7 +27,9 @@ class TraceReaderCLP(TraceReaderBase):
         for filter_expr in filter_exprs:
             filter_array = filter_expr.split(";")
             for filter_clause in filter_array:
-                assert "=" in filter_clause, f"Could not find symbol = in clause: {filter_clause}"
+                assert "=" in filter_clause, (
+                    f"Could not find symbol = in clause: {filter_clause}"
+                )
                 lhs, _sym, rhs = filter_clause.partition("=")
                 result.append((lhs, rhs))
         result_str = " AND ".join(f"{lhs}: {rhs}" for lhs, rhs in result)

@@ -32,5 +32,6 @@ class TestQueryCommand(BaseValidationTest):
         lines = [line for line in result.stdout.strip().split("\n") if line]
         self.assertEqual(len(lines), 6)
 
+
 if __name__ == "__main__":
     unittest.main()

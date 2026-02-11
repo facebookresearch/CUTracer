@@ -21,7 +21,7 @@ from cutracer.query.formatters import (
     get_display_fields,
 )
 from cutracer.query.grouper import StreamingGrouper
-from cutracer.query.reader import build_filter_predicate, select_records, TraceReader
+from cutracer.query.reader import build_filter_predicate, select_records
 from cutracer.query.warp_summary import (
     compute_warp_summary,
     format_warp_summary_text,
@@ -325,6 +325,7 @@ def query_command(
     USE_CLP = True if file.name.endswith(".clp") else False
     if USE_CLP:
         from cutracer.query.clp import TraceReaderCLP
+
         TraceReader = TraceReaderCLP
 
     # Create reader
