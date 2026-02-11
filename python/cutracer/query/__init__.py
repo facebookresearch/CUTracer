@@ -9,7 +9,7 @@ Provides data query utilities for trace files:
 - select_records: Memory-efficient record selection
 - StreamingGrouper: Memory-efficient grouped queries
 - Formatters: Output formatting for table/json/csv
-- WarpSummary: Warp execution status summary (will move to analyze module)
+- WarpSummary: Warp execution status summary
 """
 
 from .formatters import (
