@@ -68,9 +68,9 @@
       "description": "Opcode identifier"
     },
     "pc": {
-      "type": "integer",
-      "minimum": 0,
-      "description": "Program counter value"
+      "type": "string",
+      "pattern": "^0x[0-9a-fA-F]+$",
+      "description": "Program counter value in hex format"
     }
   },
   "additionalProperties": false

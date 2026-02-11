@@ -494,22 +494,22 @@ class TestQueryCommand(BaseValidationTest):
         records = json.loads(result.output)
         if records and "pc" in records[0]:
             pc_value = records[0]["pc"]
-            # Filter using hex format
-            hex_pc = hex(pc_value)
+            # pc is now a hex string like "0x0" or "0x10"
+            # Filter using the hex string directly
             result_hex = self.runner.invoke(
                 main,
                 [
                     "query",
                     str(REG_TRACE_NDJSON),
                     "--filter",
-                    f"pc={hex_pc}",
+                    f"pc={pc_value}",
                     "--head",
                     "5",
                 ],
             )
             self.assertEqual(result_hex.exit_code, 0)
             # All filtered records should have this PC
-            self.assertIn(str(pc_value), result_hex.output)
+            self.assertIn(pc_value, result_hex.output)
 
     def test_analyze_fields_all(self):
         """Test analyze with --fields '*' to show all fields."""
