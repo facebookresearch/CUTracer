@@ -8,7 +8,7 @@ import json
 import types
 import unittest
 
-from cutracer.analysis import parse_filter_expr, select_records, TraceReader
+from cutracer.query import parse_filter_expr, select_records, TraceReader
 from tests.test_base import (
     BaseValidationTest,
     REG_TRACE_NDJSON,
