@@ -325,12 +325,13 @@ def query_command(
     USE_CLP = True if file.name.endswith(".clp") else False
     if USE_CLP:
         from cutracer.query.clp import TraceReaderCLP
-
-        TraceReader = TraceReaderCLP
+        reader_cls = TraceReaderCLP
+    else:
+        reader_cls = TraceReader
 
     # Create reader
     try:
-        reader = TraceReader(file)
+        reader = reader_cls(file)
     except FileNotFoundError as e:
         raise click.ClickException(str(e))
 
