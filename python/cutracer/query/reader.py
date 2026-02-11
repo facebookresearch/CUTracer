@@ -16,35 +16,27 @@ from typing import Any, Callable, Iterator, Optional, Union
 from cutracer.validation.compression import detect_compression, open_trace_file
 
 
-def parse_filter_expr(filter_expr: str) -> Callable[[dict], bool]:
+def _parse_single_filter(expr: str) -> Callable[[dict], bool]:
     """
-    Parse a filter expression and return a predicate function.
+    Parse a single 'field=value' filter expression and return a predicate.
 
-    Supports simple equality filters like "field=value".
     Values are automatically converted to int if possible.
 
     Args:
-        filter_expr: Filter expression (e.g., "warp=24", "type=mem_trace")
+        expr: Single filter expression (e.g., "warp=24", "type=mem_trace")
 
     Returns:
         Predicate function that takes a record and returns bool
 
     Raises:
         ValueError: If the filter expression is invalid
-
-    Examples:
-        >>> pred = parse_filter_expr("warp=24")
-        >>> pred({"warp": 24})
-        True
-        >>> pred({"warp": 25})
-        False
     """
-    if "=" not in filter_expr:
+    if "=" not in expr:
         raise ValueError(
-            f"Invalid filter expression: '{filter_expr}'. Expected format: 'field=value'"
+            f"Invalid filter expression: '{expr}'. Expected format: 'field=value'"
         )
 
-    field, value = filter_expr.split("=", 1)
+    field, value = expr.split("=", 1)
     field = field.strip()
     value = value.strip()
 
@@ -60,6 +52,79 @@ def parse_filter_expr(filter_expr: str) -> Callable[[dict], bool]:
         )
     except ValueError:
         return lambda record: record.get(field) == value
+
+
+def parse_filter_expr(filter_expr: str) -> Callable[[dict], bool]:
+    """
+    Parse a filter expression and return a predicate function.
+
+    Supports simple equality filters like "field=value" and
+    semicolon-separated multiple conditions combined with AND logic.
+
+    Semicolons are used as the separator (not commas) because field values
+    may contain commas (e.g., "cta=[5, 0, 0]").
+
+    Args:
+        filter_expr: Filter expression. Can be a single condition
+            (e.g., "warp=24") or semicolon-separated multiple conditions
+            (e.g., "pc=0x1030;warp=64").
+
+    Returns:
+        Predicate function that takes a record and returns bool
+
+    Raises:
+        ValueError: If any filter expression is invalid
+
+    Examples:
+        >>> pred = parse_filter_expr("warp=24")
+        >>> pred({"warp": 24})
+        True
+        >>> pred = parse_filter_expr("pc=0x100;warp=24")
+        >>> pred({"pc": 256, "warp": 24})
+        True
+        >>> pred({"pc": 256, "warp": 25})
+        False
+    """
+    parts = [p.strip() for p in filter_expr.split(";") if p.strip()]
+
+    if not parts:
+        raise ValueError("Filter expression cannot be empty")
+
+    if len(parts) == 1:
+        return _parse_single_filter(parts[0])
+
+    predicates = [_parse_single_filter(p) for p in parts]
+    return lambda record: all(p(record) for p in predicates)
+
+
+def build_filter_predicate(
+    filter_exprs: tuple[str, ...],
+) -> Callable[[dict], bool]:
+    """
+    Build a combined AND predicate from multiple filter expressions.
+
+    Each expression is parsed via parse_filter_expr (which itself supports
+    semicolon-separated conditions). Multiple expressions are combined
+    with AND logic.
+
+    Args:
+        filter_exprs: One or more filter expressions (e.g., from multiple -f flags)
+
+    Returns:
+        A single predicate function that returns True only when all conditions match
+
+    Raises:
+        ValueError: If any filter expression is invalid
+    """
+    predicates = [parse_filter_expr(expr) for expr in filter_exprs]
+
+    if len(predicates) == 1:
+        return predicates[0]
+
+    def combined(record: dict) -> bool:
+        return all(p(record) for p in predicates)
+
+    return combined
 
 
 def select_records(
