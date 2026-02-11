@@ -22,11 +22,16 @@ class TraceReaderCLP(TraceReaderBase):
         self._archive = file
 
     def _filter_expr_to_clp_query(self, filter_exprs: str) -> str:
-        pass
+        filter_array = filter_exprs.split(";")
+        result = []
+        for filter_clause in filter_array:
+            assert "=" in filter_clause, f"Could not find symbol = in clause: {filter_clause}"
+            lhs, _sym, rhs = filter_clause.partition("=")
+            result.append((lhs, rhs))
+        return " AND ".join(f"{lhs}: {rhs}" for lhs, rhs in result)
 
     def iter_records(self, filter_exprs: str) -> Generator:
         clp_query: ClpQuery = self._filter_expr_to_clp_query(filter_exprs)
-        with yscope_clp_core.search_archive(self._archive. clp_query) as iter:
-            for next_record in iter:
-                yield next_record
-
+        with yscope_clp_core.search_archive(self._archive. clp_query) as record_iter:
+            for next_record in record_iter:
+                yield next_record.get_kv_pairs()
