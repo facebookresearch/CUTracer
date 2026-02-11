@@ -1019,9 +1019,32 @@ test_mem_value_trace() {
   return 0
 }
 
+# Function to run unit tests (no GPU required)
+test_unit() {
+  echo "🧪 Running unit tests..."
+  cd "$PROJECT_ROOT/tests/unit"
+
+  # Build and run unit tests
+  if ! make test; then
+    echo "❌ Unit tests failed"
+    cd "$PROJECT_ROOT"
+    return 1
+  fi
+
+  echo "✅ Unit tests passed!"
+  cd "$PROJECT_ROOT"
+  return 0
+}
+
 # Function to run all tests
 run_all_tests() {
   echo "🚀 Running all CUTracer tests..."
+
+  # Run unit tests first (no GPU required)
+  if ! test_unit; then
+    echo "❌ Unit tests failed"
+    return 1
+  fi
 
   # Run Python module tests first (no build required)
   if ! test_python_module; then

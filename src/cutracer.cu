@@ -154,6 +154,38 @@ static std::string compute_kernel_checksum(const std::string& kernel_name, const
   return oss.str();
 }
 
+/**
+ * @brief Check if an instruction should be instrumented based on category filtering.
+ *
+ * When category filtering is enabled (CUTRACER_INSTR_CATEGORIES is set),
+ * only instructions belonging to enabled categories will be instrumented.
+ * When category filtering is disabled, all instructions are instrumented.
+ *
+ * @param instr The instruction to check
+ * @return true if the instruction should be instrumented
+ */
+static bool should_instrument_instr_by_category(Instr* instr) {
+  if (!has_category_filter_enabled()) {
+    return true;
+  }
+
+  const char* sass_str = instr->getSass();
+  InstrCategory category = detect_instr_category(sass_str);
+
+  if (category == InstrCategory::NONE) {
+    // Not a categorized instruction - skip when category filtering is enabled
+    return false;
+  }
+
+  // Check if this category is enabled
+  bool should_instrument = should_instrument_category(category);
+  if (should_instrument) {
+    loprintf_v("Category filter: instrumenting %s instruction at pc=0x%lx: %s\n", get_instr_category_name(category),
+               instr->getOffset(), sass_str);
+  }
+  return should_instrument;
+}
+
 /* ===== Main Functionality ===== */
 /**
  * @brief Conditionally instruments a CUDA function by delegating to specialized
@@ -334,15 +366,17 @@ bool instrument_function_if_needed(CUcontext ctx, CUfunction func) {
         }
       }
 
-      // Choose instrumentation based on enabled types.
-      if (is_instrument_type_enabled(InstrumentType::OPCODE_ONLY)) {
-        // Lightweight instrumentation for instruction histogram analysis.
-        // This sends minimal data (opcode_id, warp_id) to the CPU, reducing
-        // overhead.
-        instrument_opcode_only(instr, opcode_id, ctx_state);
-      } else if (is_instrument_type_enabled(InstrumentType::REG_TRACE)) {
-        // Full register tracing.
-        instrument_register_trace(instr, opcode_id, ctx_state, operands);
+      // Choose instrumentation based on enabled types (only if this instruction passes category filter)
+      if (should_instrument_instr_by_category(instr)) {
+        if (is_instrument_type_enabled(InstrumentType::OPCODE_ONLY)) {
+          // Lightweight instrumentation for instruction histogram analysis.
+          // This sends minimal data (opcode_id, warp_id) to the CPU, reducing
+          // overhead.
+          instrument_opcode_only(instr, opcode_id, ctx_state);
+        } else if (is_instrument_type_enabled(InstrumentType::REG_TRACE)) {
+          // Full register tracing.
+          instrument_register_trace(instr, opcode_id, ctx_state, operands);
+        }
       }
 
       // Delay instrumentation for synchronization instructions
@@ -385,6 +419,7 @@ bool instrument_function_if_needed(CUcontext ctx, CUfunction func) {
     // Statically identify special instructions for this function:
     // - "clock" (CS2R SR_CLOCKLO) used for histogram region boundaries
     // - "EXIT" used as a candidate signal for warp completion on host side
+    // - Categorized instructions (MMA, TMA, SYNC, etc.) for tracing
     for (std::map<int, std::string>::const_iterator it_sass = ctx_state->id_to_sass_map[f].begin();
          it_sass != ctx_state->id_to_sass_map[f].end(); ++it_sass) {
       const char* sass_cstr = it_sass->second.c_str();
@@ -394,6 +429,13 @@ bool instrument_function_if_needed(CUcontext ctx, CUfunction func) {
       // Simple substring detection for EXIT mnemonic (predication handled by extract on host side)
       if (strstr(sass_cstr, "EXIT")) {
         ctx_state->exit_opcode_ids[f].insert(it_sass->first);
+      }
+      // Detect instruction category and log if matched
+      InstrCategory category = detect_instr_category(sass_cstr);
+      if (category != InstrCategory::NONE) {
+        const char* desc = get_instr_pattern_description(sass_cstr);
+        loprintf("%s detected: kernel=%s opcode_id=%d sass='%s' (%s)\n", get_instr_category_name(category),
+                 unmangled_name, it_sass->first, sass_cstr, desc ? desc : "");
       }
     }
     /* ============================================ */

@@ -19,6 +19,7 @@
 #include <vector>
 
 #include "common.h"
+#include "instr_category.h"
 #include "nvbit.h"
 /* for channel */
 #include "utils/channel.hpp"
