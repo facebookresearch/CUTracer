@@ -21,7 +21,12 @@ from .formatters import (
     get_display_fields,
 )
 from .grouper import StreamingGrouper
-from .reader import parse_filter_expr, select_records, TraceReader
+from .reader import (
+    build_filter_predicate,
+    parse_filter_expr,
+    select_records,
+    TraceReader,
+)
 from .warp_summary import (
     compute_warp_summary,
     format_ranges,
@@ -35,6 +40,7 @@ from .warp_summary import (
 __all__ = [
     "TraceReader",
     "parse_filter_expr",
+    "build_filter_predicate",
     "select_records",
     # Grouper
     "StreamingGrouper",

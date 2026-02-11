@@ -21,7 +21,7 @@ from cutracer.query.formatters import (
     get_display_fields,
 )
 from cutracer.query.grouper import StreamingGrouper
-from cutracer.query.reader import parse_filter_expr, select_records, TraceReader
+from cutracer.query.reader import build_filter_predicate, select_records, TraceReader
 from cutracer.query.warp_summary import (
     compute_warp_summary,
     format_warp_summary_text,
@@ -219,10 +219,11 @@ def _format_groups(
 @click.option(
     "--filter",
     "-f",
-    "filter_expr",
+    "filter_exprs",
     type=str,
     default=None,
-    help="Filter expression (e.g., 'warp=24', 'pc=0x43d0').",
+    multiple=True,
+    help="Filter expression (e.g., 'warp=24', 'pc=0x43d0', 'pc=0x43d0;warp=24'). Can be specified multiple times for AND logic.",
 )
 @click.option(
     "--format",
@@ -282,7 +283,7 @@ def query_command(
     head: int,
     tail: Optional[int],
     all_records: bool,
-    filter_expr: Optional[str],
+    filter_exprs: tuple[str, ...],
     output_format: str,
     fields: Optional[str],
     no_header: bool,
@@ -305,6 +306,8 @@ def query_command(
       cutracer query trace.ndjson --tail 5
       cutracer query trace.ndjson --all --format ndjson
       cutracer query trace.ndjson --filter "warp=24"
+      cutracer query trace.ndjson --filter "pc=0x43d0;warp=24"
+      cutracer query trace.ndjson -f "pc=0x43d0" -f "warp=24"
       cutracer query trace.ndjson --filter "pc=0x43d0" --all --output filtered.ndjson
       cutracer query trace.ndjson --filter "pc=0x43d0" --all --format ndjson -o out.zst --compress
       cutracer query trace.ndjson --group-by warp
@@ -329,11 +332,12 @@ def query_command(
     records = reader.iter_records()
 
     # Apply filter if specified
-    if filter_expr:
+    if filter_exprs:
         try:
-            predicate = parse_filter_expr(filter_expr)
+            predicate = build_filter_predicate(filter_exprs)
         except ValueError as e:
             raise click.ClickException(str(e))
+
         records = (r for r in records if predicate(r))
 
     # Handle grouped output
