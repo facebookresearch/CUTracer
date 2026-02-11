@@ -23,15 +23,6 @@ class TestQueryCommand(BaseValidationTest):
         with yscope_clp_core.open_archive(self.clp_archive_path, "w") as clp_archive:
             clp_archive.add(REG_TRACE_NDJSON)
 
-    def test_analyze_clp_qrchive(self):
-        """Test analyze with CLP-compressed file."""
-        result = self.runner.invoke(
-            main, ["query", str(self.clp_archive_path.absolute()), "--head", "5"]
-        )
-        self.assertEqual(result.exit_code, 0)
-        lines = [line for line in result.stdout.strip().split("\n") if line]
-        self.assertEqual(len(lines), 6)
-
     def test_analyze_default_head(self):
         """Test analyze with default head (10 records)."""
         result = self.runner.invoke(
@@ -47,6 +38,7 @@ class TestQueryCommand(BaseValidationTest):
         result = self.runner.invoke(
             main, ["query", str(str(self.clp_archive_path.absolute())), "--head", "5"]
         )
+        print(result.output)
         self.assertEqual(result.exit_code, 0)
         lines = [line for line in result.stdout.strip().split("\n") if line]
         self.assertEqual(len(lines), 6)  # header + 5 data rows
