@@ -382,6 +382,21 @@ bool instrument_function_if_needed(CUcontext ctx, CUfunction func) {
       // (e.g., UTMALDG uses URb+1 for barrier address, not exposed by NVBit)
       collect_implicit_regs(instr->getSass(), op_ctx, operands);
 
+      // Store register indices in CPU-side static map (no GPU overhead)
+      // Must be AFTER collect_implicit_regs() since implicit regs modify operands
+      {
+        RegIndices reg_idx;
+        reg_idx.reg_indices.reserve(operands.reg_nums.size());
+        for (int num : operands.reg_nums) {
+          reg_idx.reg_indices.push_back(static_cast<uint8_t>(num));
+        }
+        reg_idx.ureg_indices.reserve(operands.ureg_nums.size());
+        for (int num : operands.ureg_nums) {
+          reg_idx.ureg_indices.push_back(static_cast<uint8_t>(num));
+        }
+        ctx_state->id_to_reg_indices_map[f][opcode_id] = std::move(reg_idx);
+      }
+
       // Choose instrumentation based on enabled types (only if this instruction passes category filter)
       if (should_instrument_instr_by_category(instr)) {
         if (is_instrument_type_enabled(InstrumentType::OPCODE_ONLY)) {

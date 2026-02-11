@@ -85,12 +85,30 @@
       },
       "description": "2D array of register values [reg_index][thread_index]"
     },
+    "regs_indices": {
+      "type": "array",
+      "items": {
+        "type": "integer",
+        "minimum": 0,
+        "maximum": 254
+      },
+      "description": "Register indices corresponding to regs values (e.g., [5, 6, 7] means R5, R6, R7)"
+    },
     "uregs": {
       "type": "array",
       "items": {
         "type": "integer"
       },
       "description": "Optional uniform register values"
+    },
+    "uregs_indices": {
+      "type": "array",
+      "items": {
+        "type": "integer",
+        "minimum": 0,
+        "maximum": 62
+      },
+      "description": "Uniform register indices corresponding to uregs values (e.g., [8, 9, 12, 13] means UR8, UR9, UR12, UR13)"
     }
   },
   "additionalProperties": false

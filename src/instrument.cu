@@ -78,6 +78,7 @@ void instrument_register_trace(Instr* instr, int opcode_id, CTXstate* ctx_state,
   nvbit_add_call_arg_const_val32(instr, operands.reg_nums.size());
   nvbit_add_call_arg_const_val32(instr, operands.ureg_nums.size());
 
+  // Pass register values (variadic)
   for (int num : operands.reg_nums) {
     /* last parameter tells it is a variadic parameter passed to
      * the instrument function record_reg_val() */
@@ -259,4 +260,3 @@ void instrument_memory_value_trace(Instr* instr, int opcode_id, CTXstate* ctx_st
     nvbit_add_call_arg_reg_val(instr, reg_num, true);
   }
 }
-
