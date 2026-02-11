@@ -1,7 +1,7 @@
 # Copyright (c) Meta Platforms, Inc. and affiliates.
 
 """
-Unit tests for analyze CLI command.
+Unit tests for query CLI command.
 """
 
 import unittest
@@ -11,25 +11,25 @@ from cutracer.cli import main
 from tests.test_base import BaseValidationTest, REG_TRACE_NDJSON, REG_TRACE_NDJSON_ZST
 
 
-class TestAnalyzeCommand(BaseValidationTest):
-    """Tests for analyze CLI command."""
+class TestQueryCommand(BaseValidationTest):
+    """Tests for query CLI command."""
 
     def setUp(self):
         super().setUp()
         self.runner = CliRunner()
 
-    def test_analyze_help(self):
-        """Test analyze --help shows usage information."""
-        result = self.runner.invoke(main, ["analyze", "--help"])
+    def test_query_help(self):
+        """Test query --help shows usage information."""
+        result = self.runner.invoke(main, ["query", "--help"])
         self.assertEqual(result.exit_code, 0)
-        self.assertIn("Analyze trace data", result.output)
+        self.assertIn("Query and view trace data", result.output)
         self.assertIn("--head", result.output)
         self.assertIn("--tail", result.output)
         self.assertIn("--filter", result.output)
 
     def test_analyze_default_head(self):
         """Test analyze with default head (10 records)."""
-        result = self.runner.invoke(main, ["analyze", str(REG_TRACE_NDJSON)])
+        result = self.runner.invoke(main, ["query", str(REG_TRACE_NDJSON)])
         self.assertEqual(result.exit_code, 0)
         # Should have header + 10 data rows = 11 lines
         lines = [line for line in result.output.strip().split("\n") if line]
@@ -38,7 +38,7 @@ class TestAnalyzeCommand(BaseValidationTest):
     def test_analyze_custom_head(self):
         """Test analyze with custom head value."""
         result = self.runner.invoke(
-            main, ["analyze", str(REG_TRACE_NDJSON), "--head", "5"]
+            main, ["query", str(REG_TRACE_NDJSON), "--head", "5"]
         )
         self.assertEqual(result.exit_code, 0)
         lines = [line for line in result.output.strip().split("\n") if line]
@@ -47,7 +47,7 @@ class TestAnalyzeCommand(BaseValidationTest):
     def test_analyze_tail(self):
         """Test analyze with tail option."""
         result = self.runner.invoke(
-            main, ["analyze", str(REG_TRACE_NDJSON), "--tail", "3"]
+            main, ["query", str(REG_TRACE_NDJSON), "--tail", "3"]
         )
         self.assertEqual(result.exit_code, 0)
         lines = [line for line in result.output.strip().split("\n") if line]
@@ -56,7 +56,7 @@ class TestAnalyzeCommand(BaseValidationTest):
     def test_analyze_zst_file(self):
         """Test analyze with Zstd-compressed file."""
         result = self.runner.invoke(
-            main, ["analyze", str(REG_TRACE_NDJSON_ZST), "--head", "5"]
+            main, ["query", str(REG_TRACE_NDJSON_ZST), "--head", "5"]
         )
         self.assertEqual(result.exit_code, 0)
         lines = [line for line in result.output.strip().split("\n") if line]
@@ -66,7 +66,7 @@ class TestAnalyzeCommand(BaseValidationTest):
         """Test analyze with filter expression."""
         result = self.runner.invoke(
             main,
-            ["analyze", str(REG_TRACE_NDJSON), "--filter", "warp=0", "--head", "5"],
+            ["query", str(REG_TRACE_NDJSON), "--filter", "warp=0", "--head", "5"],
         )
         self.assertEqual(result.exit_code, 0)
         # All displayed records should have warp=0
@@ -76,34 +76,34 @@ class TestAnalyzeCommand(BaseValidationTest):
     def test_analyze_filter_invalid(self):
         """Test analyze with invalid filter expression."""
         result = self.runner.invoke(
-            main, ["analyze", str(REG_TRACE_NDJSON), "--filter", "invalid"]
+            main, ["query", str(REG_TRACE_NDJSON), "--filter", "invalid"]
         )
         self.assertNotEqual(result.exit_code, 0)
         self.assertIn("Invalid filter expression", result.output)
 
     def test_analyze_nonexistent_file(self):
         """Test analyze with non-existent file."""
-        result = self.runner.invoke(main, ["analyze", "/nonexistent/file.ndjson"])
+        result = self.runner.invoke(main, ["query", "/nonexistent/file.ndjson"])
         self.assertNotEqual(result.exit_code, 0)
 
     def test_analyze_empty_file(self):
         """Test analyze with empty file."""
         empty_file = self.create_temp_file("empty.ndjson", "")
-        result = self.runner.invoke(main, ["analyze", str(empty_file)])
+        result = self.runner.invoke(main, ["query", str(empty_file)])
         self.assertEqual(result.exit_code, 0)
         self.assertIn("No records found", result.output)
 
     def test_analyze_short_options(self):
         """Test analyze with short option names."""
         result = self.runner.invoke(
-            main, ["analyze", str(REG_TRACE_NDJSON), "-n", "3", "-f", "warp=0"]
+            main, ["query", str(REG_TRACE_NDJSON), "-n", "3", "-f", "warp=0"]
         )
         self.assertEqual(result.exit_code, 0)
 
     def test_analyze_format_json(self):
         """Test analyze with JSON output format."""
         result = self.runner.invoke(
-            main, ["analyze", str(REG_TRACE_NDJSON), "--format", "json", "--head", "3"]
+            main, ["query", str(REG_TRACE_NDJSON), "--format", "json", "--head", "3"]
         )
         self.assertEqual(result.exit_code, 0)
         # JSON output should be parseable
@@ -115,7 +115,7 @@ class TestAnalyzeCommand(BaseValidationTest):
     def test_analyze_format_csv(self):
         """Test analyze with CSV output format."""
         result = self.runner.invoke(
-            main, ["analyze", str(REG_TRACE_NDJSON), "--format", "csv", "--head", "3"]
+            main, ["query", str(REG_TRACE_NDJSON), "--format", "csv", "--head", "3"]
         )
         self.assertEqual(result.exit_code, 0)
         lines = result.output.strip().split("\n")
@@ -127,7 +127,7 @@ class TestAnalyzeCommand(BaseValidationTest):
         """Test analyze with explicit table format."""
         result = self.runner.invoke(
             main,
-            ["analyze", str(REG_TRACE_NDJSON), "--format", "table", "--head", "3"],
+            ["query", str(REG_TRACE_NDJSON), "--format", "table", "--head", "3"],
         )
         self.assertEqual(result.exit_code, 0)
         lines = [line for line in result.output.strip().split("\n") if line]
@@ -138,7 +138,7 @@ class TestAnalyzeCommand(BaseValidationTest):
         result = self.runner.invoke(
             main,
             [
-                "analyze",
+                "query",
                 str(REG_TRACE_NDJSON),
                 "--fields",
                 "warp,sass",
@@ -156,7 +156,7 @@ class TestAnalyzeCommand(BaseValidationTest):
     def test_analyze_no_header(self):
         """Test analyze with --no-header flag."""
         result = self.runner.invoke(
-            main, ["analyze", str(REG_TRACE_NDJSON), "--no-header", "--head", "3"]
+            main, ["query", str(REG_TRACE_NDJSON), "--no-header", "--head", "3"]
         )
         self.assertEqual(result.exit_code, 0)
         lines = [line for line in result.output.strip().split("\n") if line]
@@ -167,7 +167,7 @@ class TestAnalyzeCommand(BaseValidationTest):
         result = self.runner.invoke(
             main,
             [
-                "analyze",
+                "query",
                 str(REG_TRACE_NDJSON),
                 "--format",
                 "csv",
@@ -184,7 +184,7 @@ class TestAnalyzeCommand(BaseValidationTest):
         """Test analyze with --group-by option."""
         result = self.runner.invoke(
             main,
-            ["analyze", str(REG_TRACE_NDJSON), "--group-by", "warp", "--head", "3"],
+            ["query", str(REG_TRACE_NDJSON), "--group-by", "warp", "--head", "3"],
         )
         self.assertEqual(result.exit_code, 0)
         # Should have group headers
@@ -195,7 +195,7 @@ class TestAnalyzeCommand(BaseValidationTest):
         """Test analyze with --group-by and --tail."""
         result = self.runner.invoke(
             main,
-            ["analyze", str(REG_TRACE_NDJSON), "--group-by", "warp", "--tail", "2"],
+            ["query", str(REG_TRACE_NDJSON), "--group-by", "warp", "--tail", "2"],
         )
         self.assertEqual(result.exit_code, 0)
         self.assertIn("=== Group:", result.output)
@@ -205,7 +205,7 @@ class TestAnalyzeCommand(BaseValidationTest):
         result = self.runner.invoke(
             main,
             [
-                "analyze",
+                "query",
                 str(REG_TRACE_NDJSON),
                 "--group-by",
                 "warp",
@@ -226,7 +226,7 @@ class TestAnalyzeCommand(BaseValidationTest):
         result = self.runner.invoke(
             main,
             [
-                "analyze",
+                "query",
                 str(REG_TRACE_NDJSON),
                 "--group-by",
                 "warp",
@@ -251,7 +251,7 @@ class TestAnalyzeCommand(BaseValidationTest):
         result = self.runner.invoke(
             main,
             [
-                "analyze",
+                "query",
                 str(REG_TRACE_NDJSON),
                 "--group-by",
                 "warp",
@@ -268,14 +268,14 @@ class TestAnalyzeCommand(BaseValidationTest):
         """Test analyze with -g short option for --group-by."""
         result = self.runner.invoke(
             main,
-            ["analyze", str(REG_TRACE_NDJSON), "-g", "warp", "-n", "2"],
+            ["query", str(REG_TRACE_NDJSON), "-g", "warp", "-n", "2"],
         )
         self.assertEqual(result.exit_code, 0)
         self.assertIn("=== Group:", result.output)
 
     def test_analyze_count_requires_group_by(self):
         """Test that --count requires --group-by."""
-        result = self.runner.invoke(main, ["analyze", str(REG_TRACE_NDJSON), "--count"])
+        result = self.runner.invoke(main, ["query", str(REG_TRACE_NDJSON), "--count"])
         self.assertNotEqual(result.exit_code, 0)
         self.assertIn("--count requires --group-by", result.output)
 
@@ -283,7 +283,7 @@ class TestAnalyzeCommand(BaseValidationTest):
         """Test that --top requires --count."""
         result = self.runner.invoke(
             main,
-            ["analyze", str(REG_TRACE_NDJSON), "--group-by", "warp", "--top", "5"],
+            ["query", str(REG_TRACE_NDJSON), "--group-by", "warp", "--top", "5"],
         )
         self.assertNotEqual(result.exit_code, 0)
         self.assertIn("--top requires --count", result.output)
@@ -292,7 +292,7 @@ class TestAnalyzeCommand(BaseValidationTest):
         """Test analyze with --group-by and --count."""
         result = self.runner.invoke(
             main,
-            ["analyze", str(REG_TRACE_NDJSON), "--group-by", "warp", "--count"],
+            ["query", str(REG_TRACE_NDJSON), "--group-by", "warp", "--count"],
         )
         self.assertEqual(result.exit_code, 0)
         self.assertIn("WARP", result.output)
@@ -303,7 +303,7 @@ class TestAnalyzeCommand(BaseValidationTest):
         result = self.runner.invoke(
             main,
             [
-                "analyze",
+                "query",
                 str(REG_TRACE_NDJSON),
                 "--group-by",
                 "warp",
@@ -321,7 +321,7 @@ class TestAnalyzeCommand(BaseValidationTest):
         result = self.runner.invoke(
             main,
             [
-                "analyze",
+                "query",
                 str(REG_TRACE_NDJSON),
                 "--group-by",
                 "warp",
@@ -341,7 +341,7 @@ class TestAnalyzeCommand(BaseValidationTest):
         result = self.runner.invoke(
             main,
             [
-                "analyze",
+                "query",
                 str(REG_TRACE_NDJSON),
                 "--group-by",
                 "warp",
@@ -358,7 +358,7 @@ class TestAnalyzeCommand(BaseValidationTest):
         result = self.runner.invoke(
             main,
             [
-                "analyze",
+                "query",
                 str(REG_TRACE_NDJSON),
                 "--group-by",
                 "warp",
@@ -375,7 +375,7 @@ class TestAnalyzeCommand(BaseValidationTest):
         """Test analyze --group-by warp shows warp summary."""
         result = self.runner.invoke(
             main,
-            ["analyze", str(REG_TRACE_NDJSON), "--group-by", "warp", "--tail", "3"],
+            ["query", str(REG_TRACE_NDJSON), "--group-by", "warp", "--tail", "3"],
         )
         self.assertEqual(result.exit_code, 0)
         # Should have warp summary section
@@ -390,7 +390,7 @@ class TestAnalyzeCommand(BaseValidationTest):
         result = self.runner.invoke(
             main,
             [
-                "analyze",
+                "query",
                 str(REG_TRACE_NDJSON),
                 "--group-by",
                 "warp",
@@ -416,7 +416,7 @@ class TestAnalyzeCommand(BaseValidationTest):
         """Test analyze --group-by with non-warp field does not show warp summary."""
         result = self.runner.invoke(
             main,
-            ["analyze", str(REG_TRACE_NDJSON), "--group-by", "sass", "--head", "2"],
+            ["query", str(REG_TRACE_NDJSON), "--group-by", "sass", "--head", "2"],
         )
         self.assertEqual(result.exit_code, 0)
         # Should NOT have warp summary section
@@ -427,7 +427,7 @@ class TestAnalyzeCommand(BaseValidationTest):
         result = self.runner.invoke(
             main,
             [
-                "analyze",
+                "query",
                 str(REG_TRACE_NDJSON),
                 "--group-by",
                 "warp",

@@ -6,7 +6,7 @@ Unit tests for warp_summary module.
 
 import unittest
 
-from cutracer.analysis.warp_summary import (
+from cutracer.query.warp_summary import (
     compute_warp_summary,
     format_ranges,
     format_warp_summary_text,

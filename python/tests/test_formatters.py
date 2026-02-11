@@ -7,7 +7,7 @@ Unit tests for formatters module.
 import json
 import unittest
 
-from cutracer.analysis.formatters import (
+from cutracer.query.formatters import (
     DEFAULT_FIELDS,
     format_records_csv,
     format_records_json,

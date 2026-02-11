@@ -1,15 +1,15 @@
 # Copyright (c) Meta Platforms, Inc. and affiliates.
 
 """
-CUTracer analysis module.
+CUTracer query module.
 
-Provides analysis utilities for trace files:
+Provides data query utilities for trace files:
 - TraceReader: Read and iterate over trace records
 - parse_filter_expr: Parse filter expressions for record filtering
 - select_records: Memory-efficient record selection
-- StreamingGrouper: Memory-efficient grouped analysis
+- StreamingGrouper: Memory-efficient grouped queries
 - Formatters: Output formatting for table/json/csv
-- WarpSummary: Warp execution status summary for GPU hang analysis
+- WarpSummary: Warp execution status summary (will move to analyze module)
 """
 
 from .formatters import (
