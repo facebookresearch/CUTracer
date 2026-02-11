@@ -53,11 +53,13 @@ def parse_filter_expr(filter_expr: str) -> Callable[[dict], bool]:
 
     # Try to convert value to int (supports hex with 0x, octal with 0o, binary with 0b)
     try:
-        converted_value: Any = int(value, 0)
+        int_value: Any = int(value, 0)
+        # Match both string and int representations for backward compatibility
+        return (
+            lambda record: record.get(field) == value or record.get(field) == int_value
+        )
     except ValueError:
-        converted_value = value
-
-    return lambda record: record.get(field) == converted_value
+        return lambda record: record.get(field) == value
 
 
 def select_records(

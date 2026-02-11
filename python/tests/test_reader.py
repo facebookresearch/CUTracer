@@ -26,7 +26,8 @@ class TestParseFilterExpr(unittest.TestCase):
         pred = parse_filter_expr("warp=24")
         self.assertTrue(pred({"warp": 24}))
         self.assertFalse(pred({"warp": 25}))
-        self.assertFalse(pred({"warp": "24"}))  # String vs int
+        # String "24" matches int 24 for backward compatibility
+        self.assertTrue(pred({"warp": "24"}))
 
     def test_parse_filter_string_value(self):
         """Test parsing filter with string value."""
