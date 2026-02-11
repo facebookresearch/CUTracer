@@ -6,6 +6,7 @@ Streaming grouper for trace record aggregation.
 This module provides memory-efficient grouping of trace records,
 using single-pass streaming with bounded memory per group.
 """
+
 from collections import Counter, defaultdict, deque
 from typing import Any, Iterator
 
