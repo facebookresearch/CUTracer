@@ -105,4 +105,23 @@ typedef struct {
   int opcode_id;
 } opcode_only_t;
 
+/* Host-only C++ structures */
+#ifdef __cplusplus
+#include <cstdint>
+#include <vector>
+
+/**
+ * @brief Register indices for CPU-side static mapping.
+ *
+ * Maps reg_vals/ureg_vals array positions to actual register numbers.
+ * Collected at instrumentation time, not transmitted over GPU channel.
+ * This avoids runtime overhead and buffer size increase for static data.
+ */
+struct RegIndices {
+  std::vector<uint8_t> reg_indices;   // R register numbers: 0-254 (R0-R254)
+  std::vector<uint8_t> ureg_indices;  // UR register numbers: 0-62 (UR0-UR62)
+};
+
+#endif /* __cplusplus */
+
 #endif /* COMMON_H */

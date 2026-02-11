@@ -51,6 +51,8 @@ extern "C" __device__ __noinline__ void instrument_reg_val(int pred, int opcode_
     // Initialize variable argument list
     va_list vl;
     va_start(vl, num_uregs);
+
+    // First batch: collect register values
     for (int i = 0; i < num_regs; i++) {
       uint32_t val = va_arg(vl, uint32_t);
 

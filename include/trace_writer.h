@@ -92,13 +92,22 @@ struct TraceRecord {
     const opcode_only_t* opcode_only;
   } data;
 
+  /**
+   * @brief Register indices from CPU-side static mapping (optional).
+   *
+   * Source: ctx_state->id_to_reg_indices_map[func][opcode_id]
+   * Lifetime: Caller ensures pointed-to RegIndices outlives write_trace() call.
+   * nullptr when not available (e.g., lookup failure).
+   */
+  const RegIndices* reg_indices = nullptr;
+
   // ========== Constructors for convenience ==========
 
   /**
    * @brief Create a TraceRecord for reg_info_t.
    */
   static TraceRecord create_reg_trace(CUcontext ctx, const std::string& sass, uint64_t trace_idx, uint64_t ts,
-                                      const reg_info_t* reg) {
+                                      const reg_info_t* reg, const RegIndices* indices = nullptr) {
     TraceRecord record;
     record.context = ctx;
     record.sass_instruction = sass;
@@ -106,6 +115,7 @@ struct TraceRecord {
     record.timestamp = ts;
     record.type = MSG_TYPE_REG_INFO;
     record.data.reg_info = reg;
+    record.reg_indices = indices;
     return record;
   }
 
@@ -275,7 +285,7 @@ class TraceWriter {
   /**
    * @brief Serialize reg_info_t fields to JSON object.
    */
-  void serialize_reg_info(nlohmann::json& j, const reg_info_t* reg);
+  void serialize_reg_info(nlohmann::json& j, const reg_info_t* reg, const RegIndices* indices);
 
   /**
    * @brief Serialize mem_addr_access_t fields to JSON object.

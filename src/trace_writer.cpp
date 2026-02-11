@@ -280,7 +280,7 @@ void TraceWriter::write_compressed() {
   write_data(compressed_buffer_.data(), compressed_size, "compressed bytes");
 }
 
-void TraceWriter::serialize_reg_info(nlohmann::json& j, const reg_info_t* reg) {
+void TraceWriter::serialize_reg_info(nlohmann::json& j, const reg_info_t* reg, const RegIndices* indices) {
   if (!reg) return;
 
   using json = nlohmann::json;
@@ -301,6 +301,15 @@ void TraceWriter::serialize_reg_info(nlohmann::json& j, const reg_info_t* reg) {
   }
   j["regs"] = regs_array;
 
+  // Add register indices from CPU-side static mapping
+  if (indices && !indices->reg_indices.empty()) {
+    json::array_t regs_indices_array;
+    for (auto idx : indices->reg_indices) {
+      regs_indices_array.push_back(idx);
+    }
+    j["regs_indices"] = regs_indices_array;
+  }
+
   // Add unified registers if present
   if (reg->num_uregs > 0) {
     json::array_t uregs_array;
@@ -308,6 +317,15 @@ void TraceWriter::serialize_reg_info(nlohmann::json& j, const reg_info_t* reg) {
       uregs_array.push_back(reg->ureg_vals[i]);
     }
     j["uregs"] = uregs_array;
+
+    // Add unified register indices from CPU-side static mapping
+    if (indices && !indices->ureg_indices.empty()) {
+      json::array_t uregs_indices_array;
+      for (auto idx : indices->ureg_indices) {
+        uregs_indices_array.push_back(idx);
+      }
+      j["uregs_indices"] = uregs_indices_array;
+    }
   }
 }
 
@@ -483,7 +501,7 @@ void TraceWriter::write_json_format(const TraceRecord& record) {
 
     switch (record.type) {
       case MSG_TYPE_REG_INFO:
-        serialize_reg_info(j, record.data.reg_info);
+        serialize_reg_info(j, record.data.reg_info, record.reg_indices);
         break;
       case MSG_TYPE_MEM_ADDR_ACCESS:
         serialize_mem_access(j, record.data.mem_access);

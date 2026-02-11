@@ -1132,13 +1132,19 @@ void* recv_thread_fun(void* args) {
               }
             }
           }
-          // Get SASS string for trace output
+          // Get SASS string and register indices for trace output
           std::string sass_str_cpp;
+          const RegIndices* reg_indices_ptr = nullptr;
           auto func_iter = kernel_launch_to_func_map.find(ri->kernel_launch_id);
           if (func_iter != kernel_launch_to_func_map.end()) {
             auto [f_ctx, f_func] = func_iter->second;
             if (ctx_state->id_to_sass_map.count(f_func) && ctx_state->id_to_sass_map[f_func].count(ri->opcode_id)) {
               sass_str_cpp = ctx_state->id_to_sass_map[f_func][ri->opcode_id];
+            }
+            // Lookup register indices (static data from instrumentation time)
+            if (ctx_state->id_to_reg_indices_map.count(f_func) &&
+                ctx_state->id_to_reg_indices_map[f_func].count(ri->opcode_id)) {
+              reg_indices_ptr = &ctx_state->id_to_reg_indices_map[f_func][ri->opcode_id];
             }
           }
 
@@ -1154,7 +1160,7 @@ void* recv_thread_fun(void* args) {
               uint64_t timestamp = get_timestamp_ns();
 
               // Create TraceRecord and write (mode 0/1/2 handled by TraceWriter)
-              auto record = TraceRecord::create_reg_trace(ctx, sass_str_cpp, trace_idx, timestamp, ri);
+              auto record = TraceRecord::create_reg_trace(ctx, sass_str_cpp, trace_idx, timestamp, ri, reg_indices_ptr);
               it->second->write_trace(record);
             }
           }
