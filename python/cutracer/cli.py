@@ -29,6 +29,7 @@ Examples:
   cutraceross validate kernel_trace.ndjson.zst --verbose
   cutraceross validate trace.log --format text
   cutraceross query trace.ndjson --filter "warp=24"
+  cutraceross query trace.ndjson -f "pc=0x43d0;warp=24"
   cutraceross query trace.ndjson --group-by warp --count
   cutraceross analyze warp-summary trace.ndjson
 """

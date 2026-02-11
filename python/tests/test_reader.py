@@ -57,6 +57,48 @@ class TestParseFilterExpr(unittest.TestCase):
             parse_filter_expr("=24")
         self.assertIn("empty", str(ctx.exception))
 
+    def test_parse_filter_semicolon_separated_and(self):
+        """Test semicolon-separated multi-condition filter (AND logic)."""
+        pred = parse_filter_expr("warp=0;pc=100")
+        self.assertTrue(pred({"warp": 0, "pc": 100}))
+        self.assertFalse(pred({"warp": 0, "pc": 200}))
+        self.assertFalse(pred({"warp": 1, "pc": 100}))
+
+    def test_parse_filter_semicolon_separated_hex(self):
+        """Test semicolon-separated filter with hex values."""
+        pred = parse_filter_expr("pc=0x64;warp=1")
+        self.assertTrue(pred({"pc": 100, "warp": 1}))
+        self.assertFalse(pred({"pc": 100, "warp": 2}))
+        self.assertFalse(pred({"pc": 200, "warp": 1}))
+
+    def test_parse_filter_semicolon_separated_three_conditions(self):
+        """Test three semicolon-separated conditions."""
+        pred = parse_filter_expr("warp=0;pc=100;sass=MOV")
+        self.assertTrue(pred({"warp": 0, "pc": 100, "sass": "MOV"}))
+        self.assertFalse(pred({"warp": 0, "pc": 100, "sass": "ADD"}))
+
+    def test_parse_filter_semicolon_separated_with_spaces(self):
+        """Test semicolon-separated filter with spaces around semicolons."""
+        pred = parse_filter_expr(" warp=0 ; pc=100 ")
+        self.assertTrue(pred({"warp": 0, "pc": 100}))
+        self.assertFalse(pred({"warp": 1, "pc": 100}))
+
+    def test_parse_filter_semicolon_separated_invalid_part(self):
+        """Test semicolon-separated filter with an invalid part raises ValueError."""
+        with self.assertRaises(ValueError):
+            parse_filter_expr("warp=0;invalid")
+
+    def test_parse_filter_empty_expression(self):
+        """Test empty filter expression raises ValueError."""
+        with self.assertRaises(ValueError):
+            parse_filter_expr("")
+
+    def test_parse_filter_single_still_works(self):
+        """Test that single condition still works after refactor."""
+        pred = parse_filter_expr("warp=24")
+        self.assertTrue(pred({"warp": 24}))
+        self.assertFalse(pred({"warp": 25}))
+
 
 class TestSelectRecords(unittest.TestCase):
     """Tests for select_records function."""
