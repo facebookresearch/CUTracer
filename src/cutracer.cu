@@ -264,8 +264,11 @@ bool instrument_function_if_needed(CUcontext ctx, CUfunction func) {
     loprintf_v("Computed kernel checksum for %s: %s\n", mangled_name, kernel_checksum.c_str());
 
     if (dump_cubin) {
-      std::string kernel_hash_hex = compute_kernel_name_hash_hex(ctx, f);
-      std::string cubin_filename = std::string(unmangled_name) + "_0x" + kernel_hash_hex + ".cubin";
+      // Use the same "kernel_{checksum}_{name}" prefix as trace files
+      // so Python analyze can derive cubin path from trace filename
+      // (trace: kernel_{checksum}_iter{N}_{name}.ndjson → cubin: kernel_{checksum}_{name}.cubin)
+      std::string truncated_name = std::string(mangled_name).substr(0, 150);
+      std::string cubin_filename = "kernel_" + kernel_checksum + "_" + truncated_name + ".cubin";
       nvbit_dump_cubin(ctx, f, cubin_filename.c_str());
     }
 
