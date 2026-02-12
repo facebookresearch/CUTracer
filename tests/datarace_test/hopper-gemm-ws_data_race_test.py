@@ -898,6 +898,13 @@ def print_summary_report(all_results):
     help="Number of iterations for all tests (default: 100)",
 )
 @click.option(
+    "--bug",
+    "-b",
+    default="all",
+    type=click.Choice(["all", "1", "2"]),
+    help="Which bug test to run: 'all' (default), '1' (late barrier), or '2' (missing barrier)",
+)
+@click.option(
     "--tritonparse",
     "tritonparse_path",
     default=None,
@@ -905,7 +912,7 @@ def print_summary_report(all_results):
     flag_value="/tmp/tritonparse_logs/",
     help="Enable tritonparse structured logging. Optionally specify output path (default: /tmp/tritonparse_logs/)",
 )
-def main(iters, tritonparse_path):
+def main(iters, bug, tritonparse_path):
     if not is_cuda() or torch.cuda.get_device_capability()[0] != 9:
         print("Skipping: No Hopper GPU found")
         return
@@ -924,6 +931,7 @@ def main(iters, tritonparse_path):
     print("=" * 70)
     print(f"Matrix size: {M} x {N} x {K}")
     print(f"Device: {DEVICE}")
+    print(f"Bug filter: {bug}")
     print()
     print("These tests contain intentional bugs that cause data races.")
     print("Without random delay injection, they may pass due to timing luck.")
@@ -934,14 +942,16 @@ def main(iters, tritonparse_path):
 
     # Run tests and collect results
     all_results = {}
-    all_results["Bug 1: Late barrier_wait for A"] = run_multiple_iterations(
-        matmul_kernel_bug1_late_barrier_a,
-        num_iterations=iters,
-    )
-    all_results["Bug 2: Missing barrier_wait for B"] = run_multiple_iterations(
-        matmul_kernel_bug2_missing_barrier_b,
-        num_iterations=iters,
-    )
+    if bug in ("all", "1"):
+        all_results["Bug 1: Late barrier_wait for A"] = run_multiple_iterations(
+            matmul_kernel_bug1_late_barrier_a,
+            num_iterations=iters,
+        )
+    if bug in ("all", "2"):
+        all_results["Bug 2: Missing barrier_wait for B"] = run_multiple_iterations(
+            matmul_kernel_bug2_missing_barrier_b,
+            num_iterations=iters,
+        )
 
     # Print summary report at the end
     print_summary_report(all_results)

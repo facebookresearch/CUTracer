@@ -83,12 +83,18 @@ def _run_reduction(reduce_config: ReduceConfig, verbose: bool) -> ReduceResult:
     is_flag=True,
     help="Enable verbose output.",
 )
+@click.option(
+    "--no-validate-schema",
+    is_flag=True,
+    help="Skip JSON schema validation of the config file.",
+)
 def reduce_command(
     config: str,
     test: str,
     output: str,
     minimal_config: str,
     verbose: bool,
+    no_validate_schema: bool,
 ) -> None:
     """
     Reduce delay injection config to find minimal race trigger.
@@ -120,6 +126,7 @@ def reduce_command(
         test_script=test,
         output_path=minimal_config,
         verbose=verbose,
+        validate_schema=not no_validate_schema,
     )
 
     # Run reduction
