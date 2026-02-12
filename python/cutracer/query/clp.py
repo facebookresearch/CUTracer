@@ -22,7 +22,7 @@ class TraceReaderCLP(TraceReaderBase):
         assert file.exists(), f"Non-exist clp archive file: {file.absolute()}"
         self._archive = file
 
-    def _filter_expr_to_clp_query(self, filter_exprs: tuple[str, ...]) -> str:
+    def _filter_expr_to_clp_query(self, filter_exprs: Optional[tuple[str, ...]]) -> str:
         if not filter_exprs:
             return "*"
         result = []
