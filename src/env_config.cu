@@ -8,10 +8,14 @@
 #include <stdio.h>
 #include <stdlib.h>
 
+#include <filesystem>
+
 #include "env_config.h"
 #include "instr_category.h"
 #include "instrument.h"
 #include "log.h"
+
+namespace fs = std::filesystem;
 
 // Define configuration variables
 // EVERY VARIABLE MUST BE INITIALIZED IN init_config_from_env()
@@ -42,6 +46,9 @@ std::string delay_dump_path;
 
 // Delay config load path (optional)
 std::string delay_load_path;
+
+// Trace output directory for dumping trace files (optional)
+std::string trace_output_dir;
 
 /**
  * @brief Parses a comma-separated string of kernel name filters for substring matching.
@@ -356,6 +363,47 @@ bool has_category_filter_enabled() {
   return !enabled_instr_categories.empty();
 }
 
+/**
+ * @brief Initialize trace output directory from environment variable
+ *
+ * Reads CUTRACER_TRACE_OUTPUT_DIR and validates:
+ * 1. The path exists
+ * 2. It is a directory
+ * 3. The directory has write permission
+ * If not set, trace files will be written to the current directory.
+ */
+void init_trace_output_dir() {
+  get_var_str(trace_output_dir, "CUTRACER_TRACE_OUTPUT_DIR", "",
+              "Output directory for trace files (default: current directory)");
+
+  if (!trace_output_dir.empty()) {
+    fs::path dir_path(trace_output_dir);
+
+    if (!fs::exists(dir_path)) {
+      fprintf(stderr,
+              "FATAL: CUTRACER_TRACE_OUTPUT_DIR '%s' does not exist.\n"
+              "Please create the directory first or specify a valid directory.\n",
+              trace_output_dir.c_str());
+      exit(1);
+    }
+    if (!fs::is_directory(dir_path)) {
+      fprintf(stderr,
+              "FATAL: CUTRACER_TRACE_OUTPUT_DIR '%s' is not a directory.\n"
+              "Please specify a valid directory.\n",
+              trace_output_dir.c_str());
+      exit(1);
+    }
+    auto perms = fs::status(dir_path).permissions();
+    if ((perms & fs::perms::owner_write) == fs::perms::none) {
+      fprintf(stderr,
+              "FATAL: CUTRACER_TRACE_OUTPUT_DIR '%s' is not writable.\n"
+              "Please check directory permissions (chmod) or choose a different directory.\n",
+              trace_output_dir.c_str());
+      exit(1);
+    }
+  }
+}
+
 // Initialize all configuration variables
 void init_config_from_env() {
   // Enable device memory allocation
@@ -414,6 +462,9 @@ void init_config_from_env() {
 
   // Parse and validate delay configuration (includes config paths)
   parse_delay_config();
+
+  // Initialize trace output directory
+  init_trace_output_dir();
 
   // Parse instruction category filters (optional)
   std::string instr_categories_str;

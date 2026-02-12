@@ -56,7 +56,11 @@ std::string compute_kernel_name_hash_hex(CUcontext ctx, CUfunction func) {
  *   - The iteration number (decimal)
  *   - A truncated copy (first 150 chars) of the mangled name for readability
  *
+ * If trace_output_dir is set (via CUTRACER_TRACE_OUTPUT_DIR), the filename
+ * will be prefixed with that directory path.
+ *
  * Example: "kernel_7fa21c3_iter42__Z23my_kernelPiS_..."
+ * With path: "/tmp/traces/kernel_7fa21c3_iter42__Z23my_kernelPiS_..."
  */
 std::string generate_kernel_log_basename(CUcontext ctx, CUfunction func, uint32_t iteration,
                                          const std::string& kernel_checksum) {
@@ -79,6 +83,16 @@ std::string generate_kernel_log_basename(CUcontext ctx, CUfunction func, uint32_
   std::string truncated_name = mangled_name.substr(0, 150);
 
   std::stringstream ss;
+
+  // Prepend trace_output_dir if specified
+  if (!trace_output_dir.empty()) {
+    ss << trace_output_dir;
+    // Ensure path ends with a separator
+    if (trace_output_dir.back() != '/') {
+      ss << "/";
+    }
+  }
+
   // Format to hex for the hash
   ss << "kernel_" << hash_hex << "_iter" << std::dec << iteration << "_" << truncated_name;
 
