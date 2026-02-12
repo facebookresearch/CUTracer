@@ -182,7 +182,9 @@ class TraceReaderBase(ABC):
         pass
 
     @abstractmethod
-    def iter_records(self, filter_exprs: tuple[str, ...]|None=None) -> Iterator[dict]:
+    def iter_records(
+        self, filter_exprs: tuple[str, ...] | None = None
+    ) -> Iterator[dict]:
         pass
 
 
@@ -216,7 +218,9 @@ class TraceReader(TraceReaderBase):
 
         self.compression = detect_compression(self.file_path)
 
-    def iter_records(self, filter_exprs: tuple[str, ...]|None=None) -> Iterator[dict]:
+    def iter_records(
+        self, filter_exprs: tuple[str, ...] | None = None
+    ) -> Iterator[dict]:
         """
         Iterate over all trace records in the file.
 
