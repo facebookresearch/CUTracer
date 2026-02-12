@@ -12,6 +12,7 @@ from importlib.metadata import PackageNotFoundError, version
 import click
 from cutracer.analyze.cli import analyze_command
 from cutracer.query.cli import query_command
+from cutracer.reduce.cli import reduce_command
 from cutracer.validation.cli import validate_command
 
 
@@ -45,6 +46,7 @@ def main() -> None:
 # Register subcommands
 main.add_command(analyze_command)
 main.add_command(query_command)
+main.add_command(reduce_command)
 main.add_command(validate_command)
 
 
