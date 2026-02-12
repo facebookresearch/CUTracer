@@ -23,6 +23,8 @@ class TraceReaderCLP(TraceReaderBase):
         self._archive = file
 
     def _filter_expr_to_clp_query(self, filter_exprs: tuple[str, ...]) -> str:
+        if not filter_exprs:
+            return "*"
         result = []
         for filter_expr in filter_exprs:
             filter_array = filter_expr.split(";")
@@ -38,7 +40,7 @@ class TraceReaderCLP(TraceReaderBase):
             return result_str
         return "*"
 
-    def iter_records(self, filter_exprs: tuple[str, ...] | None = None) -> Generator:
+    def iter_records(self, filter_exprs: Optional[tuple[str, ...]] = None) -> Generator:
         clp_query = KqlQuery(self._filter_expr_to_clp_query(filter_exprs))
         with yscope_clp_core.search_archive(self._archive, clp_query) as record_iter:
             for next_record in record_iter:
