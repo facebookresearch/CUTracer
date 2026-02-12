@@ -1,4 +1,4 @@
-from typing import Generator
+from typing import Generator, Optional
 
 import yscope_clp_core
 from cutracer.query.reader import TraceReaderBase
