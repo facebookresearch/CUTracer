@@ -39,6 +39,7 @@ extern std::unordered_map<CUcontext, CTXstate*> ctx_state_map;
 extern std::map<uint64_t, std::pair<CUcontext, CUfunction>> kernel_launch_to_func_map;
 extern std::map<uint64_t, uint32_t> kernel_launch_to_iter_map;
 extern std::map<uint64_t, KernelDimensions> kernel_launch_to_dimensions_map;
+extern std::unordered_map<CUfunction, KernelFuncMetadata> kernel_metadata_by_func;
 
 // Forward declaration for helper defined below in this file
 std::string extract_instruction_name(const std::string& sass_line);
@@ -371,7 +372,13 @@ void dump_histograms_to_csv(CUcontext ctx, CUfunction func, uint32_t iteration,
     return;  // Nothing to dump.
   }
 
-  std::string basename = generate_kernel_log_basename(ctx, func, iteration);
+  std::string checksum;
+  auto meta_it = kernel_metadata_by_func.find(func);
+  if (meta_it != kernel_metadata_by_func.end()) {
+    checksum = meta_it->second.kernel_checksum;
+  }
+
+  std::string basename = generate_kernel_log_basename(ctx, func, iteration, checksum);
   std::string csv_filename = basename + "_hist.csv";
 
   FILE* fp = fopen(csv_filename.c_str(), "w");

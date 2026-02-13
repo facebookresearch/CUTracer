@@ -14,7 +14,6 @@
 #include <time.h>
 #include <unistd.h>
 
-#include <functional>
 #include <sstream>
 #include <string>
 
@@ -28,31 +27,10 @@
 #include "log.h"
 
 /**
- * Computes a stable per-kernel hash (lowercase hex string without "0x") from the mangled name.
- *
- * The function uses the full mangled name (nvbit_get_func_name(ctx, func, true)) and applies
- * std::hash<std::string>, then formats the numeric value in hexadecimal for display/storage.
- */
-std::string compute_kernel_name_hash_hex(CUcontext ctx, CUfunction func) {
-  const char* mangled_name_raw = nvbit_get_func_name(ctx, func, true);
-  if (!mangled_name_raw) {
-    mangled_name_raw = "unknown_kernel";
-  }
-  std::string mangled_name(mangled_name_raw);
-  std::hash<std::string> hasher;
-  size_t value = hasher(mangled_name);
-  std::ostringstream oss;
-  oss << std::hex << std::nouppercase << value;
-  return oss.str();
-}
-
-/**
  * Builds a deterministic base filename for a kernel's trace log.
  *
  * The resulting string embeds:
- *   - A hex hash for kernel identification:
- *     - If kernel_checksum is provided (non-empty), uses it directly
- *     - Otherwise falls back to compute_kernel_name_hash_hex() (name-only hash)
+ *   - The kernel_checksum (FNV-1a hash of kernel name + SASS) for identification
  *   - The iteration number (decimal)
  *   - A truncated copy (first 150 chars) of the mangled name for readability
  *
@@ -71,14 +49,6 @@ std::string generate_kernel_log_basename(CUcontext ctx, CUfunction func, uint32_
 
   std::string mangled_name(mangled_name_raw);
 
-  // Use provided checksum if available, otherwise fall back to name-only hash
-  std::string hash_hex;
-  if (!kernel_checksum.empty()) {
-    hash_hex = kernel_checksum;
-  } else {
-    hash_hex = compute_kernel_name_hash_hex(ctx, func);
-  }
-
   // Truncate the name for the filename string part
   std::string truncated_name = mangled_name.substr(0, 150);
 
@@ -94,7 +64,7 @@ std::string generate_kernel_log_basename(CUcontext ctx, CUfunction func, uint32_
   }
 
   // Format to hex for the hash
-  ss << "kernel_" << hash_hex << "_iter" << std::dec << iteration << "_" << truncated_name;
+  ss << "kernel_" << kernel_checksum << "_iter" << std::dec << iteration << "_" << truncated_name;
 
   return ss.str();
 }
@@ -173,11 +143,12 @@ void trace_lprintf(const char* format, ...) {
 
 /* ===== File Management Functions ===== */
 
-void log_open_kernel_file(CUcontext_ptr ctx, CUfunction_ptr func, uint32_t iteration) {
+void log_open_kernel_file(CUcontext_ptr ctx, CUfunction_ptr func, uint32_t iteration,
+                          const std::string& kernel_checksum) {
   // close previous log file if it's open
   log_close_kernel_file();
 
-  std::string basename = generate_kernel_log_basename((CUcontext)ctx, (CUfunction)func, iteration);
+  std::string basename = generate_kernel_log_basename((CUcontext)ctx, (CUfunction)func, iteration, kernel_checksum);
   std::string log_filename = basename + ".log";
 
   g_kernel_log_file = fopen(log_filename.c_str(), "w");
