@@ -13,6 +13,7 @@ INSTALL_THIRD_PARTY=${INSTALL_THIRD_PARTY:-"0"} # Set to 1 to force installation
 CONDA_ENV=${CONDA_ENV:-"cutracer"}
 SKIP_BUILD=${SKIP_BUILD:-"0"}                   # Set to 1 to skip ALL builds
 SKIP_CUTRACER_BUILD=${SKIP_CUTRACER_BUILD:-"0"} # Set to 1 to skip CUTracer build only
+SKIP_CONDA=${SKIP_CONDA:-"0"}                   # Set to 1 to skip conda activation (use current environment)
 
 echo "Running CUTracer tests..."
 echo "DEBUG: $DEBUG"
@@ -22,6 +23,7 @@ echo "INSTALL_THIRD_PARTY: $INSTALL_THIRD_PARTY"
 echo "CONDA_ENV: $CONDA_ENV"
 echo "SKIP_BUILD: $SKIP_BUILD"
 echo "SKIP_CUTRACER_BUILD: $SKIP_CUTRACER_BUILD"
+echo "SKIP_CONDA: $SKIP_CONDA"
 
 # Define project root path (absolute path)
 PROJECT_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -37,7 +39,9 @@ export LD_LIBRARY_PATH="${CUDA_HOME}/lib64:$LD_LIBRARY_PATH"
 export PYTHONPATH="$PROJECT_ROOT/python:$PYTHONPATH"
 
 # Activate conda environment
-if [ -f "/opt/miniconda3/etc/profile.d/conda.sh" ]; then
+if [ "$SKIP_CONDA" = "1" ]; then
+  echo "⏭️ Skipping conda activation (SKIP_CONDA=1), using current environment."
+elif [ -f "/opt/miniconda3/etc/profile.d/conda.sh" ]; then
   echo "🐍 Activating conda environment..."
   source /opt/miniconda3/etc/profile.d/conda.sh
   conda activate $CONDA_ENV
