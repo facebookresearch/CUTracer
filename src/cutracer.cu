@@ -17,6 +17,7 @@
 #include <map>
 #include <random>
 #include <regex>
+#include <sstream>
 #include <string>
 #include <unordered_map>
 #include <unordered_set>
@@ -510,6 +511,22 @@ void init_context_state(CUcontext ctx) {
   nvbit_set_tool_pthread(ctx_state->channel_host.get_thread());
 }
 
+/**
+ * @brief Build a kernel_metadata JSON object for the trace file header.
+ *
+ * Combines per-function static attributes (from KernelFuncMetadata) with
+ * per-launch dynamic attributes (grid/block dims, dynamic shared memory).
+ */
+static nlohmann::json build_kernel_metadata_json(const KernelFuncMetadata& meta, const KernelDimensions& dims,
+                                                 unsigned int dynamic_shmem) {
+  auto md = meta.to_json();
+  md["type"] = "kernel_metadata";
+  md["grid"] = {dims.gridDimX, dims.gridDimY, dims.gridDimZ};
+  md["block"] = {dims.blockDimX, dims.blockDimY, dims.blockDimZ};
+  md["shmem_dynamic"] = dynamic_shmem;
+  return md;
+}
+
 // Reference code from NVIDIA nvbit mem_trace tool
 /**
  * @brief Prepares for a kernel launch, conditionally instrumenting and logging.
@@ -549,6 +566,11 @@ static bool enter_kernel_launch(CUcontext ctx, CUfunction func, uint64_t& kernel
   const char* func_name = meta.unmangled_name.c_str();
   uint64_t pc = meta.func_addr;
 
+  // Per-launch dynamic attributes, populated in the normal launch path below.
+  // Declared here so they are accessible when writing kernel_metadata after TraceWriter creation.
+  KernelDimensions dims{};
+  unsigned int dynamic_shmem = 0;
+
   // during stream capture or manual graph build, no kernel is launched, so
   // do not set launch argument, do not print kernel info, do not increase
   // grid_launch_id. All these should be done at graph node launch time.
@@ -585,24 +607,17 @@ static bool enter_kernel_launch(CUcontext ctx, CUfunction func, uint64_t& kernel
     kernel_launch_to_func_map[kernel_launch_id] = {ctx, func};
     kernel_launch_to_iter_map[kernel_launch_id] = current_iter;
 
-    // Store kernel dimensions for warp statistics tracking
-    KernelDimensions dims;
+    // Store kernel dimensions and dynamic shared memory for warp statistics tracking
+    // (dims and dynamic_shmem declared at function scope for metadata writing)
     if (cbid == API_CUDA_cuLaunchKernelEx_ptsz || cbid == API_CUDA_cuLaunchKernelEx) {
       cuLaunchKernelEx_params* p = (cuLaunchKernelEx_params*)params;
-      dims.gridDimX = p->config->gridDimX;
-      dims.gridDimY = p->config->gridDimY;
-      dims.gridDimZ = p->config->gridDimZ;
-      dims.blockDimX = p->config->blockDimX;
-      dims.blockDimY = p->config->blockDimY;
-      dims.blockDimZ = p->config->blockDimZ;
+      dims = {p->config->gridDimX,  p->config->gridDimY,  p->config->gridDimZ,
+              p->config->blockDimX, p->config->blockDimY, p->config->blockDimZ};
+      dynamic_shmem = p->config->sharedMemBytes;
     } else {
       cuLaunchKernel_params* p = (cuLaunchKernel_params*)params;
-      dims.gridDimX = p->gridDimX;
-      dims.gridDimY = p->gridDimY;
-      dims.gridDimZ = p->gridDimZ;
-      dims.blockDimX = p->blockDimX;
-      dims.blockDimY = p->blockDimY;
-      dims.blockDimZ = p->blockDimZ;
+      dims = {p->gridDimX, p->gridDimY, p->gridDimZ, p->blockDimX, p->blockDimY, p->blockDimZ};
+      dynamic_shmem = p->sharedMemBytes;
     }
     kernel_launch_to_dimensions_map[kernel_launch_id] = dims;
 
@@ -625,6 +640,13 @@ static bool enter_kernel_launch(CUcontext ctx, CUfunction func, uint64_t& kernel
     // Initialize trace_index for this kernel
     if (!stream_capture && !build_graph) {
       ctx_state->trace_index_by_kernel[current_launch_id] = 0;
+    }
+
+    // Write kernel_metadata as the first JSON line in the trace file.
+    // Only for normal launches (stream_capture/build_graph get metadata at graph node launch time).
+    if (!stream_capture && !build_graph) {
+      auto metadata = build_kernel_metadata_json(meta, dims, dynamic_shmem);
+      ctx_state->trace_writers[current_launch_id]->write_metadata(metadata);
     }
 
     loprintf_v("Created TraceWriter for launch_id %lu, mode %d, file: %s\n", current_launch_id, trace_format_ndjson,
@@ -885,13 +907,8 @@ void nvbit_at_graph_node_launch(CUcontext ctx, CUfunction func, CUstream stream,
   kernel_launch_to_iter_map[global_kernel_launch_id] = kernel_iter_map[func];
 
   // Store kernel dimensions
-  KernelDimensions dims;
-  dims.gridDimX = config.gridDimX;
-  dims.gridDimY = config.gridDimY;
-  dims.gridDimZ = config.gridDimZ;
-  dims.blockDimX = config.blockDimX;
-  dims.blockDimY = config.blockDimY;
-  dims.blockDimZ = config.blockDimZ;
+  KernelDimensions dims = {config.gridDimX,  config.gridDimY,  config.gridDimZ,
+                           config.blockDimX, config.blockDimY, config.blockDimZ};
   kernel_launch_to_dimensions_map[global_kernel_launch_id] = dims;
 
   // Create TraceWriter for this graph node launch only if instrumentation is enabled
@@ -904,6 +921,10 @@ void nvbit_at_graph_node_launch(CUcontext ctx, CUfunction func, CUstream stream,
       ctx_state->trace_writers[global_kernel_launch_id] = new TraceWriter(base_filename, trace_format_ndjson);
     }
     ctx_state->trace_index_by_kernel[global_kernel_launch_id] = 0;
+
+    // Write kernel_metadata for graph node launch trace files
+    auto metadata = build_kernel_metadata_json(meta, dims, config.shmem_dynamic_nbytes);
+    ctx_state->trace_writers[global_kernel_launch_id]->write_metadata(metadata);
 
     loprintf_v("Created TraceWriter for graph node launch_id %lu, file: %s\n", global_kernel_launch_id,
                base_filename.c_str());

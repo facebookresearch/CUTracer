@@ -237,21 +237,30 @@ def validate_json_trace(filepath: Union[str, Path]) -> Dict[str, Any]:
         result["errors"].append(f"Syntax validation error: {str(e)}")
         return result
 
-    # Step 2: Auto-detect message type from first record
+    # Step 2: Auto-detect message type from first non-metadata record
+    # kernel_metadata lines are header records (not trace data), so we skip
+    # them when detecting the dominant message type and exclude them from
+    # record_count to keep parity with text mode (which has no metadata line).
     try:
+        metadata_count = 0
         with open_trace_file(filepath) as f:
             for line in f:
                 line = line.strip()
-                if line:
-                    first_record = json.loads(line)
-                    message_type = first_record.get("type")
-                    if message_type not in SCHEMAS_BY_TYPE:
-                        result["errors"].append(
-                            f"Unknown message type in file: {message_type}"
-                        )
-                        return result
-                    result["message_type"] = message_type
-                    break
+                if not line:
+                    continue
+                record = json.loads(line)
+                message_type = record.get("type")
+                if message_type == "kernel_metadata":
+                    metadata_count += 1
+                    continue
+                if message_type not in SCHEMAS_BY_TYPE:
+                    result["errors"].append(
+                        f"Unknown message type in file: {message_type}"
+                    )
+                    return result
+                result["message_type"] = message_type
+                break
+        result["record_count"] -= metadata_count
     except Exception as e:
         result["errors"].append(f"Failed to detect message type: {str(e)}")
         return result

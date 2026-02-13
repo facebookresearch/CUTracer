@@ -125,6 +125,14 @@ TraceWriter::~TraceWriter() {
 // Public API
 // ============================================================================
 
+void TraceWriter::write_metadata(const nlohmann::json& metadata) {
+  if (!enabled_) return;
+  // Text mode (mode 0) does not use json_buffer_; skip.
+  if (trace_mode_ == TraceMode::TEXT) return;
+
+  json_buffer_ += metadata.dump() + "\n";
+}
+
 bool TraceWriter::write_trace(const TraceRecord& record) {
   if (!enabled_) return false;
 

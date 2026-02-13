@@ -225,6 +225,19 @@ class TraceWriter {
   bool write_trace(const TraceRecord& record);
 
   /**
+   * @brief Write a metadata JSON object as the first line(s) of the trace file.
+   *
+   * Only effective in NDJSON modes (mode 1/2/3). In text mode (mode 0),
+   * this is a no-op since text mode does not use json_buffer_.
+   *
+   * The metadata is appended to json_buffer_ without triggering a flush,
+   * so it will be written together with subsequent trace data.
+   *
+   * @param metadata A JSON object to write (e.g., kernel_metadata event)
+   */
+  void write_metadata(const nlohmann::json& metadata);
+
+  /**
    * @brief Flush buffered data to disk.
    */
   void flush();

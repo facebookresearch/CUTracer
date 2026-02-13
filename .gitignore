@@ -113,6 +113,11 @@ compile_commands.json
 *.zst
 *.zstd
 
+# Test-generated files
+python/minimal_config.json
+python/reduce_report.json
+tests/unit/test_instr_category
+
 # Exception for Python test example inputs
 !python/tests/example_inputs/*.ndjson
 !python/tests/example_inputs/*.log
