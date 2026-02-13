@@ -141,7 +141,7 @@ $(INJECT_FUNCS_OBJ): $(INJECT_FUNCS_SRC)
 
 # Compilation rule for C++ files
 $(OBJ_DIR)/%.o: $(SRC_DIR)/%.cpp
-	$(CXX) -std=c++11 $(INCLUDES) -Wall $(DEBUG_FLAGS) -fPIC -c $< -o $@
+	$(CXX) -std=c++17 $(INCLUDES) -Wall $(DEBUG_FLAGS) -fPIC -c $< -o $@
 
 clean:
 	rm -rf $(OBJ_DIR) $(LIB_DIR)

@@ -99,9 +99,8 @@ std::map<uint64_t, KernelDimensions> kernel_launch_to_dimensions_map;
 // map to store the iteration count for each kernel
 static std::map<CUfunction, uint32_t> kernel_iter_map;
 
-// Per-function kernel checksum (computed during instrumentation)
-// Maps CUfunction -> kernel_checksum hex string
-static std::unordered_map<CUfunction, std::string> kernel_checksum_by_func;
+// Per-function static metadata (populated during instrumentation)
+static std::unordered_map<CUfunction, KernelFuncMetadata> kernel_metadata_by_func;
 
 /* Set used to avoid re-instrumenting the same functions multiple times */
 std::unordered_set<CUfunction> already_instrumented;
@@ -190,6 +189,25 @@ static bool should_instrument_instr_by_category(Instr* instr) {
 }
 
 /* ===== Main Functionality ===== */
+
+/**
+ * @brief Get or create per-function metadata entry.
+ *
+ * If the function is seen for the first time, inserts a new entry and
+ * populates lightweight fields (name, func_addr, nregs, shmem) via
+ * CUDA driver API.  Subsequent calls return the existing entry directly.
+ */
+static KernelFuncMetadata& get_or_create_kernel_func_metadata(CUfunction func, CUcontext ctx) {
+  auto [it, inserted] = kernel_metadata_by_func.emplace(func, KernelFuncMetadata{});
+  if (inserted) {
+    it->second.unmangled_name = nvbit_get_func_name(ctx, func, false);
+    it->second.func_addr = nvbit_get_func_addr(ctx, func);
+    CUDA_SAFECALL(cuFuncGetAttribute(&it->second.nregs, CU_FUNC_ATTRIBUTE_NUM_REGS, func));
+    CUDA_SAFECALL(cuFuncGetAttribute(&it->second.shmem_static_nbytes, CU_FUNC_ATTRIBUTE_SHARED_SIZE_BYTES, func));
+  }
+  return it->second;
+}
+
 /**
  * @brief Conditionally instruments a CUDA function by delegating to specialized
  * instrumentation functions.
@@ -258,18 +276,19 @@ bool instrument_function_if_needed(CUcontext ctx, CUfunction func) {
     const std::vector<Instr*>& instrs = nvbit_get_instrs(ctx, f);
     loprintf_v("Inspecting kernel %s at address 0x%lx\n", nvbit_get_func_name(ctx, f), nvbit_get_func_addr(ctx, f));
 
-    // Compute and store kernel checksum for robust kernel identification
-    std::string kernel_checksum = compute_kernel_checksum(mangled_name, instrs);
-    kernel_checksum_by_func[f] = kernel_checksum;
-    loprintf_v("Computed kernel checksum for %s: %s\n", mangled_name, kernel_checksum.c_str());
+    // Get or create per-function metadata (basic fields filled by helper)
+    auto& meta = get_or_create_kernel_func_metadata(f, ctx);
+    meta.mangled_name = mangled_name;
+    meta.kernel_checksum = compute_kernel_checksum(mangled_name, instrs);
+    loprintf_v("Computed kernel checksum for %s: %s\n", mangled_name, meta.kernel_checksum.c_str());
 
     if (dump_cubin) {
       // Use the same "kernel_{checksum}_{name}" prefix as trace files
       // so Python analyze can derive cubin path from trace filename
       // (trace: kernel_{checksum}_iter{N}_{name}.ndjson → cubin: kernel_{checksum}_{name}.cubin)
       std::string truncated_name = std::string(mangled_name).substr(0, 150);
-      std::string cubin_filename = "kernel_" + kernel_checksum + "_" + truncated_name + ".cubin";
-      nvbit_dump_cubin(ctx, f, cubin_filename.c_str());
+      meta.cubin_path = "kernel_" + meta.kernel_checksum + "_" + truncated_name + ".cubin";
+      nvbit_dump_cubin(ctx, f, meta.cubin_path.c_str());
     }
 
     // Create kernel delay config if dump path is set (for exporting to JSON)
@@ -278,7 +297,7 @@ bool instrument_function_if_needed(CUcontext ctx, CUfunction func) {
     if (!delay_dump_path.empty() && is_instrument_type_enabled(InstrumentType::RANDOM_DELAY)) {
       assert(!is_delay_replay_mode() && "Dump and replay modes are mutually exclusive");
       // Reuse the kernel_checksum already computed above for trace writer
-      kernel_delay_config = create_kernel_delay_config(mangled_name, kernel_checksum);
+      kernel_delay_config = create_kernel_delay_config(mangled_name, meta.kernel_checksum);
     }
 
     // Get replay instrumentation points once for replay mode
@@ -286,7 +305,7 @@ bool instrument_function_if_needed(CUcontext ctx, CUfunction func) {
     if (is_delay_replay_mode() && is_instrument_type_enabled(InstrumentType::RANDOM_DELAY)) {
       assert(delay_dump_path.empty() && "Dump and replay modes are mutually exclusive");
       // Reuse the kernel_checksum already computed above for trace writer
-      replay_points = get_replay_instrumentation_points(mangled_name, kernel_checksum);
+      replay_points = get_replay_instrumentation_points(mangled_name, meta.kernel_checksum);
     }
 
     uint32_t cnt = 0;
@@ -319,12 +338,6 @@ bool instrument_function_if_needed(CUcontext ctx, CUfunction func) {
           }
         } else if (op->type == InstrType::OperandType::GENERIC) {
           loprintf_v("  GENERIC operand[%d]: '%s'\n", i, op->u.generic.array);
-
-          // Check for null array before constructing std::string
-          if (op->u.generic.array == nullptr) {
-            loprintf_v("  GENERIC operand[%d] has null array\n", i);
-            continue;
-          }
 
           // Extract UR register numbers from GENERIC operand using regex
           try {
@@ -473,6 +486,7 @@ bool instrument_function_if_needed(CUcontext ctx, CUfunction func) {
                  unmangled_name, it_sass->first, sass_cstr, desc ? desc : "");
       }
     }
+
     /* ============================================ */
   }
 
@@ -530,16 +544,10 @@ static bool enter_kernel_launch(CUcontext ctx, CUfunction func, uint64_t& kernel
 
   bool should_instrument = instrument_function_if_needed(ctx, func);
 
-  int nregs = 0;
-  CUDA_SAFECALL(cuFuncGetAttribute(&nregs, CU_FUNC_ATTRIBUTE_NUM_REGS, func));
-
-  int shmem_static_nbytes = 0;
-  CUDA_SAFECALL(cuFuncGetAttribute(&shmem_static_nbytes, CU_FUNC_ATTRIBUTE_SHARED_SIZE_BYTES, func));
-
-  /* get function name and pc */
-  const char* func_name = nvbit_get_func_name(ctx, func);
-  uint64_t pc = nvbit_get_func_addr(ctx, func);
-  std::string kernel_hash_hex = compute_kernel_name_hash_hex(ctx, func);
+  // Get or create per-function metadata (basic fields auto-populated on first access)
+  const auto& meta = get_or_create_kernel_func_metadata(func, ctx);
+  const char* func_name = meta.unmangled_name.c_str();
+  uint64_t pc = meta.func_addr;
 
   // during stream capture or manual graph build, no kernel is launched, so
   // do not set launch argument, do not print kernel info, do not increase
@@ -555,9 +563,9 @@ static bool enter_kernel_launch(CUcontext ctx, CUfunction func, uint64_t& kernel
           "Kernel name %s - kernel hash 0x%s - kernel launch id %ld - grid size %d,%d,%d "
           "- block size %d,%d,%d - nregs %d - shmem %d - cuda stream "
           "id %ld\n",
-          (uint64_t)ctx, pc, func_name, kernel_hash_hex.c_str(), kernel_launch_id, p->config->gridDimX,
+          (uint64_t)ctx, pc, func_name, meta.kernel_checksum.c_str(), kernel_launch_id, p->config->gridDimX,
           p->config->gridDimY, p->config->gridDimZ, p->config->blockDimX, p->config->blockDimY, p->config->blockDimZ,
-          nregs, shmem_static_nbytes + p->config->sharedMemBytes, (uint64_t)p->config->hStream);
+          meta.nregs, meta.shmem_static_nbytes + p->config->sharedMemBytes, (uint64_t)p->config->hStream);
     } else {
       cuLaunchKernel_params* p = (cuLaunchKernel_params*)params;
       loprintf(
@@ -565,9 +573,9 @@ static bool enter_kernel_launch(CUcontext ctx, CUfunction func, uint64_t& kernel
           "Kernel name %s - kernel hash 0x%s - kernel launch id %ld - grid size %d,%d,%d "
           "- block size %d,%d,%d - nregs %d - shmem %d - cuda stream "
           "id %ld\n",
-          (uint64_t)ctx, pc, func_name, kernel_hash_hex.c_str(), kernel_launch_id, p->gridDimX, p->gridDimY,
-          p->gridDimZ, p->blockDimX, p->blockDimY, p->blockDimZ, nregs, shmem_static_nbytes + p->sharedMemBytes,
-          (uint64_t)p->hStream);
+          (uint64_t)ctx, pc, func_name, meta.kernel_checksum.c_str(), kernel_launch_id, p->gridDimX, p->gridDimY,
+          p->gridDimZ, p->blockDimX, p->blockDimY, p->blockDimZ, meta.nregs,
+          meta.shmem_static_nbytes + p->sharedMemBytes, (uint64_t)p->hStream);
     }
 
     // For histogram analysis, we need to map the kernel launch ID back to its
@@ -604,13 +612,9 @@ static bool enter_kernel_launch(CUcontext ctx, CUfunction func, uint64_t& kernel
     kernel_launch_id++;
   }
 
-  // Create TraceWriter for each kernel launch (per-launch trace files)
-  // Note: log_open_kernel_file() has been removed - TraceWriter now handles all trace output
   if (should_instrument) {
-    // Each launch gets its own TraceWriter for independent trace files
-    // Pass kernel checksum for robust file naming across recompilations
-    std::string checksum = kernel_checksum_by_func.count(func) ? kernel_checksum_by_func[func] : "";
-    std::string base_filename = generate_kernel_log_basename(ctx, func, kernel_iter_map[func]++, checksum);
+    // Create TraceWriter for each kernel launch (per-launch trace files)
+    std::string base_filename = generate_kernel_log_basename(ctx, func, kernel_iter_map[func]++, meta.kernel_checksum);
     uint64_t current_launch_id = kernel_launch_id - 1;  // kernel_launch_id was already incremented
 
     {
@@ -626,7 +630,7 @@ static bool enter_kernel_launch(CUcontext ctx, CUfunction func, uint64_t& kernel
     loprintf_v("Created TraceWriter for launch_id %lu, mode %d, file: %s\n", current_launch_id, trace_format_ndjson,
                base_filename.c_str());
   }
-  /* enable instrumented code to run */
+
   nvbit_enable_instrumented(ctx, func, should_instrument);
   return should_instrument;
 }
@@ -893,9 +897,8 @@ void nvbit_at_graph_node_launch(CUcontext ctx, CUfunction func, CUstream stream,
   // Create TraceWriter for this graph node launch only if instrumentation is enabled
   // Otherwise, trace files would be empty (no data to write)
   if (has_any_instrumentation_enabled()) {
-    // Pass kernel checksum for robust file naming across recompilations
-    std::string checksum = kernel_checksum_by_func.count(func) ? kernel_checksum_by_func[func] : "";
-    std::string base_filename = generate_kernel_log_basename(ctx, func, kernel_iter_map[func]++, checksum);
+    const auto& meta = get_or_create_kernel_func_metadata(func, ctx);
+    std::string base_filename = generate_kernel_log_basename(ctx, func, kernel_iter_map[func]++, meta.kernel_checksum);
     {
       std::unique_lock<std::shared_mutex> lock(ctx_state->writers_mutex);
       ctx_state->trace_writers[global_kernel_launch_id] = new TraceWriter(base_filename, trace_format_ndjson);

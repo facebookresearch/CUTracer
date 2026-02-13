@@ -163,6 +163,22 @@ struct KernelDimensions {
 };
 
 /**
+ * @brief Per-function static metadata collected once during instrumentation.
+ *
+ * Aggregates all per-function attributes that do not change across launches,
+ * eliminating the need to re-query CUDA driver APIs on every launch.
+ */
+struct KernelFuncMetadata {
+  std::string mangled_name;
+  std::string unmangled_name;
+  std::string kernel_checksum;  // FNV-1a hash hex string
+  std::string cubin_path;       // Only set when dump_cubin is enabled
+  uint64_t func_addr = 0;       // nvbit_get_func_addr()
+  int nregs = 0;                // CU_FUNC_ATTRIBUTE_NUM_REGS
+  int shmem_static_nbytes = 0;  // CU_FUNC_ATTRIBUTE_SHARED_SIZE_BYTES
+};
+
+/**
  * @brief Tracks warp statistics for a single kernel launch.
  *
  * This structure maintains complete information about all warps in a kernel:
