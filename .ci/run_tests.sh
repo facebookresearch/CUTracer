@@ -485,7 +485,7 @@ test_trace_formats() {
         # Count each trace type separately (note: JSON has no spaces after colons)
         mode2_reg_count=$(grep -ac '"type":"reg_trace"' "$mode2_file" 2>/dev/null | tr -d '[:space:]')
         mode2_mem_count=$(grep -ac '"type":"mem_trace"' "$mode2_file" 2>/dev/null | tr -d '[:space:]')
-        mode2_total_count=$(wc -l < "$mode2_file" 2>/dev/null | tr -d '[:space:]')
+        mode2_total_count=$((mode2_reg_count + mode2_mem_count))
 
         echo "    ✅ Mode 2 validation passed"
         echo "       📊 Record breakdown:"
@@ -564,7 +564,7 @@ test_trace_formats() {
           # Count each trace type separately
           mode1_reg_count=$(grep -ac '"type":"reg_trace"' mode1_decompressed.ndjson 2>/dev/null | tr -d '[:space:]')
           mode1_mem_count=$(grep -ac '"type":"mem_trace"' mode1_decompressed.ndjson 2>/dev/null | tr -d '[:space:]')
-          mode1_total_count=$(wc -l < mode1_decompressed.ndjson 2>/dev/null | tr -d '[:space:]')
+          mode1_total_count=$((mode1_reg_count + mode1_mem_count))
 
           echo "    ✅ Mode 1 validation passed"
           echo "       📊 Record breakdown:"

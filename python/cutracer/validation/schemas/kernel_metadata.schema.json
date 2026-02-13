@@ -1,0 +1,86 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://github.com/facebookresearch/CUTracer/schemas/kernel_metadata.schema.json",
+  "title": "CUTracer Kernel Metadata Record",
+  "description": "Schema for kernel_metadata - per-launch metadata written as the first line in NDJSON trace files",
+  "type": "object",
+  "required": [
+    "type",
+    "mangled_name",
+    "unmangled_name",
+    "kernel_checksum",
+    "func_addr",
+    "nregs",
+    "shmem_static",
+    "grid",
+    "block",
+    "shmem_dynamic"
+  ],
+  "properties": {
+    "type": {
+      "type": "string",
+      "enum": ["kernel_metadata"],
+      "description": "Message type identifier"
+    },
+    "mangled_name": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Mangled kernel function name"
+    },
+    "unmangled_name": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Demangled kernel function name"
+    },
+    "kernel_checksum": {
+      "type": "string",
+      "minLength": 1,
+      "description": "FNV-1a hash hex string identifying the kernel"
+    },
+    "func_addr": {
+      "type": "string",
+      "pattern": "^0x[0-9a-fA-F]+$",
+      "description": "Kernel function address in hex format"
+    },
+    "nregs": {
+      "type": "integer",
+      "minimum": 0,
+      "description": "Number of registers used by the kernel (CU_FUNC_ATTRIBUTE_NUM_REGS)"
+    },
+    "shmem_static": {
+      "type": "integer",
+      "minimum": 0,
+      "description": "Static shared memory size in bytes (CU_FUNC_ATTRIBUTE_SHARED_SIZE_BYTES)"
+    },
+    "cubin_path": {
+      "type": "string",
+      "description": "Path to dumped cubin file (only present when dump_cubin is enabled)"
+    },
+    "grid": {
+      "type": "array",
+      "items": {
+        "type": "integer",
+        "minimum": 0
+      },
+      "minItems": 3,
+      "maxItems": 3,
+      "description": "Grid dimensions [x, y, z]"
+    },
+    "block": {
+      "type": "array",
+      "items": {
+        "type": "integer",
+        "minimum": 1
+      },
+      "minItems": 3,
+      "maxItems": 3,
+      "description": "Block dimensions [x, y, z]"
+    },
+    "shmem_dynamic": {
+      "type": "integer",
+      "minimum": 0,
+      "description": "Dynamic shared memory size in bytes"
+    }
+  },
+  "additionalProperties": false
+}

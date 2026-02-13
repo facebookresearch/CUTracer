@@ -64,10 +64,12 @@ REG_INFO_SCHEMA: Dict[str, Any] = _load_schema("reg_trace")
 MEM_ACCESS_SCHEMA: Dict[str, Any] = _load_schema("mem_trace")
 OPCODE_ONLY_SCHEMA: Dict[str, Any] = _load_schema("opcode_only")
 DELAY_CONFIG_SCHEMA: Dict[str, Any] = _load_schema("delay_config")
+KERNEL_METADATA_SCHEMA: Dict[str, Any] = _load_schema("kernel_metadata")
 
 # Mapping from type field to schema (for trace records with "type" field)
 SCHEMAS_BY_TYPE: Dict[str, Dict[str, Any]] = {
     "reg_trace": REG_INFO_SCHEMA,
     "mem_trace": MEM_ACCESS_SCHEMA,
     "opcode_only": OPCODE_ONLY_SCHEMA,
+    "kernel_metadata": KERNEL_METADATA_SCHEMA,
 }

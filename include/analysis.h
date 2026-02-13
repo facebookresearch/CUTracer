@@ -7,12 +7,15 @@
 
 #ifndef ANALYSIS_H
 #define ANALYSIS_H
+#include <cstdint>
 #include <ctime>
 #include <deque>
 #include <map>
 #include <mutex>
+#include <nlohmann/json.hpp>
 #include <set>
 #include <shared_mutex>
+#include <sstream>
 #include <string>
 #include <unordered_map>
 #include <unordered_set>
@@ -176,6 +179,23 @@ struct KernelFuncMetadata {
   uint64_t func_addr = 0;       // nvbit_get_func_addr()
   int nregs = 0;                // CU_FUNC_ATTRIBUTE_NUM_REGS
   int shmem_static_nbytes = 0;  // CU_FUNC_ATTRIBUTE_SHARED_SIZE_BYTES
+
+  /// Serialize per-function static attributes to JSON.
+  nlohmann::json to_json() const {
+    nlohmann::json j;
+    j["mangled_name"] = mangled_name;
+    j["unmangled_name"] = unmangled_name;
+    j["kernel_checksum"] = kernel_checksum;
+    std::ostringstream oss;
+    oss << "0x" << std::hex << func_addr;
+    j["func_addr"] = oss.str();
+    j["nregs"] = nregs;
+    j["shmem_static"] = shmem_static_nbytes;
+    if (!cubin_path.empty()) {
+      j["cubin_path"] = cubin_path;
+    }
+    return j;
+  }
 };
 
 /**
