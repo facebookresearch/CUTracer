@@ -1,6 +1,6 @@
 from typing import Generator, Optional
 
-import yscope_clp_core
+import yscope_clp_core  # type: ignore
 from cutracer.query.reader import TraceReaderBase
 from yscope_clp_core import KqlQuery
 
