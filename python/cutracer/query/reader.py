@@ -8,6 +8,7 @@ over trace records from NDJSON files (plain or Zstd-compressed).
 """
 
 import json
+from abc import ABC, abstractmethod
 from collections import deque
 from itertools import islice
 from pathlib import Path
@@ -167,7 +168,27 @@ def select_records(
     return list(islice(records, head))
 
 
-class TraceReader:
+class TraceReaderBase(ABC):
+    """
+    Reader for CUTracer trace files.
+    Example:
+        >>> reader = TraceReader("trace.ndjson.zst")
+        >>> for record in reader.iter_records():
+        ...     print(record["sass"])
+    """
+
+    @abstractmethod
+    def __init__(self, file_path: Union[str, Path]) -> None:
+        pass
+
+    @abstractmethod
+    def iter_records(
+        self, filter_exprs: Optional[tuple[str, ...]] = None
+    ) -> Iterator[dict]:
+        pass
+
+
+class TraceReader(TraceReaderBase):
     """
     Reader for CUTracer trace files.
 
@@ -197,7 +218,9 @@ class TraceReader:
 
         self.compression = detect_compression(self.file_path)
 
-    def iter_records(self) -> Iterator[dict]:
+    def iter_records(
+        self, filter_exprs: Optional[tuple[str, ...]] = None
+    ) -> Iterator[dict]:
         """
         Iterate over all trace records in the file.
 

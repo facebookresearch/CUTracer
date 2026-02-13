@@ -322,23 +322,34 @@ def query_command(
     if compress and not output_file:
         raise click.ClickException("--compress requires --output")
 
+    USE_CLP = True if file.name.endswith(".clp") else False
+    if USE_CLP:
+        from cutracer.query.clp import TraceReaderCLP
+
+        reader_cls = TraceReaderCLP
+    else:
+        reader_cls = TraceReader
+
     # Create reader
     try:
-        reader = TraceReader(file)
+        reader = reader_cls(file)
     except FileNotFoundError as e:
         raise click.ClickException(str(e))
 
     # Get records iterator
-    records = reader.iter_records()
+    if USE_CLP:
+        records = reader.iter_records(filter_exprs)
+    else:
+        records = reader.iter_records()
 
-    # Apply filter if specified
-    if filter_exprs:
-        try:
-            predicate = build_filter_predicate(filter_exprs)
-        except ValueError as e:
-            raise click.ClickException(str(e))
+        # Apply filter if specified
+        if filter_exprs:
+            try:
+                predicate = build_filter_predicate(filter_exprs)
+            except ValueError as e:
+                raise click.ClickException(str(e))
 
-        records = (r for r in records if predicate(r))
+            records = (r for r in records if predicate(r))
 
     # Handle grouped output
     if group_by:
