@@ -5,19 +5,21 @@ Cross-format consistency checker for CUTracer traces.
 
 This module provides functions to compare trace files in different formats
 (text vs NDJSON) for data consistency. Supports Zstd-compressed files.
+
+Because Mode 0 (text) and Mode 2 (NDJSON) are produced by separate GPU
+executions, per-record ordering is non-deterministic due to GPU warp
+scheduling. Instead of per-record comparison, this module uses statistical
+aggregation (record counts, unique CTA/warp/SASS sets) to verify that
+both code paths serialize the same logical data correctly.
 """
 
 import json
 import re
 from pathlib import Path
-from typing import Any, Dict, Union
+from typing import Any, Dict, Set, Tuple, Union
 
 from .compression import detect_compression, open_trace_file
-from .text_validator import (
-    MEM_ACCESS_HEADER_PATTERN,
-    parse_text_trace_record,
-    REG_INFO_HEADER_PATTERN,
-)
+from .text_validator import MEM_ACCESS_HEADER_PATTERN, REG_INFO_HEADER_PATTERN
 
 
 def compare_record_counts(
@@ -59,32 +61,131 @@ def compare_record_counts(
     return relative_diff <= tolerance
 
 
+def _extract_json_stats(
+    json_file: Path,
+) -> Dict[str, Any]:
+    """
+    Extract statistical summary from an NDJSON trace file.
+
+    Supports Zstd-compressed files via open_trace_file().
+
+    Returns:
+        Dictionary with type_counts, unique_ctas, unique_warps, unique_sass.
+    """
+    type_counts: Dict[str, int] = {}
+    unique_ctas: Set[Tuple[int, ...]] = set()
+    unique_warps: Set[int] = set()
+    unique_sass: Set[str] = set()
+
+    with open_trace_file(json_file) as f:
+        for line in f:
+            line = line.strip()
+            if not line:
+                continue
+            record = json.loads(line)
+
+            msg_type = record.get("type", "unknown")
+            if msg_type == "kernel_metadata":
+                continue
+
+            type_counts[msg_type] = type_counts.get(msg_type, 0) + 1
+            if "cta" in record:
+                unique_ctas.add(tuple(record["cta"]))
+            if "warp" in record:
+                unique_warps.add(record["warp"])
+            if "sass" in record:
+                unique_sass.add(record["sass"])
+
+    return {
+        "type_counts": type_counts,
+        "unique_ctas": unique_ctas,
+        "unique_warps": unique_warps,
+        "unique_sass": unique_sass,
+    }
+
+
+# Regex with capture groups for extracting fields from reg_info header lines
+_REG_HEADER_FIELDS = re.compile(
+    r"^CTX\s+0x[0-9a-fA-F]+\s+-\s+CTA\s+(\d+),(\d+),(\d+)\s+-\s+"
+    r"warp\s+(\d+)\s+-\s+(.+):$"
+)
+
+# Regex with capture groups for extracting fields from mem_access header lines
+_MEM_HEADER_FIELDS = re.compile(
+    r"^CTX\s+0x[0-9a-fA-F]+\s+-\s+kernel_launch_id\s+\d+\s+-\s+"
+    r"CTA\s+(\d+),(\d+),(\d+)\s+-\s+warp\s+(\d+)\s+-\s+PC\s+\d+\s+-\s+(.+):$"
+)
+
+
+def _extract_text_stats(
+    text_file: Path,
+) -> Dict[str, Any]:
+    """
+    Extract statistical summary from a text-format trace file.
+
+    Returns:
+        Dictionary with type_counts, unique_ctas, unique_warps, unique_sass.
+    """
+    type_counts: Dict[str, int] = {}
+    unique_ctas: Set[Tuple[int, ...]] = set()
+    unique_warps: Set[int] = set()
+    unique_sass: Set[str] = set()
+
+    with open(text_file, "r", encoding="utf-8") as f:
+        for line in f:
+            m = _REG_HEADER_FIELDS.match(line)
+            if m:
+                cx, cy, cz, warp, sass = m.groups()
+                type_counts["reg_trace"] = type_counts.get("reg_trace", 0) + 1
+                unique_ctas.add((int(cx), int(cy), int(cz)))
+                unique_warps.add(int(warp))
+                unique_sass.add(sass.strip())
+                continue
+
+            m = _MEM_HEADER_FIELDS.match(line)
+            if m:
+                cx, cy, cz, warp, sass = m.groups()
+                type_counts["mem_trace"] = type_counts.get("mem_trace", 0) + 1
+                unique_ctas.add((int(cx), int(cy), int(cz)))
+                unique_warps.add(int(warp))
+                unique_sass.add(sass.strip())
+
+    return {
+        "type_counts": type_counts,
+        "unique_ctas": unique_ctas,
+        "unique_warps": unique_warps,
+        "unique_sass": unique_sass,
+    }
+
+
 def compare_trace_content(
     text_file: Union[str, Path],
     json_file: Union[str, Path],
-    sample_size: int = 10,
 ) -> Dict[str, Any]:
     """
-    Compare actual trace content between formats (sampling).
+    Compare trace content using statistical aggregation.
 
-    Validates:
-    - Same grid_launch_id in both formats
-    - Same trace_index values
-    - Consistent SASS strings
-    - Matching CTA and warp information
+    Because Mode 0 (text) and Mode 2 (NDJSON) come from separate GPU
+    executions, per-record ordering is non-deterministic. This function
+    compares aggregate statistics that must be identical across runs of
+    the same kernel binary:
+      - Record counts by type
+      - Set of unique CTA coordinates
+      - Set of unique warp IDs
+      - Set of unique SASS instructions
 
     Supports Zstd-compressed JSON files.
 
     Args:
         text_file: Path to text trace file
         json_file: Path to NDJSON trace file (supports .ndjson.zst)
-        sample_size: Number of records to sample for comparison (default: 10)
 
     Returns:
         Dictionary containing:
-            - consistent: bool - Whether sampled content is consistent
-            - samples_compared: int - Number of samples compared
+            - consistent: bool - Whether statistics are consistent
             - differences: List[str] - Differences found
+            - text_stats: Dict - Statistics extracted from text file
+            - json_stats: Dict - Statistics extracted from JSON file
 
     Raises:
         FileNotFoundError: If either file does not exist
@@ -99,93 +200,51 @@ def compare_trace_content(
 
     result: Dict[str, Any] = {
         "consistent": True,
-        "samples_compared": 0,
         "differences": [],
+        "text_stats": {},
+        "json_stats": {},
     }
 
     try:
-        # Read sample of JSON records (supports compressed files)
-        json_records = []
-        with open_trace_file(json_file) as f:
-            for i, line in enumerate(f):
-                if i >= sample_size:
-                    break
-                line = line.strip()
-                if line:
-                    json_records.append(json.loads(line))
+        text_stats = _extract_text_stats(text_file)
+        json_stats = _extract_json_stats(json_file)
+        result["text_stats"] = text_stats
+        result["json_stats"] = json_stats
 
-        # Read sample of text records
-        text_records = []
-        with open(text_file, "r", encoding="utf-8") as f:
-            current_record = []
-            for line in f:
-                if not line.strip():
-                    if current_record:
-                        try:
-                            parsed = parse_text_trace_record(current_record)
-                            text_records.append(parsed)
-                            if len(text_records) >= sample_size:
-                                break
-                        except ValueError:
-                            pass
-                        current_record = []
-                    continue
-
-                if REG_INFO_HEADER_PATTERN.match(
-                    line
-                ) or MEM_ACCESS_HEADER_PATTERN.match(line):
-                    if current_record:
-                        try:
-                            parsed = parse_text_trace_record(current_record)
-                            text_records.append(parsed)
-                            if len(text_records) >= sample_size:
-                                break
-                        except ValueError:
-                            pass
-                    current_record = [line]
-                else:
-                    current_record.append(line)
-
-        # Compare the samples
-        min_samples = min(len(text_records), len(json_records))
-        result["samples_compared"] = min_samples
-
-        if min_samples == 0:
-            result["differences"].append("No records found to compare")
+        # 1. Compare record counts by type
+        if text_stats["type_counts"] != json_stats["type_counts"]:
+            result["differences"].append(
+                f"Type counts mismatch: text={text_stats['type_counts']}, "
+                f"json={json_stats['type_counts']}"
+            )
             result["consistent"] = False
-            return result
 
-        for i in range(min_samples):
-            text_rec = text_records[i]
-            json_rec = json_records[i]
+        # 2. Compare unique CTA set
+        if text_stats["unique_ctas"] != json_stats["unique_ctas"]:
+            text_only = text_stats["unique_ctas"] - json_stats["unique_ctas"]
+            json_only = json_stats["unique_ctas"] - text_stats["unique_ctas"]
+            result["differences"].append(
+                f"CTA set mismatch: text_only={text_only}, json_only={json_only}"
+            )
+            result["consistent"] = False
 
-            # Compare SASS instruction
-            text_sass = text_rec.get("sass", "").strip()
-            json_sass = json_rec.get("sass", "").strip()
-            if text_sass != json_sass:
-                result["differences"].append(
-                    f"Record {i}: SASS mismatch - text: '{text_sass}', "
-                    f"json: '{json_sass}'"
-                )
-                result["consistent"] = False
+        # 3. Compare unique warp set
+        if text_stats["unique_warps"] != json_stats["unique_warps"]:
+            text_only = text_stats["unique_warps"] - json_stats["unique_warps"]
+            json_only = json_stats["unique_warps"] - text_stats["unique_warps"]
+            result["differences"].append(
+                f"Warp set mismatch: text_only={text_only}, json_only={json_only}"
+            )
+            result["consistent"] = False
 
-            # Compare CTA coordinates
-            if "cta" in text_rec and "cta" in json_rec:
-                if text_rec["cta"] != json_rec["cta"]:
-                    result["differences"].append(
-                        f"Record {i}: CTA mismatch - text: {text_rec['cta']}, "
-                        f"json: {json_rec['cta']}"
-                    )
-                    result["consistent"] = False
-
-            # Compare warp
-            if "warp" in text_rec and "warp" in json_rec:
-                if text_rec["warp"] != json_rec["warp"]:
-                    result["differences"].append(
-                        f"Record {i}: Warp mismatch - text: {text_rec['warp']}, "
-                        f"json: {json_rec['warp']}"
-                    )
-                    result["consistent"] = False
+        # 4. Compare unique SASS instruction set
+        if text_stats["unique_sass"] != json_stats["unique_sass"]:
+            text_only = text_stats["unique_sass"] - json_stats["unique_sass"]
+            json_only = json_stats["unique_sass"] - text_stats["unique_sass"]
+            result["differences"].append(
+                f"SASS set mismatch: text_only={text_only}, json_only={json_only}"
+            )
+            result["consistent"] = False
 
     except Exception as e:
         result["differences"].append(f"Error during comparison: {str(e)}")
@@ -195,27 +254,28 @@ def compare_trace_content(
 
 
 def compare_trace_formats(
-    text_file: Path, json_file: Path, tolerance: float = 0.0, sample_size: int = 10
+    text_file: Path, json_file: Path, tolerance: float = 0.0
 ) -> Dict[str, Any]:
     """
     Comprehensive comparison of two trace formats.
 
-    Performs both record count comparison and content sampling.
+    Performs record count comparison and statistical content comparison.
 
     Args:
         text_file: Path to text trace file
         json_file: Path to NDJSON trace file
         tolerance: Allowed difference for record count (default: 0%)
-        sample_size: Number of records to sample (default: 10)
 
     Returns:
         Dictionary containing:
             - consistent: bool - Overall consistency
             - record_count_match: bool - Whether counts match
-            - content_match: bool - Whether content matches
+            - content_match: bool - Whether statistical content matches
             - text_records: int - Number of text records
             - json_records: int - Number of JSON records
-            - samples_compared: int - Number of samples compared
+            - unique_ctas_count: int - Number of unique CTAs
+            - unique_warps_count: int - Number of unique warps
+            - unique_sass_count: int - Number of unique SASS instructions
             - differences: List[str] - All differences found
 
     Raises:
@@ -235,7 +295,9 @@ def compare_trace_formats(
         "content_match": False,
         "text_records": 0,
         "json_records": 0,
-        "samples_compared": 0,
+        "unique_ctas_count": 0,
+        "unique_warps_count": 0,
+        "unique_sass_count": 0,
         "differences": [],
     }
 
@@ -273,12 +335,15 @@ def compare_trace_formats(
                 f"json={result['json_records']}, diff={diff}"
             )
 
-        # Compare content
-        content_result = compare_trace_content(
-            text_file, json_file, sample_size=sample_size
-        )
+        # Compare content via statistical aggregation
+        content_result = compare_trace_content(text_file, json_file)
         result["content_match"] = content_result["consistent"]
-        result["samples_compared"] = content_result["samples_compared"]
+
+        # Populate stats counts from content result
+        json_stats = content_result.get("json_stats", {})
+        result["unique_ctas_count"] = len(json_stats.get("unique_ctas", set()))
+        result["unique_warps_count"] = len(json_stats.get("unique_warps", set()))
+        result["unique_sass_count"] = len(json_stats.get("unique_sass", set()))
 
         if not content_result["consistent"]:
             result["differences"].extend(content_result["differences"])
