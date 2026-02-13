@@ -100,7 +100,7 @@ std::map<uint64_t, KernelDimensions> kernel_launch_to_dimensions_map;
 static std::map<CUfunction, uint32_t> kernel_iter_map;
 
 // Per-function static metadata (populated during instrumentation)
-static std::unordered_map<CUfunction, KernelFuncMetadata> kernel_metadata_by_func;
+std::unordered_map<CUfunction, KernelFuncMetadata> kernel_metadata_by_func;
 
 /* Set used to avoid re-instrumenting the same functions multiple times */
 std::unordered_set<CUfunction> already_instrumented;

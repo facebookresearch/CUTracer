@@ -91,8 +91,10 @@ void trace_lprintf(const char* format, ...);
  * @param ctx CUDA context
  * @param func CUfunction representing the kernel
  * @param iteration Current iteration of the kernel execution
+ * @param kernel_checksum FNV-1a hash of kernel name + SASS (hex string)
  */
-void log_open_kernel_file(CUcontext_ptr ctx, CUfunction_ptr func, uint32_t iteration);
+void log_open_kernel_file(CUcontext_ptr ctx, CUfunction_ptr func, uint32_t iteration,
+                          const std::string& kernel_checksum);
 
 /**
  * Closes the kernel-specific log file.
@@ -111,32 +113,14 @@ void init_log_handle();
 void cleanup_log_handle();
 
 /**
- * Computes a per-kernel hash as a lowercase hexadecimal string (without the "0x" prefix).
- *
- * Implementation details:
- * - Retrieves the mangled kernel name via nvbit_get_func_name(ctx, func, true).
- * - Falls back to the literal string "unknown_kernel" when the name is not available.
- * - Applies std::hash<std::string> to the full mangled name and formats the result in hex.
- *
- * Notes:
- * - The exact numeric value of std::hash is implementation-dependent, but this function
- *   is the single source of truth used by both cutracer.cu and log.cu, ensuring consistency
- *   across modules in the same build.
- * - When printing, prepend "0x" yourself if a prefixed form is desired (e.g., "0x%" + str).
- */
-std::string compute_kernel_name_hash_hex(CUcontext ctx, CUfunction func);
-/**
  * Builds a deterministic base filename for a kernel's trace log.
  *
  * Format:
- *   "kernel_<hash_hex>_iter<iteration>_<truncated_mangled_name>"
+ *   "kernel_<kernel_checksum>_iter<iteration>_<truncated_mangled_name>"
  *
  * Details:
- * - If kernel_checksum is provided (non-empty), uses it directly as the hash.
- *   This is preferred for robust kernel identification across recompilations,
- *   as the checksum includes both kernel name AND SASS instructions.
- * - If kernel_checksum is empty, falls back to compute_kernel_name_hash_hex()
- *   which only hashes the kernel name.
+ * - Uses the kernel_checksum (FNV-1a hash of kernel name + SASS instructions)
+ *   for robust kernel identification across recompilations.
  * - Appends the kernel iteration number to distinguish repeated launches.
  * - Includes a truncated (up to 150 chars) copy of the mangled name to aid
  *   human readability while keeping the filename manageable.
@@ -145,13 +129,12 @@ std::string compute_kernel_name_hash_hex(CUcontext ctx, CUfunction func);
  *   ctx: CUDA context associated with the kernel function.
  *   func: The CUfunction handle of the kernel.
  *   iteration: Per-kernel iteration counter maintained by the caller.
- *   kernel_checksum: Optional FNV-1a hash of kernel name + SASS (hex string).
- *                    If provided, used for file naming instead of name-only hash.
+ *   kernel_checksum: FNV-1a hash of kernel name + SASS (hex string).
  *
  * Returns:
  *   The base filename (without extension) for the kernel-specific log file.
  */
 std::string generate_kernel_log_basename(CUcontext ctx, CUfunction func, uint32_t iteration,
-                                         const std::string& kernel_checksum = "");
+                                         const std::string& kernel_checksum);
 
 #endif /* LOG_HANDLE_H */
