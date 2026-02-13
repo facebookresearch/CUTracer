@@ -254,12 +254,12 @@ verify_mem_values() {
 
   # Check 4: Verify computation results (sin²(i) + cos²(i) = 1.0)
   # 1.0 in IEEE 754 double = [0, 1072693248] or near [4294967295, 1072693247] (precision error)
-  local result_ones=$($cat_cmd "$trace_file" | jq -c 'select(.sass_str | test("STG")) | .values[]? | select(.[1] == 1072693248 or .[1] == 1072693247)' 2>/dev/null | wc -l)
+    local result_ones=$($cat_cmd "$trace_file" | jq -c 'select(.sass | test("STG")) | .values[]? | select(.[1] == 1072693248 or .[1] == 1072693247)' 2>/dev/null | wc -l)
 
   if [ "$result_ones" -lt 1 ]; then
     echo "⚠️  WARNING: Expected some result values ≈ 1.0, found $result_ones"
     echo "     This may indicate incorrect value capture. Checking STG values..."
-    $cat_cmd "$trace_file" | jq -c 'select(.sass_str | test("STG")) | .values[0]' 2>/dev/null | head -3
+    $cat_cmd "$trace_file" | jq -c 'select(.sass | test("STG")) | .values[0]' 2>/dev/null | head -3
   else
     echo "  ✅ Found $result_ones values ≈ 1.0 (sin²+cos²=1 verified)"
   fi
@@ -427,7 +427,7 @@ test_trace_formats() {
 
       # Validate using Python module
       echo "    🔍 Validating text format..."
-      if python3 "$PROJECT_ROOT/scripts/validate_trace.py" --no-color text "$mode0_file" >mode0_validation.log 2>&1; then
+      if python3 -m cutracer validate "$mode0_file" --format text >mode0_validation.log 2>&1; then
         mode0_status="passed"
 
         # Count reg_trace records (CTX lines without "kernel_launch_id")
@@ -479,7 +479,7 @@ test_trace_formats() {
 
       # Validate using Python module
       echo "    🔍 Validating JSON format..."
-      if python3 "$PROJECT_ROOT/scripts/validate_trace.py" --no-color json "$mode2_file" >mode2_validation.log 2>&1; then
+      if python3 -m cutracer validate "$mode2_file" --format json >mode2_validation.log 2>&1; then
         mode2_status="passed"
 
         # Count each trace type separately (note: JSON has no spaces after colons)
@@ -558,7 +558,7 @@ test_trace_formats() {
 
         # Validate decompressed JSON
         echo "    🔍 Validating JSON format..."
-        if python3 "$PROJECT_ROOT/scripts/validate_trace.py" --no-color json mode1_decompressed.ndjson >mode1_validation.log 2>&1; then
+        if python3 -m cutracer validate mode1_decompressed.ndjson --format json >mode1_validation.log 2>&1; then
           mode1_status="passed"
 
           # Count each trace type separately
@@ -659,7 +659,7 @@ test_trace_formats() {
     # Run comprehensive comparison using Python module
     echo ""
     echo "    🔍 Running comprehensive format comparison..."
-    if python3 "$PROJECT_ROOT/scripts/validate_trace.py" --no-color compare "$mode0_file" "$mode2_file" >compare_result.log 2>&1; then
+    if python3 -m cutracer compare "$mode0_file" "$mode2_file" >compare_result.log 2>&1; then
       echo "    ✅ Format comparison passed"
     else
       echo "    ❌ ERROR: Format comparison failed:"

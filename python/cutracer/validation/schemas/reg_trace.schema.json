@@ -90,7 +90,7 @@
       "items": {
         "type": "integer",
         "minimum": 0,
-        "maximum": 254
+        "maximum": 255
       },
       "description": "Register indices corresponding to regs values (e.g., [5, 6, 7] means R5, R6, R7)"
     },

@@ -1,9 +1,10 @@
 # Copyright (c) Meta Platforms, Inc. and affiliates.
 
 """
-CLI implementation for the validate subcommand.
+CLI implementation for the validate and compare subcommands.
 
-This module provides command-line interface for validating CUTracer trace files.
+This module provides command-line interface for validating CUTracer trace files
+and comparing trace formats for cross-format consistency.
 """
 
 import json
@@ -13,6 +14,7 @@ from typing import Any
 
 import click
 
+from .consistency import compare_trace_formats
 from .json_validator import validate_json_trace
 from .text_validator import validate_text_trace
 
@@ -146,3 +148,64 @@ def validate_command(
     _print_validation_result(result, verbose)
 
     sys.exit(0 if result["valid"] else 1)
+
+
+@click.command(name="compare")
+@click.argument("text_file", type=click.Path(exists=True, path_type=Path))
+@click.argument("json_file", type=click.Path(exists=True, path_type=Path))
+@click.option(
+    "--quiet",
+    "-q",
+    is_flag=True,
+    help="Quiet mode. Only return exit code.",
+)
+@click.option(
+    "--json",
+    "json_output",
+    is_flag=True,
+    help="Output results in JSON format.",
+)
+def compare_command(
+    text_file: Path,
+    json_file: Path,
+    quiet: bool,
+    json_output: bool,
+) -> None:
+    """Compare text and JSON trace formats for cross-format consistency.
+
+    Validates both files and compares record counts and statistical content
+    (unique CTAs, warps, SASS instructions).
+
+    TEXT_FILE is the path to the text trace file (.log).
+    JSON_FILE is the path to the JSON trace file (.ndjson or .ndjson.zst).
+    """
+    result = compare_trace_formats(text_file, json_file)
+
+    if quiet:
+        sys.exit(0 if result["consistent"] else 1)
+
+    if json_output:
+        output = {k: str(v) if isinstance(v, Path) else v for k, v in result.items()}
+        click.echo(json.dumps(output, indent=2))
+        sys.exit(0 if result["consistent"] else 1)
+
+    # Human-readable output
+    click.echo(f"Text: {text_file.name}")
+    click.echo(f"JSON: {json_file.name}")
+    click.echo()
+
+    click.echo(f"Text records: {result['text_records']}")
+    click.echo(f"JSON records: {result['json_records']}")
+    click.echo(f"Unique CTAs:  {result.get('unique_ctas_count', 'N/A')}")
+    click.echo(f"Unique warps: {result.get('unique_warps_count', 'N/A')}")
+    click.echo(f"Unique SASS:  {result.get('unique_sass_count', 'N/A')}")
+    click.echo()
+
+    if result["consistent"]:
+        click.echo("\u2705 Formats are consistent")
+    else:
+        click.echo("\u274c Inconsistencies found:")
+        for diff in result.get("differences", []):
+            click.echo(f"   {diff}")
+
+    sys.exit(0 if result["consistent"] else 1)

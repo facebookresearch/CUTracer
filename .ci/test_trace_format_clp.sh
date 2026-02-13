@@ -61,7 +61,7 @@ test_trace_formats_clp() {
       decompressed_file=$(find decompressed -maxdepth 1 -type f -printf '%T@ %p\n' 2>/dev/null | sort -rn | head -n 1 | cut -d' ' -f2-)
       mv "$decompressed_file" decompressed/mode3_decompressed.ndjson
       decompressed_file="decompressed/mode3_decompressed.ndjson"
-      if python3 "$PROJECT_ROOT/scripts/validate_trace.py" --no-color json $decompressed_file >mode3_validation.log 2>&1; then
+      if python3 -m cutracer validate $decompressed_file --format json >mode3_validation.log 2>&1; then
         # Count each trace type separately
         mode3_reg_count=$(grep -ac '"type":"reg_trace"' $decompressed_file 2>/dev/null | tr -d '[:space:]')
         mode3_mem_count=$(grep -ac '"type":"mem_trace"' $decompressed_file 2>/dev/null | tr -d '[:space:]')
