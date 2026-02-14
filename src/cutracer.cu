@@ -50,6 +50,9 @@
 /* implicit registers collection */
 #include "implicit_regs.h"
 
+/* instruction category tracing (TMA, MMA, etc.) */
+#include "instr_trace.h"
+
 #define CUDA_CHECK_LAST_ERROR()                                                                       \
   do {                                                                                                \
     cudaError_t err = cudaGetLastError();                                                             \
@@ -425,6 +428,18 @@ bool instrument_function_if_needed(CUcontext ctx, CUfunction func) {
         } else if (is_instrument_type_enabled(InstrumentType::REG_TRACE)) {
           // Full register tracing.
           instrument_register_trace(instr, opcode_id, ctx_state, operands);
+        }
+
+        // TMA (Tensor Memory Accelerator) tracing for UTMALDG/UTMASTG instructions
+        // Uses internal fb/ implementation for confidential ISA knowledge
+        const char* sass = instr->getSass();
+        if (sass != nullptr && is_instr_category(sass, InstrCategory::TMA)) {
+          CategoryOperands tma_operands;
+          if (extract_tma_operands(instr, tma_operands)) {
+            instrument_tma_trace(instr, opcode_id, ctx_state, tma_operands);
+          } else {
+            loprintf("WARNING: TMA operand extraction failed: %s\n", sass);
+          }
         }
       }
 

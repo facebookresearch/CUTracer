@@ -17,6 +17,7 @@
 #include <stdexcept>
 
 #include "env_config.h"
+#include "instr_trace.h"
 
 // ============================================================================
 // Constructor & Destructor
@@ -385,6 +386,71 @@ void TraceWriter::serialize_mem_value_access(nlohmann::json& j, const mem_value_
   j["values"] = values_array;
 }
 
+void TraceWriter::serialize_tma_access(nlohmann::json& j, const tma_access_t* tma, const std::string& sass) {
+  if (!tma) return;
+
+  using json = nlohmann::json;
+
+  serialize_common_fields(j, tma);
+
+  // Determine is_load from SASS instruction (UTMALDG = load, UTMASTG = store)
+  bool is_load = (sass.find("UTMALDG") != std::string::npos);
+  j["is_load"] = is_load;
+
+  // Descriptor address (as hex string for readability)
+  std::stringstream desc_ss;
+  desc_ss << "0x" << std::hex << tma->desc_addr;
+  j["desc_addr"] = desc_ss.str();
+
+  // Raw descriptor bytes (as hex strings for debugging)
+  json::array_t desc_raw_array;
+  for (int i = 0; i < 16; i++) {
+    std::stringstream ss;
+    ss << "0x" << std::hex << std::setfill('0') << std::setw(16) << tma->desc_raw[i];
+    desc_raw_array.push_back(ss.str());
+  }
+  j["desc_raw"] = desc_raw_array;
+
+  // Parse the TMA descriptor using internal implementation
+  // For internal builds: uses confidential decoding from fb/instrument_fb.cu
+  // For OSS builds: uses no-op stub (all zeros)
+  tma_decoded_desc_t decoded;
+  decode_tma_descriptor(tma->desc_raw, decoded);
+
+  // Global address from descriptor (as hex string)
+  std::stringstream addr_ss;
+  addr_ss << "0x" << std::hex << decoded.global_addr;
+  j["global_addr"] = addr_ss.str();
+
+  // Decoded tensor metadata
+  j["tensor_rank"] = decoded.tensor_rank;
+  j["data_type"] = decoded.data_type;
+  j["element_size"] = decoded.element_size;
+  j["swizzle_mode"] = decoded.swizzle_mode;
+  j["interleave"] = decoded.interleave;
+
+  // Global dimensions
+  json::array_t global_dim_array;
+  for (int i = 0; i < 5; i++) {
+    global_dim_array.push_back(decoded.global_dim[i]);
+  }
+  j["global_dim"] = global_dim_array;
+
+  // Global strides
+  json::array_t global_stride_array;
+  for (int i = 0; i < 4; i++) {
+    global_stride_array.push_back(decoded.global_stride[i]);
+  }
+  j["global_stride"] = global_stride_array;
+
+  // Box dimensions (tile size)
+  json::array_t box_dim_array;
+  for (int i = 0; i < 5; i++) {
+    box_dim_array.push_back(decoded.box_dim[i]);
+  }
+  j["box_dim"] = box_dim_array;
+}
+
 // ============================================================================
 // Format-specific output methods
 // ============================================================================
@@ -484,6 +550,9 @@ void TraceWriter::write_json_format(const TraceRecord& record) {
       case MSG_TYPE_OPCODE_ONLY:
         j["type"] = "opcode_only";
         break;
+      case MSG_TYPE_TMA_ACCESS:
+        j["type"] = "tma_trace";
+        break;
       default:
         fprintf(stderr, "TraceWriter: Unknown message type %d\n", record.type);
         return;
@@ -519,6 +588,9 @@ void TraceWriter::write_json_format(const TraceRecord& record) {
         break;
       case MSG_TYPE_OPCODE_ONLY:
         serialize_opcode_only(j, record.data.opcode_only);
+        break;
+      case MSG_TYPE_TMA_ACCESS:
+        serialize_tma_access(j, record.data.tma_access, record.sass_instruction);
         break;
     }
 

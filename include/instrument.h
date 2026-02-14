@@ -19,7 +19,7 @@ enum class InstrumentType {
   REG_TRACE,        // Medium: collect register values
   MEM_ADDR_TRACE,   // Heavy: collect memory access information (address only)
   MEM_VALUE_TRACE,  // Heavy: collect memory access with values
-  RANDOM_DELAY      // Inject random delays on synchronization instructions
+  RANDOM_DELAY,     // Inject random delays on synchronization instructions
 };
 
 /**

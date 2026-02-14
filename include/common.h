@@ -25,7 +25,8 @@ typedef enum {
   MSG_TYPE_REG_INFO = 0,
   MSG_TYPE_MEM_ADDR_ACCESS = 1,
   MSG_TYPE_OPCODE_ONLY = 2,
-  MSG_TYPE_MEM_VALUE_ACCESS = 3  // Memory access with value tracing
+  MSG_TYPE_MEM_VALUE_ACCESS = 3,  // Memory access with value tracing
+  MSG_TYPE_TMA_ACCESS = 4         // TMA (Tensor Memory Accelerator) access
 } message_type_t;
 
 /* Common header for all message types */
@@ -129,5 +130,71 @@ struct RegIndices {
 };
 
 #endif /* __cplusplus */
+
+/**
+ * @brief TMA (Tensor Memory Accelerator) access tracing structure.
+ *
+ * This structure captures TMA descriptor information for UTMALDG.2D (load)
+ * and UTMASTG.2D (store) instructions. It reads the 128-byte TMA descriptor
+ * from the address pointed to by the uniform register operand.
+ *
+ * The TMA descriptor contains tensor metadata for bulk async memory transfers
+ * between global and shared memory on Hopper/Blackwell GPUs.
+ *
+ * Enabled via CUTRACER_INSTR_CATEGORIES=TMA.
+ *
+ * NOTE: This structure only contains the raw descriptor data. Parsing of
+ * the descriptor fields is done on the host side (in analysis.cu or trace_writer)
+ * to reduce GPU overhead and allow easier modification of decoding logic.
+ */
+typedef struct {
+  message_header_t header;  // type=MSG_TYPE_TMA_ACCESS
+  uint64_t kernel_launch_id;
+  int cta_id_x;
+  int cta_id_y;
+  int cta_id_z;
+  uint64_t pc;
+  int warp_id;
+  int opcode_id;
+
+  // TMA descriptor address (from uniform register, e.g., UR28)
+  uint64_t desc_addr;
+
+  // Raw TMA descriptor (128 bytes = 16 x 64-bit words)
+  // The descriptor is opaque but contains:
+  //   - Base address in global memory
+  //   - Tensor dimensions and strides
+  //   - Box (tile) dimensions
+  //   - Data type, swizzle mode, etc.
+  // Decoding is done on the host side for flexibility.
+  uint64_t desc_raw[16];
+} tma_access_t;
+
+/**
+ * @brief Decoded TMA descriptor fields (for host-side use only).
+ *
+ * This structure contains the decoded fields from the TMA descriptor.
+ * It is populated by decode_tma_descriptor() on the host side.
+ *
+ * The decoding is based on NVIDIA documentation and reverse engineering.
+ * The exact layout may vary by CUDA version, but the following is typical for Hopper:
+ *
+ * Qword 0: Global address (64 bits)
+ * Qword 1-2: Global dimensions packed (up to 5 dimensions, each 32 bits)
+ * Qword 3-5: Global strides packed (up to 4 strides, each 64 bits for byte offsets)
+ * Qword 6-7: Box dimensions packed (up to 5 dimensions, each 32 bits)
+ * Qword 8: Element strides, data type, swizzle, interleave, etc.
+ */
+typedef struct {
+  uint64_t global_addr;       // Base address in global memory (extracted from desc)
+  uint32_t global_dim[5];     // Global tensor dimensions (up to 5D)
+  uint32_t global_stride[4];  // Global tensor strides (in bytes, up to 4)
+  uint32_t box_dim[5];        // Box (tile) dimensions to transfer
+  uint32_t element_size;      // Element size in bytes (derived from data type)
+  uint32_t data_type;         // TMA data type enum value
+  uint32_t swizzle_mode;      // Swizzle mode for shared memory bank conflict avoidance
+  uint32_t interleave;        // Interleave mode
+  uint32_t tensor_rank;       // Number of dimensions (1-5)
+} tma_decoded_desc_t;
 
 #endif /* COMMON_H */
