@@ -277,16 +277,24 @@ bool is_instrument_type_enabled(InstrumentType type) {
 /**
  * @brief Check if any instrumentation type is enabled
  *
- * This function checks if CUTRACER_INSTRUMENT was set to a non-empty value,
- * meaning at least one instrumentation type (reg_trace, mem_addr_trace, etc.)
- * is enabled. This is used to decide whether to create TraceWriter instances -
- * if no instrumentation is enabled, there's no point creating trace files
- * since they will be empty.
+ * This function checks if instrumentation should be active, which is used to
+ * decide whether to create TraceWriter instances. Returns true if:
+ * 1. CUTRACER_INSTRUMENT was set to a non-empty value (reg_trace, mem_addr_trace, etc.)
+ * 2. TMA category filtering is enabled (TMA tracing is self-contained and doesn't
+ *    require separate CUTRACER_INSTRUMENT setting)
  *
- * @return true if at least one instrumentation type is enabled
+ * @return true if at least one instrumentation type or TMA category is enabled
  */
 bool has_any_instrumentation_enabled() {
-  return !enabled_instrument_types.empty();
+  // Original check: explicit instrumentation types
+  if (!enabled_instrument_types.empty()) {
+    return true;
+  }
+  // TMA category tracing is self-contained - doesn't need separate CUTRACER_INSTRUMENT
+  if (enabled_instr_categories.count(InstrCategory::TMA)) {
+    return true;
+  }
+  return false;
 }
 
 bool is_analysis_type_enabled(AnalysisType type) {
