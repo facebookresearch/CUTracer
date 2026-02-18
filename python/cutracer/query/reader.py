@@ -52,7 +52,17 @@ def _parse_single_filter(expr: str) -> Callable[[dict], bool]:
             lambda record: record.get(field) == value or record.get(field) == int_value
         )
     except ValueError:
-        return lambda record: record.get(field) == value
+        pass
+
+    # Try JSON parsing for complex types (list/dict), e.g. cta=[0,0,0]
+    try:
+        json_value = json.loads(value)
+        if isinstance(json_value, (list, dict)):
+            return lambda record: record.get(field) == json_value
+    except (json.JSONDecodeError, ValueError):
+        pass
+
+    return lambda record: record.get(field) == value
 
 
 def parse_filter_expr(filter_expr: str) -> Callable[[dict], bool]:
