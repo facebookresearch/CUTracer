@@ -74,10 +74,14 @@ def get_display_fields(
             return DEFAULT_FIELDS
         return [f.strip() for f in requested_fields.split(",")]
 
-    # Use default fields, but only if they exist in the records
+    # Default: return all fields (union of all records' keys)
     if records:
-        available_fields = set(records[0].keys())
-        return [f for f in DEFAULT_FIELDS if f in available_fields]
+        seen = dict.fromkeys(records[0].keys())
+        for record in records[1:]:
+            for key in record:
+                if key not in seen:
+                    seen[key] = None
+        return list(seen)
 
     return DEFAULT_FIELDS
 

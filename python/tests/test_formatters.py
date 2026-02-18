@@ -58,10 +58,11 @@ class TestGetDisplayFields(unittest.TestCase):
     """Tests for get_display_fields function."""
 
     def test_get_display_fields_default(self):
-        """Test default fields when none requested."""
+        """Test default returns all fields when none requested."""
         records = [{"warp": 0, "pc": "0x100", "sass": "NOP ;", "extra": "data"}]
         fields = get_display_fields(records)
-        self.assertEqual(fields, ["warp", "pc", "sass"])
+        # Default behavior now returns all fields from the record
+        self.assertEqual(fields, ["warp", "pc", "sass", "extra"])
 
     def test_get_display_fields_requested(self):
         """Test user-specified fields are used."""
@@ -81,10 +82,11 @@ class TestGetDisplayFields(unittest.TestCase):
         self.assertEqual(fields, DEFAULT_FIELDS)
 
     def test_get_display_fields_missing_default(self):
-        """Test only available default fields are returned."""
-        records = [{"warp": 0, "custom": "value"}]  # no 'pc' or 'sass'
+        """Test default returns all record fields."""
+        records = [{"warp": 0, "custom": "value"}]
         fields = get_display_fields(records)
-        self.assertEqual(fields, ["warp"])
+        # Default behavior now returns all fields from the record
+        self.assertEqual(fields, ["warp", "custom"])
 
     def test_get_display_fields_all_union(self):
         """Test --fields all returns union of fields from all records.

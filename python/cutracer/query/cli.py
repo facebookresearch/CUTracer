@@ -210,7 +210,7 @@ def _format_groups(
     help="Number of records to show from the end (overrides --head).",
 )
 @click.option(
-    "--all",
+    "--all-lines",
     "-a",
     "all_records",
     is_flag=True,
@@ -304,12 +304,12 @@ def query_command(
       cutracer query trace.ndjson
       cutracer query trace.ndjson.zst --head 20
       cutracer query trace.ndjson --tail 5
-      cutracer query trace.ndjson --all --format ndjson
+      cutracer query trace.ndjson --all-lines --format ndjson
       cutracer query trace.ndjson --filter "warp=24"
       cutracer query trace.ndjson --filter "pc=0x43d0;warp=24"
       cutracer query trace.ndjson -f "pc=0x43d0" -f "warp=24"
-      cutracer query trace.ndjson --filter "pc=0x43d0" --all --output filtered.ndjson
-      cutracer query trace.ndjson --filter "pc=0x43d0" --all --format ndjson -o out.zst --compress
+      cutracer query trace.ndjson --filter "pc=0x43d0" --all-lines --output filtered.ndjson
+      cutracer query trace.ndjson --filter "pc=0x43d0" --all-lines --format ndjson -o out.zst --compress
       cutracer query trace.ndjson --group-by warp
       cutracer query trace.ndjson --group-by warp --count
       cutracer query trace.ndjson --group-by sass --count --top 20
