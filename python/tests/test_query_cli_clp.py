@@ -520,14 +520,14 @@ class TestQueryCommand(BaseValidationTest):
         self.assertNotIn("Warp Summary", result.stdout)
 
     def test_analyze_all_records(self):
-        """Test analyze with --all flag to show all records."""
+        """Test analyze with --all-lines flag to show all records."""
         # First count total records
         result_all = self.runner.invoke(
             main,
             [
                 "query",
                 str(str(self.clp_archive_path.absolute())),
-                "--all",
+                "--all-lines",
                 "--no-header",
             ],
         )
@@ -551,7 +551,7 @@ class TestQueryCommand(BaseValidationTest):
         self.assertGreaterEqual(len(all_lines), len(head_lines))
 
     def test_analyze_all_short_option(self):
-        """Test analyze with -a short option for --all."""
+        """Test analyze with -a short option for --all-lines."""
         result = self.runner.invoke(
             main,
             ["query", str(str(self.clp_archive_path.absolute())), "-a", "--no-header"],
@@ -716,7 +716,7 @@ class TestQueryCommand(BaseValidationTest):
                 self.assertIsInstance(data, dict)
 
     def test_analyze_group_by_all_records(self):
-        """Test analyze with --group-by and --all."""
+        """Test analyze with --group-by and --all-lines."""
         result = self.runner.invoke(
             main,
             [
@@ -724,7 +724,7 @@ class TestQueryCommand(BaseValidationTest):
                 str(str(self.clp_archive_path.absolute())),
                 "--group-by",
                 "warp",
-                "--all",
+                "--all-lines",
             ],
         )
         self.assertEqual(result.exit_code, 0)

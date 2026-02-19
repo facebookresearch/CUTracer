@@ -114,6 +114,8 @@ compile_commands.json
 *.zstd
 
 # Test-generated files
+minimal_config.json
+reduce_report.json
 python/minimal_config.json
 python/reduce_report.json
 tests/unit/test_instr_category

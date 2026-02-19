@@ -442,10 +442,10 @@ class TestQueryCommand(BaseValidationTest):
         self.assertNotIn("Warp Summary", result.output)
 
     def test_analyze_all_records(self):
-        """Test analyze with --all flag to show all records."""
+        """Test analyze with --all-lines flag to show all records."""
         # First count total records
         result_all = self.runner.invoke(
-            main, ["query", str(REG_TRACE_NDJSON), "--all", "--no-header"]
+            main, ["query", str(REG_TRACE_NDJSON), "--all-lines", "--no-header"]
         )
         self.assertEqual(result_all.exit_code, 0)
         all_lines = [line for line in result_all.output.strip().split("\n") if line]
@@ -460,7 +460,7 @@ class TestQueryCommand(BaseValidationTest):
         self.assertGreaterEqual(len(all_lines), len(head_lines))
 
     def test_analyze_all_short_option(self):
-        """Test analyze with -a short option for --all."""
+        """Test analyze with -a short option for --all-lines."""
         result = self.runner.invoke(
             main, ["query", str(REG_TRACE_NDJSON), "-a", "--no-header"]
         )
@@ -595,10 +595,10 @@ class TestQueryCommand(BaseValidationTest):
                 self.assertIsInstance(data, dict)
 
     def test_analyze_group_by_all_records(self):
-        """Test analyze with --group-by and --all."""
+        """Test analyze with --group-by and --all-lines."""
         result = self.runner.invoke(
             main,
-            ["query", str(REG_TRACE_NDJSON), "--group-by", "warp", "--all"],
+            ["query", str(REG_TRACE_NDJSON), "--group-by", "warp", "--all-lines"],
         )
         self.assertEqual(result.exit_code, 0)
         self.assertIn("=== Group:", result.output)
@@ -714,14 +714,14 @@ class TestQueryCommand(BaseValidationTest):
                     "all",
                     "--format",
                     "ndjson",
-                    "--all",
+                    "--all-lines",
                     "--output",
                     output_path,
                 ],
             )
             self.assertEqual(result.exit_code, 0)
 
-            # Read and verify output
+            # Read back and verify all records preserved
             with open(output_path) as f:
                 output_lines = f.read().strip().split("\n")
 
@@ -774,7 +774,7 @@ class TestQueryCommand(BaseValidationTest):
                     "all",
                     "--format",
                     "ndjson",
-                    "--all",
+                    "--all-lines",
                     "--output",
                     output_path,
                 ],
