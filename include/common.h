@@ -25,7 +25,8 @@ typedef enum {
   MSG_TYPE_REG_INFO = 0,
   MSG_TYPE_MEM_ADDR_ACCESS = 1,
   MSG_TYPE_OPCODE_ONLY = 2,
-  MSG_TYPE_MEM_VALUE_ACCESS = 3  // Memory access with value tracing
+  MSG_TYPE_MEM_VALUE_ACCESS = 3,  // Memory access with value tracing
+  MSG_TYPE_TMA_ACCESS = 4         // TMA (Tensor Memory Accelerator) access
 } message_type_t;
 
 /* Common header for all message types */
@@ -129,5 +130,35 @@ struct RegIndices {
 };
 
 #endif /* __cplusplus */
+
+/**
+ * @brief TMA (Tensor Memory Accelerator) access tracing structure.
+ *
+ * This structure captures TMA descriptor information for UTMALDG.2D (load)
+ * and UTMASTG.2D (store) instructions. It reads the 128-byte TMA descriptor
+ * from the address pointed to by the uniform register operand.
+ *
+ * The TMA descriptor contains tensor metadata for bulk async memory transfers
+ * between global and shared memory on Hopper/Blackwell GPUs.
+ *
+ * Enabled via CUTRACER_INSTR_CATEGORIES=TMA.
+ *
+ */
+typedef struct {
+  message_header_t header;  // type=MSG_TYPE_TMA_ACCESS
+  uint64_t kernel_launch_id;
+  int cta_id_x;
+  int cta_id_y;
+  int cta_id_z;
+  uint64_t pc;
+  int warp_id;
+  int opcode_id;
+
+  // TMA descriptor address
+  uint64_t desc_addr;
+
+  // Raw TMA descriptor
+  uint64_t desc_raw[16];
+} tma_access_t;
 
 #endif /* COMMON_H */

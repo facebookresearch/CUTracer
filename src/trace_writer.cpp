@@ -385,6 +385,28 @@ void TraceWriter::serialize_mem_value_access(nlohmann::json& j, const mem_value_
   j["values"] = values_array;
 }
 
+void TraceWriter::serialize_tma_access(nlohmann::json& j, const tma_access_t* tma) {
+  if (!tma) return;
+
+  using json = nlohmann::json;
+
+  serialize_common_fields(j, tma);
+
+  // Descriptor address (as hex string for readability)
+  std::stringstream desc_ss;
+  desc_ss << "0x" << std::hex << tma->desc_addr;
+  j["desc_addr"] = desc_ss.str();
+
+  // Raw descriptor bytes (as hex strings for debugging)
+  json::array_t desc_raw_array;
+  for (int i = 0; i < 16; i++) {
+    std::stringstream ss;
+    ss << "0x" << std::hex << std::setfill('0') << std::setw(16) << tma->desc_raw[i];
+    desc_raw_array.push_back(ss.str());
+  }
+  j["desc_raw"] = desc_raw_array;
+}
+
 // ============================================================================
 // Format-specific output methods
 // ============================================================================
@@ -484,6 +506,9 @@ void TraceWriter::write_json_format(const TraceRecord& record) {
       case MSG_TYPE_OPCODE_ONLY:
         j["type"] = "opcode_only";
         break;
+      case MSG_TYPE_TMA_ACCESS:
+        j["type"] = "tma_trace";
+        break;
       default:
         fprintf(stderr, "TraceWriter: Unknown message type %d\n", record.type);
         return;
@@ -519,6 +544,9 @@ void TraceWriter::write_json_format(const TraceRecord& record) {
         break;
       case MSG_TYPE_OPCODE_ONLY:
         serialize_opcode_only(j, record.data.opcode_only);
+        break;
+      case MSG_TYPE_TMA_ACCESS:
+        serialize_tma_access(j, record.data.tma_access);
         break;
     }
 

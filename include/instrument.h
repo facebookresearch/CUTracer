@@ -19,7 +19,8 @@ enum class InstrumentType {
   REG_TRACE,        // Medium: collect register values
   MEM_ADDR_TRACE,   // Heavy: collect memory access information (address only)
   MEM_VALUE_TRACE,  // Heavy: collect memory access with values
-  RANDOM_DELAY      // Inject random delays on synchronization instructions
+  TMA_TRACE,        // TMA descriptor tracing for Tensor Memory Accelerator instructions
+  RANDOM_DELAY,     // Inject random delays on synchronization instructions
 };
 
 /**
@@ -114,5 +115,29 @@ static const std::vector<const char*> DELAY_INJECTION_PATTERNS = {
  * @return true if the instruction matches any delay injection pattern
  */
 bool shouldInjectDelay(Instr* instr, const std::vector<const char*>& patterns);
+
+// Include internal TMA instrumentation if available, otherwise provide stubs
+#if __has_include("fb/instrument_fb.h")
+#include "fb/instrument_fb.h"
+#else
+
+/**
+ * @brief Instrument a TMA instruction for tracing.
+ *
+ * OSS stub - does nothing.
+ *
+ * @param instr The instruction to instrument
+ * @param opcode_id The opcode identifier
+ * @param ctx_state The context state
+ * @param operands The operand lists with ureg_nums populated
+ */
+inline void instrument_tma_trace(Instr* instr, int opcode_id, CTXstate* ctx_state, const OperandLists& operands) {
+  (void)instr;
+  (void)opcode_id;
+  (void)ctx_state;
+  (void)operands;
+}
+
+#endif  // __has_include
 
 #endif /* INSTRUMENT_H */

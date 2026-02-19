@@ -421,6 +421,8 @@ static uint64_t get_kernel_launch_id(const message_header_t* header) {
       return ((const mem_addr_access_t*)header)->kernel_launch_id;
     case MSG_TYPE_MEM_VALUE_ACCESS:
       return ((const mem_value_access_t*)header)->kernel_launch_id;
+    case MSG_TYPE_TMA_ACCESS:
+      return ((const tma_access_t*)header)->kernel_launch_id;
     default:
       return 0;  // Invalid/unknown message type - no kernel ID available
   }
@@ -1239,6 +1241,40 @@ void* recv_thread_fun(void* args) {
           }
 
           num_processed_bytes += sizeof(mem_value_access_t);
+        } else if (header->type == MSG_TYPE_TMA_ACCESS) {
+          tma_access_t* tma = (tma_access_t*)&recv_buffer[num_processed_bytes];
+
+          // Get SASS string for trace output
+          std::string sass_str_cpp;
+          std::map<uint64_t, std::pair<CUcontext, CUfunction>>::iterator func_iter =
+              kernel_launch_to_func_map.find(tma->kernel_launch_id);
+          if (func_iter != kernel_launch_to_func_map.end()) {
+            std::pair<CUcontext, CUfunction> kernel_info = func_iter->second;
+            CUfunction f_func = kernel_info.second;
+            if (ctx_state->id_to_sass_map.count(f_func) && ctx_state->id_to_sass_map[f_func].count(tma->opcode_id)) {
+              sass_str_cpp = ctx_state->id_to_sass_map[f_func][tma->opcode_id];
+            }
+          }
+
+          loprintf_v("TMA: cta=[%d,%d,%d] warp=%d pc=0x%lx %s desc_addr=0x%lx\n", tma->cta_id_x, tma->cta_id_y,
+                     tma->cta_id_z, tma->warp_id, tma->pc,
+                     (sass_str_cpp.find("UTMALDG") != std::string::npos) ? "LOAD" : "STORE", tma->desc_addr);
+
+          // Unified TraceWriter output (per-launch files)
+          {
+            std::shared_lock<std::shared_mutex> lock(ctx_state->writers_mutex);
+            auto it = ctx_state->trace_writers.find(tma->kernel_launch_id);
+            if (it != ctx_state->trace_writers.end() && it->second) {
+              uint64_t trace_idx = ctx_state->trace_index_by_kernel[tma->kernel_launch_id]++;
+              uint64_t timestamp = get_timestamp_ns();
+              auto record = TraceRecord::create_tma_trace(ctx, sass_str_cpp, trace_idx, timestamp, tma);
+              it->second->write_trace(record);
+            } else {
+              loprintf("WARNING: No TraceWriter for TMA kernel_launch_id=%lu\n", tma->kernel_launch_id);
+            }
+          }
+
+          num_processed_bytes += sizeof(tma_access_t);
         } else {
           // Unknown message type, print error and break loop
           // TODO: handle error message in our current log mechanism

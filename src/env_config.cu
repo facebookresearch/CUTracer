@@ -170,6 +170,10 @@ void init_instrumentation(const std::string& instrument_str) {
     enabled_instrument_types.insert(InstrumentType::RANDOM_DELAY);
     loprintf("  - Enabled: random_delay (random delay injection)\n");
   }
+  if (instrument_str.find("tma_trace") != std::string::npos) {
+    enabled_instrument_types.insert(InstrumentType::TMA_TRACE);
+    loprintf("  - Enabled: tma_trace (TMA descriptor tracing)\n");
+  }
 
   // Warn if both mem_addr_trace and mem_value_trace are enabled
   if (enabled_instrument_types.count(InstrumentType::MEM_ADDR_TRACE) &&

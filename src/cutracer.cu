@@ -426,6 +426,13 @@ bool instrument_function_if_needed(CUcontext ctx, CUfunction func) {
           // Full register tracing.
           instrument_register_trace(instr, opcode_id, ctx_state, operands);
         }
+
+        // TMA_TRACE: tensor memory descriptor tracing (independent of REG_TRACE/OPCODE_ONLY)
+        if (is_instrument_type_enabled(InstrumentType::TMA_TRACE)) {
+          if (is_instr_category(instr->getSass(), InstrCategory::TMA)) {
+            instrument_tma_trace(instr, opcode_id, ctx_state, operands);
+          }
+        }
       }
 
       // Delay instrumentation for synchronization instructions
