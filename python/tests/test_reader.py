@@ -93,6 +93,30 @@ class TestParseFilterExpr(unittest.TestCase):
         with self.assertRaises(ValueError):
             parse_filter_expr("")
 
+    def test_parse_filter_list_value(self):
+        """Test parsing filter with JSON list value (e.g., cta=[0,0,0])."""
+        pred = parse_filter_expr("cta=[0,0,0]")
+        self.assertTrue(pred({"cta": [0, 0, 0]}))
+        self.assertFalse(pred({"cta": [1, 0, 0]}))
+        self.assertFalse(pred({"cta": [0, 0]}))
+
+    def test_parse_filter_list_value_with_spaces(self):
+        """Test parsing filter with JSON list value containing spaces."""
+        pred = parse_filter_expr("cta=[0, 0, 0]")
+        self.assertTrue(pred({"cta": [0, 0, 0]}))
+
+    def test_parse_filter_list_missing_field(self):
+        """Test list filter returns False for missing field."""
+        pred = parse_filter_expr("cta=[0,0,0]")
+        self.assertFalse(pred({"warp": 0}))
+
+    def test_parse_filter_semicolon_with_list(self):
+        """Test semicolon-separated filter combining list and int values."""
+        pred = parse_filter_expr("cta=[0,0,0];warp=1")
+        self.assertTrue(pred({"cta": [0, 0, 0], "warp": 1}))
+        self.assertFalse(pred({"cta": [0, 0, 0], "warp": 2}))
+        self.assertFalse(pred({"cta": [1, 0, 0], "warp": 1}))
+
     def test_parse_filter_single_still_works(self):
         """Test that single condition still works after refactor."""
         pred = parse_filter_expr("warp=24")
