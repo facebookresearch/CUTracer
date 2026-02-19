@@ -25,6 +25,23 @@ JSON_VERSION="${JSON_VERSION:-3.11.3}"
 # Create third_party directory (if it doesn't exist)
 mkdir -p third_party
 
+# Detect host CPU architecture
+HOST_ARCH=$(uname -m)
+case "$HOST_ARCH" in
+  x86_64)
+    NVBIT_ARCH="x86_64"
+    ;;
+  aarch64|arm64)
+    NVBIT_ARCH="aarch64"
+    ;;
+  *)
+    echo "Error: Unsupported host architecture: $HOST_ARCH"
+    echo "NVBit supports x86_64 and aarch64 only."
+    exit 1
+    ;;
+esac
+echo "Detected host architecture: $HOST_ARCH (NVBit arch: $NVBIT_ARCH)"
+
 # Handle version: fetch latest or use specified version
 if [ "$NVBIT_VERSION" = "latest" ]; then
   echo "Getting latest NVBit version information..."
@@ -51,12 +68,13 @@ if [ -z "$TAG_CHECK" ]; then
   exit 1
 fi
 
-# Find the download link for the x86_64 version
-DOWNLOAD_URL=$(echo "$RELEASE_INFO" | grep -o '"browser_download_url": "[^"]*x86_64[^"]*\.tar\.bz2"' | cut -d'"' -f4)
+# Find the download link for the detected architecture
+DOWNLOAD_URL=$(echo "$RELEASE_INFO" | grep -o '"browser_download_url": "[^"]*'"$NVBIT_ARCH"'[^"]*\.tar\.bz2"' | cut -d'"' -f4)
 
 # Check if download link was found
 if [ -z "$DOWNLOAD_URL" ]; then
-  echo "Error: Unable to find download link for x86_64 version."
+  echo "Error: Unable to find download link for $NVBIT_ARCH version."
+  echo "Please check if NVBit $NVBIT_VERSION supports $NVBIT_ARCH."
   exit 1
 fi
 
