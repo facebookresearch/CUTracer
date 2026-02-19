@@ -1,0 +1,24 @@
+# Copyright (c) Meta Platforms, Inc. and affiliates.
+#
+# Requirements file for CUTracer Python package.
+#
+# NOTE: This file is synced with pyproject.toml dependencies.
+# When updating dependencies, please keep both files in sync.
+#
+# To install: pip install -r requirements.txt
+
+# Core dependencies (synced from pyproject.toml [project.dependencies])
+click>=8.0.0
+jsonschema>=4.0.0
+zstandard>=0.20.0
+tabulate>=0.9.0
+importlib_resources>=5.0.0; python_version < '3.11'
+tritonparse>=0.4.0
+yscope_clp_core>=0.7.1b2
+
+# Development dependencies (synced from pyproject.toml [project.optional-dependencies.dev])
+mypy>=1.0.0
+ufmt==2.9.0
+usort==1.1.0
+ruff-api==0.2.0
+ruff>=0.4.0
