@@ -18,6 +18,7 @@ from cutracer.query.warp_summary import (
     format_warp_summary_text,
     warp_summary_to_dict,
 )
+from cutracer.shared_vars import is_fbcode
 
 
 @click.group(name="analyze")
@@ -101,3 +102,9 @@ def warp_summary_command(
 
 # Register subcommands
 analyze_command.add_command(warp_summary_command)
+
+# Conditionally register internal commands
+if is_fbcode():
+    from cutracer.analyze.fb.data_race.cli import data_race_command
+
+    analyze_command.add_command(data_race_command)
