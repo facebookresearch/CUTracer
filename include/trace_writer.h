@@ -90,6 +90,7 @@ struct TraceRecord {
     const mem_addr_access_t* mem_access;
     const mem_value_access_t* mem_value_access;
     const opcode_only_t* opcode_only;
+    const tma_access_t* tma_access;
   } data;
 
   /**
@@ -161,6 +162,21 @@ struct TraceRecord {
     record.timestamp = ts;
     record.type = MSG_TYPE_OPCODE_ONLY;
     record.data.opcode_only = opcode;
+    return record;
+  }
+
+  /**
+   * @brief Create a TraceRecord for tma_access_t.
+   */
+  static TraceRecord create_tma_trace(CUcontext ctx, const std::string& sass, uint64_t trace_idx, uint64_t ts,
+                                      const tma_access_t* tma) {
+    TraceRecord record;
+    record.context = ctx;
+    record.sass_instruction = sass;
+    record.trace_index = trace_idx;
+    record.timestamp = ts;
+    record.type = MSG_TYPE_TMA_ACCESS;
+    record.data.tma_access = tma;
     return record;
   }
 };
@@ -314,4 +330,9 @@ class TraceWriter {
    * @brief Serialize mem_value_access_t fields to JSON object.
    */
   void serialize_mem_value_access(nlohmann::json& j, const mem_value_access_t* mem);
+
+  /**
+   * @brief Serialize tma_access_t fields to JSON object.
+   */
+  void serialize_tma_access(nlohmann::json& j, const tma_access_t* tma);
 };
