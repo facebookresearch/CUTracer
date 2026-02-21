@@ -355,6 +355,7 @@ bool instrument_function_if_needed(CUcontext ctx, CUfunction func) {
 
               operands.ureg_nums.push_back(ureg_num);
               op_ctx.generic_urs.push_back(ureg_num);
+              op_ctx.generic_strs.push_back(generic_str);  // Store raw string for prefix analysis
               match_count++;
 
               loprintf_v("    Extracted UREG: UR%d\n", ureg_num);
