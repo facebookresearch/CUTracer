@@ -91,15 +91,25 @@ static void vfprintf_base(bool file_output, bool stdout_output, const char* form
     return;
   }
 
-  char output_buffer[2048];
-  vsnprintf(output_buffer, sizeof(output_buffer), format, args);
+  va_list args_copy;
+  va_copy(args_copy, args);
+
+  int needed = vsnprintf(nullptr, 0, format, args);
+  if (needed < 0) {
+    va_end(args_copy);
+    return;
+  }
+
+  std::string output_buffer(needed + 1, '\0');
+  vsnprintf(output_buffer.data(), needed + 1, format, args_copy);
+  va_end(args_copy);
 
   if (stdout_output) {
-    fprintf(stdout, "%s", output_buffer);
+    fprintf(stdout, "%s", output_buffer.c_str());
   }
 
   if (file_output && g_main_log_file) {
-    fprintf(g_main_log_file, "%s", output_buffer);
+    fprintf(g_main_log_file, "%s", output_buffer.c_str());
   }
 }
 
