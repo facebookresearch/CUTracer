@@ -39,19 +39,23 @@ static int tests_failed = 0;
 // ============================================================================
 
 bool test_detect_utcmma() {
-  // Test UTCMMA detection
-  const char* sass = "UTCMMA.16816.F16 R8, R16, R24, R32";
+  // Test UTCHMMA detection (Blackwell tensor core)
+  const char* sass = "UTCHMMA gdesc[UR44], gdesc[UR46], tmem[UR53], tmem[UR60], idesc[UR61], UP1 ;";
   InstrCategory cat = detect_instr_category(sass);
   return cat == InstrCategory::MMA;
 }
 
 bool test_detect_utcmma_variants() {
-  // Test different UTCMMA variants
+  // Test different UTC*MMA variants (Blackwell tensor core instructions)
   const char* variants[] = {
-      "UTCMMA.16816.F16 R0, R8, R16, R24",
-      "UTCMMA.16816.F32 R0, R8, R16, R24",
-      "UTCMMA.16832.F16 R0, R8, R16, R24",
-      "/*0080*/   UTCMMA.16816.F16.F16 R64, R0, UR4, R32",  // With PC prefix
+      // Blackwell specific patterns
+      "UTCHMMA gdesc[UR44], gdesc[UR46], tmem[UR53], tmem[UR60], idesc[UR61], UP1 ;",
+      "UTCIMMA gdesc[UR44], gdesc[UR46], tmem[UR53], tmem[UR60], idesc[UR61], UP1 ;",
+      "UTCQMMA gdesc[UR44], gdesc[UR46], tmem[UR53], tmem[UR60], idesc[UR61], UP1 ;",
+      "UTCOMMA gdesc[UR44], gdesc[UR46], tmem[UR53], tmem[UR60], idesc[UR61], UP1 ;",
+      "/*0a00*/   UTCHMMA gdesc[UR44], gdesc[UR46], tmem[UR53], tmem[UR60], idesc[UR61], UP1 ;",  // With PC prefix
+      // Hopper GMMA
+      "HGMMA.16816.F16 desc[UR8], desc[UR12], desc[UR0], R24 ;",
   };
 
   for (const char* sass : variants) {
@@ -116,10 +120,10 @@ bool test_category_name() {
 }
 
 bool test_pattern_description() {
-  // Test pattern description lookup
-  const char* desc = get_instr_pattern_description("UTCMMA.16816.F16 R0, R8, R16, R24");
+  // Test pattern description lookup - Blackwell pattern
+  const char* desc = get_instr_pattern_description("UTCHMMA gdesc[UR44], gdesc[UR46], tmem[UR53] ;");
   if (desc == nullptr) return false;
-  if (strstr(desc, "Unified Tensor Core MMA") == nullptr) return false;
+  if (strstr(desc, "Blackwell UTCHMMA") == nullptr) return false;
 
   // Non-matching should return nullptr
   desc = get_instr_pattern_description("FADD R0, R1, R2");
@@ -129,11 +133,12 @@ bool test_pattern_description() {
 }
 
 bool test_is_instr_category() {
-  // Test isInstrCategory helper
-  const char* mma_sass = "UTCMMA.16816.F16 R0, R8, R16, R24";
+  // Test isInstrCategory helper - Blackwell pattern
+  const char* mma_sass = "UTCHMMA gdesc[UR44], gdesc[UR46], tmem[UR53], tmem[UR60], idesc[UR61], UP1 ;";
   if (!is_instr_category(mma_sass, InstrCategory::MMA)) return false;
   if (is_instr_category(mma_sass, InstrCategory::TMA)) return false;
   if (is_instr_category(mma_sass, InstrCategory::SYNC)) return false;
+
   return true;
 }
 
@@ -142,15 +147,15 @@ bool test_get_patterns_for_category() {
   auto mma_patterns = get_patterns_for_category(InstrCategory::MMA);
   if (mma_patterns.empty()) return false;
 
-  // Should contain UTCMMA
-  bool found_utcmma = false;
+  // Should contain UTCHMMA (Blackwell)
+  bool found_utchmma = false;
   for (const char* p : mma_patterns) {
-    if (strcmp(p, "UTCMMA") == 0) {
-      found_utcmma = true;
+    if (strcmp(p, "UTCHMMA") == 0) {
+      found_utchmma = true;
       break;
     }
   }
-  if (!found_utcmma) return false;
+  if (!found_utchmma) return false;
 
   // NONE category should have no patterns
   auto none_patterns = get_patterns_for_category(InstrCategory::NONE);
