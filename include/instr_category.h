@@ -79,11 +79,13 @@ struct InstrCategoryPattern {
  */
 static const std::vector<InstrCategoryPattern> INSTR_CATEGORY_PATTERNS = {
     // MMA (Matrix Multiply-Accumulate) instructions
-    {"UTCMMA", InstrCategory::MMA, "Unified Tensor Core MMA (Hopper+)"},
-    // Add more MMA patterns here as needed:
-    // {"HMMA", InstrCategory::MMA, "Half-precision MMA (Volta+)"},
-    // {"IMMA", InstrCategory::MMA, "Integer MMA"},
-    // {"DMMA", InstrCategory::MMA, "Double-precision MMA"},
+    // Hopper GMMA
+    {"HGMMA", InstrCategory::MMA, "Hopper GMMA (sm_90)"},
+    // Blackwell UTC*MMA variants (sm_100+)
+    {"UTCHMMA", InstrCategory::MMA, "Blackwell UTCHMMA"},
+    {"UTCIMMA", InstrCategory::MMA, "Blackwell UTCIMMA"},
+    {"UTCQMMA", InstrCategory::MMA, "Blackwell UTCQMMA"},
+    {"UTCOMMA", InstrCategory::MMA, "Blackwell UTCOMMA"},
 
     // TMA (Tensor Memory Access) instructions
     {"UTMALDG", InstrCategory::TMA, "Unified TMA Load Global"},
