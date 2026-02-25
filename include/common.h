@@ -134,9 +134,9 @@ struct RegIndices {
 /**
  * @brief TMA (Tensor Memory Accelerator) access tracing structure.
  *
- * This structure captures TMA descriptor information for UTMALDG.2D (load)
- * and UTMASTG.2D (store) instructions. It reads the 128-byte TMA descriptor
- * from the address pointed to by the uniform register operand.
+ * This structure captures TMA descriptor information for UTMALDG (load),
+ * UTMASTG (store), and UTMAREDG (reduction) instructions. It reads the
+ * 128-byte TMA descriptor from the address pointed to by the uniform register operand.
  *
  * The TMA descriptor contains tensor metadata for bulk async memory transfers
  * between global and shared memory on Hopper/Blackwell GPUs.
