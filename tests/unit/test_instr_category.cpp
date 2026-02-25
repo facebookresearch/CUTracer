@@ -81,6 +81,13 @@ bool test_detect_tma_store() {
   return cat == InstrCategory::TMA;
 }
 
+bool test_detect_tma_reduction() {
+  // Test TMA reduction detection
+  const char* sass = "UTMAREDG.2D.ADD [UR8], [R16], R32";
+  InstrCategory cat = detect_instr_category(sass);
+  return cat == InstrCategory::TMA;
+}
+
 bool test_detect_sync() {
   // Test sync instruction detection
   const char* sass = "WARPGROUP.DEPBAR.LE 0x2";
@@ -177,6 +184,7 @@ int main() {
   TEST(detect_utcmma_variants);
   TEST(detect_tma_load);
   TEST(detect_tma_store);
+  TEST(detect_tma_reduction);
   TEST(detect_sync);
   TEST(detect_none);
   TEST(category_name);

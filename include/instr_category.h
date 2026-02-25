@@ -90,6 +90,7 @@ static const std::vector<InstrCategoryPattern> INSTR_CATEGORY_PATTERNS = {
     // TMA (Tensor Memory Access) instructions
     {"UTMALDG", InstrCategory::TMA, "Unified TMA Load Global"},
     {"UTMASTG", InstrCategory::TMA, "Unified TMA Store Global"},
+    {"UTMAREDG", InstrCategory::TMA, "Unified TMA Store Global with Reduction"},
 
     // SYNC (Synchronization) instructions
     {"WARPGROUP.DEPBAR", InstrCategory::SYNC, "Warpgroup dependency barrier"},
