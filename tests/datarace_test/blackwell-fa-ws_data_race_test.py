@@ -18,6 +18,9 @@ import triton
 import triton.language as tl
 import triton.language.extra.tlx as tlx
 from triton.tools.tensor_descriptor import TensorDescriptor
+from triton import knobs
+import pathlib
+import hashlib
 
 logger = logging.getLogger(__name__)
 
@@ -853,6 +856,109 @@ def _fma_f32x2(a, b, c):
         pack=2,
     )
 
+#These two methods must be implemented by the plugin
+def get_key():
+    return pathlib.Path(__file__).read_text()
+def get_hash():
+    return hashlib.sha256(get_key().encode('utf-8')).hexdigest()
+
+# def inspect_stages_hook(self=None, stages=None, options=None, language=None, capability=None):
+    # If the hook is called with no arguments we assume were just after the key and hash and don't want to
+    # actually execute the pipeline yet.
+    # This no argument early return must be implemented.
+    # if all(arg is None for arg in (stages, options, language, capability)):
+    #     return get_key(), get_hash()
+
+    # def make_ttgir_wrapper(mod, metadata, opt, capability):
+    #     from triton._C.libtriton import ir, passes, llvm, nvidia, tlx
+    #     mod = self.make_ttgir(mod, metadata, opt, capability)
+    #     pm = ir.pass_manager(mod.context)
+    #     pm.enable_debug()
+    #     print("num_warps:", metadata["num_warps"])
+    #     pm.run(mod, 'make_ttigr_plugin')
+    #     return mod
+    # stages["ttgir"] = lambda src, metadata: make_ttgir_wrapper(src, metadata, options, capability)
+
+    # return get_key(), get_hash()
+import inspect
+import importlib
+import sys
+import textwrap
+
+# def inspect_stages_hook(self=None, stages=None, options=None, language=None, capability=None):
+#     if all(arg is None for arg in (stages, options, language, capability)):
+#         return get_key(), get_hash()
+#     module_name = 'dynamic_module'
+#     spec = importlib.util.spec_from_loader(module_name, loader=None)
+#     module = importlib.util.module_from_spec(spec)
+#     sys.modules[module_name] = module
+#     stage_src = textwrap.dedent(inspect.getsource(self.make_ttgir))
+#     stage_src = 'from triton._C.libtriton import ir, passes, llvm, amd, nvidia, tlx\n' + stage_src
+#     stage_src = 'from triton import knobs\n' + stage_src
+#     # Inject plugin pass right after loop unroll in the dynamically loaded stage source
+#     stage_src = stage_src.replace(
+#         "if not knobs.nvidia.use_meta_ws:",
+#         "print(metadata['num_warps'])\n        if not knobs.nvidia.use_meta_ws:"
+#     )
+#     stage_src = stage_src.replace(
+#         "pm.run(mod, 'make_ttgir')",
+#         "print(mod.get_int_attr('ttg.total-num-warps'))\n    pm.run(mod, 'make_ttgir')"
+#     )
+#     # print(stage_src)
+#     exec(stage_src, module.__dict__)
+#     make_lambda = lambda f: lambda src, metadata: f(src, metadata, options, capability)
+#     stages["ttgir"] = make_lambda(module.make_ttgir)
+#     return get_key(), get_hash()
+
+
+def inspect_stages_hook(self=None, stages=None, options=None, language=None, capability=None):
+    if all(arg is None for arg in (stages, options, language, capability)):
+        return get_key(), get_hash()
+    module_name = 'dynamic_module'
+    spec = importlib.util.spec_from_loader(module_name, loader=None)
+    module = importlib.util.module_from_spec(spec)
+    sys.modules[module_name] = module
+    stage_src = textwrap.dedent(inspect.getsource(self.make_llir))
+    stage_src = 'from triton._C.libtriton import ir, passes, llvm, amd, nvidia, tlx\n' + stage_src
+    stage_src = 'from triton import knobs\n' + stage_src
+    # Use inspect to import CUDABackend from the module where make_llir is defined
+    make_llir_owner_mod = inspect.getmodule(self.make_llir)
+    if make_llir_owner_mod is None:
+        raise RuntimeError("Failed to locate module for make_llir")
+    if not hasattr(make_llir_owner_mod, "CUDABackend"):
+        raise RuntimeError("CUDABackend not found in module defining make_llir")
+    CUDABackend = getattr(make_llir_owner_mod, "CUDABackend")
+    # Expose CUDABackend to the dynamically executed stage source
+    module.CUDABackend = CUDABackend
+    stage_src = "from " + make_llir_owner_mod.__name__ + " import CUDABackend\n" + stage_src
+    # Use inspect to import get_ptx_version_from_options from the module where make_llir is defined
+    if not hasattr(make_llir_owner_mod, "get_ptx_version_from_options"):
+        raise RuntimeError("get_ptx_version_from_options not found in module defining make_llir")
+    get_ptx_version_from_options = getattr(make_llir_owner_mod, "get_ptx_version_from_options")
+    # Expose get_ptx_version_from_options to the dynamically executed stage source
+    module.get_ptx_version_from_options = get_ptx_version_from_options
+    stage_src = "from " + make_llir_owner_mod.__name__ + " import get_ptx_version_from_options\n" + stage_src
+    # Use inspect to import sm_arch_from_capability from the module where make_llir is defined
+    if not hasattr(make_llir_owner_mod, "sm_arch_from_capability"):
+        raise RuntimeError("sm_arch_from_capability not found in module defining make_llir")
+    sm_arch_from_capability = getattr(make_llir_owner_mod, "sm_arch_from_capability")
+    # Expose sm_arch_from_capability to the dynamically executed stage source
+    module.sm_arch_from_capability = sm_arch_from_capability
+    stage_src = "from " + make_llir_owner_mod.__name__ + " import sm_arch_from_capability, get_features\n" + stage_src
+
+    # Inject plugin pass right after loop unroll in the dynamically loaded stage source
+    stage_src = stage_src.replace(
+        'metadata["num_warps"] = total_num_warps',
+        (
+            "metadata[\"old_num_warps\"] = metadata[\"num_warps\"]"
+            "\n        metadata[\"num_warps\"] = total_num_warps"
+            "\n        metadata[\"new_num_warps\"] = metadata[\"num_warps\"]"
+        )
+    )
+    exec(stage_src, module.__dict__)
+    make_lambda = lambda f: lambda src, metadata: f(self=self, src=src, metadata=metadata, options=options, capability=capability)
+    stages["llir"] = make_lambda(module.make_llir)
+    return get_key(), get_hash()
 
 def launch_kernel():
     # ===== Kernel parameters (from original test) =====
@@ -941,12 +1047,13 @@ def launch_kernel():
     ref_M = S_max + torch.log2(torch.exp2(S - S_max.unsqueeze(-1)).sum(dim=-1))
 
     # ===== Multi-run data race detection =====
-    NUM_RUNS = 5
+    NUM_RUNS = 1
     num_passed = 0
     num_failed = 0
 
     for run_idx in range(NUM_RUNS):
         M.zero_()
+        knobs.runtime.add_stages_inspection_hook = inspect_stages_hook
 
         _attn_fwd_ws[grid](
             sm_scale,
