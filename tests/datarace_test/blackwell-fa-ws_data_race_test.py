@@ -862,53 +862,10 @@ def get_key():
 def get_hash():
     return hashlib.sha256(get_key().encode('utf-8')).hexdigest()
 
-# def inspect_stages_hook(self=None, stages=None, options=None, language=None, capability=None):
-    # If the hook is called with no arguments we assume were just after the key and hash and don't want to
-    # actually execute the pipeline yet.
-    # This no argument early return must be implemented.
-    # if all(arg is None for arg in (stages, options, language, capability)):
-    #     return get_key(), get_hash()
-
-    # def make_ttgir_wrapper(mod, metadata, opt, capability):
-    #     from triton._C.libtriton import ir, passes, llvm, nvidia, tlx
-    #     mod = self.make_ttgir(mod, metadata, opt, capability)
-    #     pm = ir.pass_manager(mod.context)
-    #     pm.enable_debug()
-    #     print("num_warps:", metadata["num_warps"])
-    #     pm.run(mod, 'make_ttigr_plugin')
-    #     return mod
-    # stages["ttgir"] = lambda src, metadata: make_ttgir_wrapper(src, metadata, options, capability)
-
-    # return get_key(), get_hash()
 import inspect
 import importlib
 import sys
 import textwrap
-
-# def inspect_stages_hook(self=None, stages=None, options=None, language=None, capability=None):
-#     if all(arg is None for arg in (stages, options, language, capability)):
-#         return get_key(), get_hash()
-#     module_name = 'dynamic_module'
-#     spec = importlib.util.spec_from_loader(module_name, loader=None)
-#     module = importlib.util.module_from_spec(spec)
-#     sys.modules[module_name] = module
-#     stage_src = textwrap.dedent(inspect.getsource(self.make_ttgir))
-#     stage_src = 'from triton._C.libtriton import ir, passes, llvm, amd, nvidia, tlx\n' + stage_src
-#     stage_src = 'from triton import knobs\n' + stage_src
-#     # Inject plugin pass right after loop unroll in the dynamically loaded stage source
-#     stage_src = stage_src.replace(
-#         "if not knobs.nvidia.use_meta_ws:",
-#         "print(metadata['num_warps'])\n        if not knobs.nvidia.use_meta_ws:"
-#     )
-#     stage_src = stage_src.replace(
-#         "pm.run(mod, 'make_ttgir')",
-#         "print(mod.get_int_attr('ttg.total-num-warps'))\n    pm.run(mod, 'make_ttgir')"
-#     )
-#     # print(stage_src)
-#     exec(stage_src, module.__dict__)
-#     make_lambda = lambda f: lambda src, metadata: f(src, metadata, options, capability)
-#     stages["ttgir"] = make_lambda(module.make_ttgir)
-#     return get_key(), get_hash()
 
 
 def inspect_stages_hook(self=None, stages=None, options=None, language=None, capability=None):
