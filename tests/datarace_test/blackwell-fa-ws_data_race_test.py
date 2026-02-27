@@ -21,6 +21,10 @@ from triton.tools.tensor_descriptor import TensorDescriptor
 from triton import knobs
 import pathlib
 import hashlib
+import inspect
+import importlib
+import sys
+import textwrap
 
 logger = logging.getLogger(__name__)
 
@@ -862,12 +866,6 @@ def get_key():
 def get_hash():
     return hashlib.sha256(get_key().encode('utf-8')).hexdigest()
 
-import inspect
-import importlib
-import sys
-import textwrap
-
-
 def inspect_stages_hook(self=None, stages=None, options=None, language=None, capability=None):
     if all(arg is None for arg in (stages, options, language, capability)):
         return get_key(), get_hash()
@@ -1004,7 +1002,7 @@ def launch_kernel():
     ref_M = S_max + torch.log2(torch.exp2(S - S_max.unsqueeze(-1)).sum(dim=-1))
 
     # ===== Multi-run data race detection =====
-    NUM_RUNS = 1
+    NUM_RUNS = 5
     num_passed = 0
     num_failed = 0
 
