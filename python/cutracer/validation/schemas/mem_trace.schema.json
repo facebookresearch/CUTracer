@@ -71,7 +71,7 @@
     "pc": {
       "type": "string",
       "pattern": "^0x[0-9a-fA-F]+$",
-      "description": "Program counter value in hex format"
+      "description": "Instruction byte offset within the kernel function (hex). This is not an absolute virtual address; combine with func_addr from kernel_metadata to get the runtime address."
     },
     "addrs": {
       "type": "array",
