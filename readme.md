@@ -167,6 +167,12 @@ CUTracer supports dumping delay configurations to JSON for deterministic reprodu
 2. When a failure occurs, save the config file
 3. Replay with `CUTRACER_DELAY_LOAD_PATH=/tmp/config.json` to reproduce deterministically
 
+## Examples
+
+The [`examples/`](examples/) directory contains reference trace outputs for common workflows:
+
+-   **[Proton Trace](examples/proton_trace/)** -- sample instruction histogram CSV, CUTracer log, and a README explaining the end-to-end proton instrumentation workflow for a Triton vector-add kernel
+
 ## Troubleshooting
 
 -   No CSV/log: check `CUDA_INJECTION64_PATH`, `KERNEL_FILTERS`, and write permissions
