@@ -50,6 +50,12 @@ std::string delay_load_path;
 // Trace output directory for dumping trace files (optional)
 std::string trace_output_dir;
 
+// Deadlock timeout in seconds (0 = disabled)
+uint32_t deadlock_timeout_s;
+
+// Trace file size limit in MB (0 = disabled)
+uint32_t trace_size_limit_mb;
+
 /**
  * @brief Parses a comma-separated string of kernel name filters for substring matching.
  *
@@ -475,6 +481,14 @@ void init_config_from_env() {
   get_var_str(instr_categories_str, "CUTRACER_INSTR_CATEGORIES", "",
               "Instruction categories to instrument (mma,tma,sync). Empty = all instructions");
   init_instr_categories(instr_categories_str);
+
+  // Deadlock timeout (seconds, 0 = disabled)
+  get_var_uint32(deadlock_timeout_s, "CUTRACER_DEADLOCK_TIMEOUT_S", 0,
+                 "Deadlock timeout in seconds (0 = disabled). Auto-terminate after sustained hang");
+
+  // Trace file size limit (MB, 0 = disabled)
+  get_var_uint32(trace_size_limit_mb, "CUTRACER_TRACE_SIZE_LIMIT_MB", 0,
+                 "Max trace file size in MB (0 = disabled). Auto-terminate when exceeded");
 
   std::string pad(100, '-');
   loprintf("%s\n", pad.c_str());

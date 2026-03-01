@@ -9,6 +9,7 @@
 
 #include <errno.h>
 #include <fcntl.h>
+#include <sys/stat.h>
 #include <unistd.h>
 
 #include <iomanip>
@@ -154,6 +155,21 @@ void TraceWriter::flush() {
     write_uncompressed();
   }
   // Mode 0 (text) doesn't buffer, so no flush needed
+}
+
+size_t TraceWriter::get_file_size_bytes() const {
+  if (fd_ >= 0) {
+    struct stat st;
+    if (fstat(fd_, &st) == 0) {
+      return static_cast<size_t>(st.st_size);
+    }
+  } else if (file_handle_) {
+    long pos = ftell(file_handle_);
+    if (pos >= 0) {
+      return static_cast<size_t>(pos);
+    }
+  }
+  return 0;
 }
 
 // ============================================================================

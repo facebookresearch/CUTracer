@@ -107,6 +107,17 @@ extern std::string trace_output_dir;
 // If set, only instructions in the specified categories are instrumented
 extern std::unordered_set<InstrCategory> enabled_instr_categories;
 
+// Deadlock timeout in seconds (0 = disabled)
+// When deadlock detection is active and a potential deadlock is detected for
+// longer than this timeout, the process is automatically terminated with SIGTERM.
+// Set via CUTRACER_DEADLOCK_TIMEOUT_S environment variable
+extern uint32_t deadlock_timeout_s;
+
+// Trace file size limit in MB (0 = disabled)
+// When the trace file exceeds this limit, the process is automatically terminated.
+// Set via CUTRACER_TRACE_SIZE_LIMIT_MB environment variable
+extern uint32_t trace_size_limit_mb;
+
 // Initialize instruction category filtering from environment variable
 void init_instr_categories(const std::string& categories_str);
 

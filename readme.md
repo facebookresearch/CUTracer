@@ -92,6 +92,12 @@ CUDA_INJECTION64_PATH=~/CUTracer/lib/cutracer.so \
 - `CUTRACER_DELAY_NS`: Fixed delay value in nanoseconds for race detection (required for `random_delay` analysis)
 - `CUTRACER_DELAY_DUMP_PATH`: Output path for delay config JSON file (for recording instrumentation patterns)
 - `CUTRACER_DELAY_LOAD_PATH`: Input path for delay config JSON file (for replay mode - deterministic reproduction)
+- `CUTRACER_DEADLOCK_TIMEOUT_S`: Deadlock timeout in seconds (default: 0 = disabled)
+    - When deadlock detection is active and a potential deadlock persists for longer than this value, the process is automatically terminated with SIGTERM
+    - Without this setting, termination relies on the default consecutive-hits heuristic (3 checks)
+- `CUTRACER_TRACE_SIZE_LIMIT_MB`: Maximum trace file size in MB (default: 0 = disabled)
+    - When any trace file exceeds this limit, the process is automatically terminated with SIGTERM
+    - Useful for preventing runaway trace files from filling disk (e.g., during deadlocked kernels)
 
 Note: The tool sets `CUDA_MANAGED_FORCE_DEVICE_ALLOC=1` to simplify channel memory handling.
 

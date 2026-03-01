@@ -974,9 +974,21 @@ static void check_kernel_hang(CTXstate* ctx_state, uint64_t current_kernel_launc
     print_warp_status_summary(ctx_state, current_kernel_launch_id);
     if (!ctx_state->deadlock_termination_initiated) {
       ctx_state->deadlock_consecutive_hits++;
-      if (ctx_state->deadlock_consecutive_hits >= 3) {
-        ctx_state->deadlock_termination_initiated = true;
+
+      // Determine whether to terminate: use timeout if configured, otherwise
+      // fall back to the default consecutive-hits heuristic (3 checks).
+      bool should_terminate = false;
+      if (deadlock_timeout_s > 0 && hang_time >= static_cast<time_t>(deadlock_timeout_s)) {
+        should_terminate = true;
+        loprintf("Deadlock timeout reached (%u seconds configured, %ld seconds elapsed); sending SIGTERM.\n",
+                 deadlock_timeout_s, hang_time);
+      } else if (deadlock_timeout_s == 0 && ctx_state->deadlock_consecutive_hits >= 3) {
+        should_terminate = true;
         loprintf("Deadlock sustained for %d checks; sending SIGTERM.\n", ctx_state->deadlock_consecutive_hits);
+      }
+
+      if (should_terminate) {
+        ctx_state->deadlock_termination_initiated = true;
         fflush(stdout);
         fflush(stderr);
         raise(SIGTERM);
@@ -987,6 +999,40 @@ static void check_kernel_hang(CTXstate* ctx_state, uint64_t current_kernel_launc
     }
   } else {
     ctx_state->deadlock_consecutive_hits = 0;
+  }
+}
+
+/**
+ * @brief Check if any trace file exceeds the configured size limit.
+ *
+ * When CUTRACER_TRACE_SIZE_LIMIT_MB is set to a non-zero value, this function
+ * checks all active TraceWriter instances for the given context. If any file
+ * exceeds the limit, the process is terminated with SIGTERM.
+ *
+ * @param ctx_state Pointer to the state for the current CUDA context.
+ */
+static void check_trace_size_limit(CTXstate* ctx_state) {
+  if (trace_size_limit_mb == 0) return;
+
+  size_t limit_bytes = static_cast<size_t>(trace_size_limit_mb) * 1024 * 1024;
+
+  std::shared_lock<std::shared_mutex> lock(ctx_state->writers_mutex);
+  for (const auto& pair : ctx_state->trace_writers) {
+    if (pair.second && pair.second->is_enabled()) {
+      size_t file_size = pair.second->get_file_size_bytes();
+      if (file_size > limit_bytes) {
+        loprintf(
+            "Trace file size limit exceeded: %zu bytes (limit: %u MB). "
+            "Terminating process.\n",
+            file_size, trace_size_limit_mb);
+        fflush(stdout);
+        fflush(stderr);
+        raise(SIGTERM);
+        sleep(2);
+        loprintf("Process still alive after SIGTERM; sending SIGKILL.\n");
+        raise(SIGKILL);
+      }
+    }
   }
 }
 
@@ -1290,6 +1336,9 @@ void* recv_thread_fun(void* args) {
     if (is_analysis_type_enabled(AnalysisType::DEADLOCK_DETECTION) && last_seen_kernel_launch_id != UINT64_MAX) {
       check_kernel_hang(ctx_state, last_seen_kernel_launch_id);
     }
+
+    // Check trace file size limit (if configured)
+    check_trace_size_limit(ctx_state);
   }
 
   // Dump data for the very last kernel if it exists.

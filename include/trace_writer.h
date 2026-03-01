@@ -265,6 +265,16 @@ class TraceWriter {
     return enabled_;
   }
 
+  /**
+   * @brief Get the current file size in bytes.
+   *
+   * Uses fstat()/ftell() to query the current on-disk size of the trace file.
+   * This includes data already flushed to disk but not buffered data.
+   *
+   * @return Current file size in bytes, or 0 if the file is not open.
+   */
+  size_t get_file_size_bytes() const;
+
  private:
   // ========== Output methods ==========
 
