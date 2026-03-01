@@ -109,6 +109,47 @@
         "maximum": 62
       },
       "description": "Uniform register indices corresponding to uregs values (e.g., [8, 9, 12, 13] means UR8, UR9, UR12, UR13)"
+    },
+    "preds": {
+      "type": "array",
+      "items": {
+        "type": "array",
+        "items": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 1
+        },
+        "minItems": 32,
+        "maxItems": 32
+      },
+      "description": "2D array of predicate register values [pred_index][thread_index], each value is 0 or 1"
+    },
+    "preds_indices": {
+      "type": "array",
+      "items": {
+        "type": "integer",
+        "minimum": 0,
+        "maximum": 6
+      },
+      "description": "Predicate register indices corresponding to preds values (e.g., [0, 1] means P0, P1)"
+    },
+    "upreds": {
+      "type": "array",
+      "items": {
+        "type": "integer",
+        "minimum": 0,
+        "maximum": 1
+      },
+      "description": "Optional uniform predicate register values (0 or 1), shared across the warp"
+    },
+    "upreds_indices": {
+      "type": "array",
+      "items": {
+        "type": "integer",
+        "minimum": 0,
+        "maximum": 6
+      },
+      "description": "Uniform predicate register indices corresponding to upreds values (e.g., [0, 1] means UP0, UP1)"
     }
   },
   "additionalProperties": false

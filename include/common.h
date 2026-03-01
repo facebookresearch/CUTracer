@@ -19,6 +19,10 @@
  * Increase if instructions with more operands need to be traced. */
 #define MAX_REG_OPERANDS 16
 #define MAX_UREG_OPERANDS 16
+/* Maximum number of predicate register operands per instruction.
+ * SASS has P0-P6 (7 per-thread predicates) and UP0-UP6 (7 uniform predicates). */
+#define MAX_PRED_OPERANDS 8
+#define MAX_UPRED_OPERANDS 8
 
 /* Message type enum to identify different message types */
 typedef enum {
@@ -52,6 +56,15 @@ typedef struct {
   uint64_t pc;                            // Instruction byte offset within the kernel (from Instr::getOffset())
   int32_t num_uregs;                      // Number of unified registers
   uint32_t ureg_vals[MAX_UREG_OPERANDS];  // Unified registers shared by all threads in the same warp
+
+  // Predicate register extensions
+  // Predicate registers are 1-bit per thread (true/false).
+  // pred_vals layout: [lane][pred_idx], each value is 0 or 1.
+  // upred_vals: uniform predicates, shared across all threads in the warp.
+  int32_t num_preds;                              // Number of predicate register operands
+  int32_t num_upreds;                             // Number of uniform predicate register operands
+  uint32_t pred_vals[32][MAX_PRED_OPERANDS];      // Per-thread predicate values (0 or 1)
+  uint32_t upred_vals[MAX_UPRED_OPERANDS];        // Uniform predicate values (0 or 1)
 } reg_info_t;
 
 /* Based on NVIDIA mem_trace example with Meta modifications for message type support */
@@ -125,8 +138,10 @@ typedef struct {
  * This avoids runtime overhead and buffer size increase for static data.
  */
 struct RegIndices {
-  std::vector<uint8_t> reg_indices;   // R register numbers: 0-254 (R0-R254)
-  std::vector<uint8_t> ureg_indices;  // UR register numbers: 0-62 (UR0-UR62)
+  std::vector<uint8_t> reg_indices;    // R register numbers: 0-254 (R0-R254)
+  std::vector<uint8_t> ureg_indices;   // UR register numbers: 0-62 (UR0-UR62)
+  std::vector<uint8_t> pred_indices;   // P predicate register numbers: 0-6 (P0-P6)
+  std::vector<uint8_t> upred_indices;  // UP uniform predicate register numbers: 0-6 (UP0-UP6)
 };
 
 #endif /* __cplusplus */

@@ -394,6 +394,12 @@ bool instrument_function_if_needed(CUcontext ctx, CUfunction func) {
             instrument_memory_value_trace(instr, opcode_id, ctx_state, mref_idx, mem_space);
           }
           mref_idx++;
+        } else if (op->type == InstrType::OperandType::PRED) {
+          operands.pred_nums.push_back(op->u.reg.num);
+          loprintf_v("  PRED operand[%d]: P%d\n", i, op->u.reg.num);
+        } else if (op->type == InstrType::OperandType::UPRED) {
+          operands.upred_nums.push_back(op->u.reg.num);
+          loprintf_v("  UPRED operand[%d]: UP%d\n", i, op->u.reg.num);
         }
       }
 
@@ -412,6 +418,14 @@ bool instrument_function_if_needed(CUcontext ctx, CUfunction func) {
         reg_idx.ureg_indices.reserve(operands.ureg_nums.size());
         for (int num : operands.ureg_nums) {
           reg_idx.ureg_indices.push_back(static_cast<uint8_t>(num));
+        }
+        reg_idx.pred_indices.reserve(operands.pred_nums.size());
+        for (int num : operands.pred_nums) {
+          reg_idx.pred_indices.push_back(static_cast<uint8_t>(num));
+        }
+        reg_idx.upred_indices.reserve(operands.upred_nums.size());
+        for (int num : operands.upred_nums) {
+          reg_idx.upred_indices.push_back(static_cast<uint8_t>(num));
         }
         ctx_state->id_to_reg_indices_map[f][opcode_id] = std::move(reg_idx);
       }

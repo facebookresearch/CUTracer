@@ -337,6 +337,49 @@ void TraceWriter::serialize_reg_info(nlohmann::json& j, const reg_info_t* reg, c
       j["uregs_indices"] = uregs_indices_array;
     }
   }
+
+  // Add predicate registers if present
+  // Predicate registers are 1-bit values (true/false) per thread.
+  // Layout matches regs: preds[pred_idx][thread_idx]
+  if (reg->num_preds > 0) {
+    json::array_t preds_array;
+    for (int pred_idx = 0; pred_idx < reg->num_preds; pred_idx++) {
+      json::array_t thread_vals;
+      for (int thread = 0; thread < 32; thread++) {
+        thread_vals.push_back(reg->pred_vals[thread][pred_idx]);
+      }
+      preds_array.push_back(thread_vals);
+    }
+    j["preds"] = preds_array;
+
+    // Add predicate register indices from CPU-side static mapping
+    if (indices && !indices->pred_indices.empty()) {
+      json::array_t preds_indices_array;
+      for (auto idx : indices->pred_indices) {
+        preds_indices_array.push_back(idx);
+      }
+      j["preds_indices"] = preds_indices_array;
+    }
+  }
+
+  // Add uniform predicate registers if present
+  // Uniform predicates are shared across all threads in the warp.
+  if (reg->num_upreds > 0) {
+    json::array_t upreds_array;
+    for (int i = 0; i < reg->num_upreds; i++) {
+      upreds_array.push_back(reg->upred_vals[i]);
+    }
+    j["upreds"] = upreds_array;
+
+    // Add uniform predicate register indices from CPU-side static mapping
+    if (indices && !indices->upred_indices.empty()) {
+      json::array_t upreds_indices_array;
+      for (auto idx : indices->upred_indices) {
+        upreds_indices_array.push_back(idx);
+      }
+      j["upreds_indices"] = upreds_indices_array;
+    }
+  }
 }
 
 void TraceWriter::serialize_mem_access(nlohmann::json& j, const mem_addr_access_t* mem) {
@@ -439,6 +482,24 @@ void TraceWriter::write_text_format(const TraceRecord& record) {
         fprintf(file_handle_, "  * UR: ");
         for (int i = 0; i < ri->num_uregs; i++) {
           fprintf(file_handle_, "UR%d: 0x%08x ", i, ri->ureg_vals[i]);
+        }
+        fprintf(file_handle_, "\n");
+      }
+
+      // Print predicate register values (if present)
+      for (int pred_idx = 0; pred_idx < ri->num_preds; pred_idx++) {
+        fprintf(file_handle_, "  * P%d: ", pred_idx);
+        for (int i = 0; i < 32; i++) {
+          fprintf(file_handle_, "T%02d:%d ", i, ri->pred_vals[i][pred_idx]);
+        }
+        fprintf(file_handle_, "\n");
+      }
+
+      // Print uniform predicate register values (if present)
+      if (ri->num_upreds > 0) {
+        fprintf(file_handle_, "  * UP: ");
+        for (int i = 0; i < ri->num_upreds; i++) {
+          fprintf(file_handle_, "UP%d:%d ", i, ri->upred_vals[i]);
         }
         fprintf(file_handle_, "\n");
       }

@@ -77,6 +77,9 @@ void instrument_register_trace(Instr* instr, int opcode_id, CTXstate* ctx_state,
   /* how many register values are passed next */
   nvbit_add_call_arg_const_val32(instr, operands.reg_nums.size());
   nvbit_add_call_arg_const_val32(instr, operands.ureg_nums.size());
+  /* how many predicate register values are passed next */
+  nvbit_add_call_arg_const_val32(instr, operands.pred_nums.size());
+  nvbit_add_call_arg_const_val32(instr, operands.upred_nums.size());
 
   // Pass register values (variadic)
   for (int num : operands.reg_nums) {
@@ -86,6 +89,15 @@ void instrument_register_trace(Instr* instr, int opcode_id, CTXstate* ctx_state,
   }
   for (int num : operands.ureg_nums) {
     nvbit_add_call_arg_ureg_val(instr, num, true);
+  }
+  // Pass predicate register values (variadic)
+  // NVBit provides nvbit_add_call_arg_pred_val() / nvbit_add_call_arg_upred_val()
+  // for reading predicate registers at runtime.
+  for (int num : operands.pred_nums) {
+    nvbit_add_call_arg_pred_val(instr, num, true);
+  }
+  for (int num : operands.upred_nums) {
+    nvbit_add_call_arg_upred_val(instr, num, true);
   }
 }
 
