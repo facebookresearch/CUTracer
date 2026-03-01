@@ -1,6 +1,19 @@
 #!/bin/bash
 # Usage: CUDA_INSTALL_PREFIX=/home/yhao/opt ./install_cuda.sh 12.8
+#        CUDA_INSTALL_PREFIX=/opt ./install_cuda.sh --arch aarch64 12.8
+#
 # Notice: Part of this script is synced with https://github.com/pytorch/pytorch/blob/main/.ci/docker/common/install_cuda.sh
+#
+# Architecture support:
+#   - x86_64: Standard x86-64 systems
+#   - aarch64 (sbsa): ARM64 server platforms including NVIDIA GB200 / Grace Hopper
+#
+# The architecture is auto-detected from `uname -m` but can be overridden:
+#   --arch <arch>     Explicitly set target architecture (x86_64|aarch64|arm64)
+#                     Useful for cross-compilation or container builds targeting
+#                     GB200 (aarch64) from an x86_64 host.
+#   TARGETARCH=<arch> Environment variable alternative to --arch
+#
 set -ex
 
 # Debug settings - log all execution steps
@@ -47,6 +60,21 @@ declare -A CUDA_RUNFILE=(
   ["12.9"]="cuda_12.9.1_575.57.08_linux"
   ["13.0"]="cuda_13.0.2_580.95.05_linux"
   ["13.1"]="cuda_13.1.1_590.48.01_linux"
+)
+
+# aarch64/sbsa runfile overrides: some CUDA versions ship with different driver
+# versions for ARM server platforms (e.g., NVIDIA GB200, Grace Hopper).
+# If a version is listed here, it takes precedence over CUDA_RUNFILE on sbsa.
+# The _sbsa suffix is already included; install_cuda will NOT append it again.
+#
+# To find sbsa runfile names, check:
+#   https://developer.download.nvidia.com/compute/cuda/<version>/local_installers/
+declare -A CUDA_RUNFILE_SBSA=(
+  ["12.6"]="cuda_12.6.3_560.35.05_linux_sbsa"
+  ["12.8"]="cuda_12.8.1_570.124.06_linux_sbsa"
+  ["12.9"]="cuda_12.9.1_575.57.08_linux_sbsa"
+  ["13.0"]="cuda_13.0.2_580.95.05_linux_sbsa"
+  ["13.1"]="cuda_13.1.1_590.48.01_linux_sbsa"
 )
 
 declare -A CUDNN_VERSIONS=(
@@ -120,14 +148,24 @@ trap cleanup_on_exit EXIT
 trap 'error_exit "Script interrupted"' INT TERM
 
 # Detect architecture
+# TARGETARCH can be set via environment variable or overridden with --arch flag.
+# On GB200 / Grace Hopper systems, uname -m returns 'aarch64' and the NVIDIA
+# download paths use the 'sbsa' (Server Base System Architecture) identifier.
 export TARGETARCH=${TARGETARCH:-$(uname -m)}
-if [ "${TARGETARCH}" = 'aarch64' ] || [ "${TARGETARCH}" = 'arm64' ]; then
-  ARCH_PATH='sbsa'
-else
-  ARCH_PATH='x86_64'
-fi
 
-echo "🏗️  Architecture: ${ARCH_PATH}"
+# resolve_arch: normalize architecture names and set ARCH_PATH
+function resolve_arch {
+  if [ "${TARGETARCH}" = 'aarch64' ] || [ "${TARGETARCH}" = 'arm64' ]; then
+    ARCH_PATH='sbsa'
+  elif [ "${TARGETARCH}" = 'x86_64' ]; then
+    ARCH_PATH='x86_64'
+  else
+    error_exit "Unsupported architecture: ${TARGETARCH}. Supported: x86_64, aarch64, arm64"
+  fi
+}
+
+resolve_arch
+echo "🏗️  Architecture: ${TARGETARCH} (download path: ${ARCH_PATH})"
 
 # Check if command exists
 function command_exists {
@@ -237,6 +275,21 @@ check_disk_space "${REQUIRED_DISK_SPACE_GB}"
 # Check network connectivity
 check_network
 
+# Validate that a remote URL is reachable (HTTP HEAD check)
+# Returns 0 if the URL returns HTTP 2xx/3xx, 1 otherwise.
+function validate_download_url {
+  local url=$1
+  local http_code
+
+  http_code=$(curl -s -o /dev/null -w "%{http_code}" --head --connect-timeout 10 "${url}" 2>/dev/null || echo "000")
+
+  if [[ "${http_code}" =~ ^(2|3)[0-9][0-9]$ ]]; then
+    return 0
+  else
+    return 1
+  fi
+}
+
 # Real CUDA installation function
 function install_cuda {
   local version=$1
@@ -246,14 +299,29 @@ function install_cuda {
   echo "Installing CUDA ${version}..."
   rm -rf "${CUDA_INSTALL_PREFIX}/cuda-${major_minor}" "${CUDA_INSTALL_PREFIX}/cuda"
 
-  if [[ ${ARCH_PATH} == 'sbsa' ]]; then
+  # Append the _sbsa suffix for aarch64 platforms (GB200, Grace Hopper, etc.)
+  # unless the runfile already includes it (e.g., from CUDA_RUNFILE_SBSA).
+  if [[ ${ARCH_PATH} == 'sbsa' ]] && [[ "${runfile}" != *_sbsa ]]; then
     runfile="${runfile}_sbsa"
   fi
   runfile="${runfile}.run"
 
+  local download_url="https://developer.download.nvidia.com/compute/cuda/${version}/local_installers/${runfile}"
+
+  # Pre-validate the download URL to provide a clear error message before
+  # attempting a large download, especially useful for aarch64/sbsa where
+  # some CUDA versions may not have runfiles available.
+  echo "Validating CUDA download URL for ${ARCH_PATH}..."
+  if ! validate_download_url "${download_url}"; then
+    error_exit "CUDA runfile not available at: ${download_url}
+  This may indicate that CUDA ${version} does not have a runfile for ${ARCH_PATH}.
+  If running on GB200/aarch64, verify the CUDA version supports sbsa."
+  fi
+  echo "✅ Download URL validated"
+
   echo "Downloading CUDA installation file: ${runfile}"
   # Use -c for resume support, -t 3 for retry, -q for quiet mode
-  if ! wget -c -t 3 -q "https://developer.download.nvidia.com/compute/cuda/${version}/local_installers/${runfile}" -O "${runfile}"; then
+  if ! wget -c -t 3 -q "${download_url}" -O "${runfile}"; then
     error_exit "CUDA installation file download failed: ${runfile}"
   fi
 
@@ -473,9 +541,18 @@ function install_cuda_version {
 
   # Get configuration for this version
   local cuda_full=${CUDA_FULL_VERSION[$version]}
-  local runfile=${CUDA_RUNFILE[$version]}
   local cudnn_ver=${CUDNN_VERSIONS[$version]}
   local cuda_major=${CUDA_MAJOR[$version]}
+
+  # Use architecture-specific runfile if available (e.g., GB200/sbsa may have
+  # different driver versions bundled with the CUDA toolkit).
+  local runfile
+  if [[ ${ARCH_PATH} == 'sbsa' ]] && [[ -n "${CUDA_RUNFILE_SBSA[$version]}" ]]; then
+    runfile=${CUDA_RUNFILE_SBSA[$version]}
+    echo "  Using sbsa-specific runfile: ${runfile}"
+  else
+    runfile=${CUDA_RUNFILE[$version]}
+  fi
 
   if [[ -z "$cuda_full" ]]; then
     error_exit "No configuration found for CUDA version: $version"
@@ -533,6 +610,43 @@ function install_cuda_version {
 
 
 
+# Usage / help message
+function print_usage {
+  echo "Usage: $0 [OPTIONS] [CUDA_VERSION]"
+  echo ""
+  echo "Install CUDA toolkit and related libraries (cuDNN, NCCL, cuSparseLt, nvSHMEM)."
+  echo ""
+  echo "Positional arguments:"
+  echo "  CUDA_VERSION        CUDA version to install (e.g., 12.8, 13.0)"
+  echo ""
+  echo "Options:"
+  echo "  --arch <ARCH>       Target architecture: x86_64, aarch64, or arm64"
+  echo "                      Default: auto-detected from uname -m"
+  echo "                      Use this for cross-compilation or when building containers"
+  echo "                      for GB200/Grace Hopper (aarch64) on an x86_64 host."
+  echo "  --help              Show this help message and exit"
+  echo ""
+  echo "Environment variables:"
+  echo "  CUDA_INSTALL_PREFIX Install prefix (default: \$HOME/opt)"
+  echo "  CUDA_VERSION        CUDA version (default: 12.8)"
+  echo "  TARGETARCH          Target architecture (overridden by --arch)"
+  echo "  INSTALL_NCCL        Set to 0 to skip NCCL (default: 1)"
+  echo "  NCCL_VERSION        NCCL version tag (default: v2.28.9-1)"
+  echo "  NVSHMEM_VERSION     nvSHMEM version (default: 3.4.5)"
+  echo ""
+  echo "Examples:"
+  echo "  # Install on x86_64 (auto-detected)"
+  echo "  CUDA_INSTALL_PREFIX=/opt ./install_cuda.sh 12.8"
+  echo ""
+  echo "  # Install for GB200 / Grace Hopper (aarch64)"
+  echo "  CUDA_INSTALL_PREFIX=/opt ./install_cuda.sh --arch aarch64 12.8"
+  echo ""
+  echo "  # Cross-compile for aarch64 from x86_64 host"
+  echo "  TARGETARCH=aarch64 CUDA_INSTALL_PREFIX=/opt ./install_cuda.sh 12.8"
+  echo ""
+  echo "Supported CUDA versions: ${VALID_VERSIONS[*]}"
+}
+
 # Main execution logic
 echo "🔧 ===== Parsing command line arguments ====="
 # Generate VALID_VERSIONS from the configuration arrays to keep them in sync
@@ -543,12 +657,30 @@ mapfile -t VALID_VERSIONS < <(printf '%s\n' "${VALID_VERSIONS[@]}" | sort -V)
 # Parse command line arguments
 while test $# -gt 0; do
   echo "Processing argument: $1"
-  if [[ " ${VALID_VERSIONS[*]} " =~ " $1 " ]]; then
-    CUDA_VERSION=$1
-    echo "Setting CUDA version to: $CUDA_VERSION"
-  else
-    error_exit "Invalid argument: $1, CUDA version must be one of: ${VALID_VERSIONS[*]}"
-  fi
+  case "$1" in
+    --arch)
+      shift
+      if [ $# -eq 0 ]; then
+        error_exit "--arch requires an argument (x86_64, aarch64, or arm64)"
+      fi
+      export TARGETARCH="$1"
+      resolve_arch
+      echo "Architecture overridden to: ${TARGETARCH} (download path: ${ARCH_PATH})"
+      ;;
+    --help|-h)
+      print_usage
+      exit 0
+      ;;
+    *)
+      if [[ " ${VALID_VERSIONS[*]} " =~ " $1 " ]]; then
+        CUDA_VERSION=$1
+        echo "Setting CUDA version to: $CUDA_VERSION"
+      else
+        error_exit "Invalid argument: $1, CUDA version must be one of: ${VALID_VERSIONS[*]}
+  Use --help for usage information."
+      fi
+      ;;
+  esac
   shift
 done
 
@@ -610,6 +742,7 @@ echo "⏱️  Total installation time: ${INSTALL_MINUTES}m ${INSTALL_SECONDS}s"
 echo "📊 ========================================="
 echo " 📋 CUDA & Related Libraries Installation Summary"
 echo "📊 ========================================="
+echo "  Architecture: ${TARGETARCH} (${ARCH_PATH})"
 echo "  CUDA        : ${CUDA_VERSION}"
 echo "  cuDNN       : ${INSTALLED_CUDNN_VERSION:-(not available)}"
 if [ "$INSTALL_NCCL" -eq 1 ]; then
