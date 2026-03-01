@@ -63,6 +63,12 @@ def validate_json_syntax(
                 except json.JSONDecodeError as e:
                     errors.append(f"Line {line_num}: JSON decode error - {e.msg}")
 
+    except UnicodeDecodeError as e:
+        errors.append(
+            f"UTF-8 decoding error at byte position {e.start}: "
+            f"invalid byte 0x{e.object[e.start]:02x} "
+            f"(this may indicate a corrupted or partially written trace file)"
+        )
     except Exception as e:
         errors.append(f"File reading error: {str(e)}")
 

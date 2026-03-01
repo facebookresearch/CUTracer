@@ -124,7 +124,7 @@ def open_trace_file(filepath: Union[str, Path]) -> Iterator[TextIO]:
                     yield text_stream
     else:
         # Plain text file
-        with open(filepath, "r", encoding="utf-8") as f:
+        with open(filepath, "r", encoding="utf-8", errors="replace") as f:
             yield f
 
 
