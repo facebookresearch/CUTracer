@@ -89,7 +89,7 @@ else
     ZSTD_LIB := -lzstd
 endif
 
-LIBS=-L$(NVBIT_PATH) -lnvbit $(ZSTD_LIB) -lpthread
+LIBS=-L$(NVBIT_PATH) -lnvbit $(ZSTD_LIB) -lpthread -ldl
 NVCC_PATH=-L $(subst bin/nvcc,lib64,$(shell which nvcc | tr -s /))
 
 # Identify inject_funcs.cu specifically
@@ -139,7 +139,7 @@ $(LIB_DIR):
 
 # Linking rule
 $(NVBIT_TOOL): $(OBJS) $(NVBIT_PATH)/libnvbit.a
-	$(NVCC) -arch=$(ARCH) $(DEBUG_FLAGS) $(OBJS) $(LIBS) $(NVCC_PATH) -Wno-deprecated-gpu-targets -lcuda -lcudart_static -shared -o $@
+	$(NVCC) -arch=$(ARCH) $(DEBUG_FLAGS) $(OBJS) $(LIBS) $(NVCC_PATH) -Wno-deprecated-gpu-targets -lcuda -lcudart_static -shared -Xcompiler -rdynamic -o $@
 
 # Compilation rule for regular CUDA files (excluding inject_funcs.cu)
 $(REGULAR_OBJS): $(OBJ_DIR)/%.o: $(SRC_DIR)/%.cu
