@@ -97,10 +97,10 @@ extern std::string delay_dump_path;
 // If set, instrumentation points will be read from this JSON file for replay mode
 extern std::string delay_load_path;
 
-// Trace output directory for dumping trace files (optional)
-// When set, trace files will be written to this directory instead of the current directory
-// Set via CUTRACER_TRACE_OUTPUT_DIR environment variable
-extern std::string trace_output_dir;
+// Output directory for all CUTracer files (trace files and log files)
+// When set, all output is written to this directory instead of the current directory
+// Set via CUTRACER_OUTPUT_DIR environment variable
+extern std::string output_dir;
 
 // Instruction category filtering for conditional instrumentation
 // If empty, all instructions are instrumented
