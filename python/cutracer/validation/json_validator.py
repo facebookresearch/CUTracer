@@ -51,7 +51,7 @@ def validate_json_syntax(
     errors: List[str] = []
 
     try:
-        with open_trace_file(filepath) as f:
+        with open_trace_file(filepath, encoding_errors="replace") as f:
             for line_num, line in enumerate(f, start=1):
                 line = line.strip()
                 if not line:
@@ -63,12 +63,6 @@ def validate_json_syntax(
                 except json.JSONDecodeError as e:
                     errors.append(f"Line {line_num}: JSON decode error - {e.msg}")
 
-    except UnicodeDecodeError as e:
-        errors.append(
-            f"UTF-8 decoding error at byte position {e.start}: "
-            f"invalid byte 0x{e.object[e.start]:02x} "
-            f"(this may indicate a corrupted or partially written trace file)"
-        )
     except Exception as e:
         errors.append(f"File reading error: {str(e)}")
 
@@ -123,7 +117,7 @@ def validate_json_schema(
     line_num = 0
 
     try:
-        with open_trace_file(filepath) as f:
+        with open_trace_file(filepath, encoding_errors="replace") as f:
             for line_num, line in enumerate(f, start=1):
                 line = line.strip()
                 if not line:
@@ -249,7 +243,7 @@ def validate_json_trace(filepath: Union[str, Path]) -> Dict[str, Any]:
     # record_count to keep parity with text mode (which has no metadata line).
     try:
         metadata_count = 0
-        with open_trace_file(filepath) as f:
+        with open_trace_file(filepath, encoding_errors="replace") as f:
             for line in f:
                 line = line.strip()
                 if not line:

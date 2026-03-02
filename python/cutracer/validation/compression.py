@@ -87,7 +87,9 @@ def get_trace_format(filepath: Union[str, Path]) -> tuple[str, str]:
 
 
 @contextmanager
-def open_trace_file(filepath: Union[str, Path]) -> Iterator[TextIO]:
+def open_trace_file(
+    filepath: Union[str, Path], encoding_errors: str = "strict"
+) -> Iterator[TextIO]:
     """
     Open a trace file, automatically handling compression.
 
@@ -96,6 +98,9 @@ def open_trace_file(filepath: Union[str, Path]) -> Iterator[TextIO]:
 
     Args:
         filepath: Path to the trace file
+        encoding_errors: Error handling for UTF-8 decoding (default: "strict").
+            Use "replace" to substitute invalid bytes with U+FFFD instead of
+            raising UnicodeDecodeError.
 
     Yields:
         Text stream for reading the file contents
@@ -120,11 +125,13 @@ def open_trace_file(filepath: Union[str, Path]) -> Iterator[TextIO]:
         dctx = zstd.ZstdDecompressor()
         with open(filepath, "rb") as binary_file:
             with dctx.stream_reader(binary_file) as reader:
-                with io.TextIOWrapper(reader, encoding="utf-8") as text_stream:
+                with io.TextIOWrapper(
+                    reader, encoding="utf-8", errors=encoding_errors
+                ) as text_stream:
                     yield text_stream
     else:
         # Plain text file
-        with open(filepath, "r", encoding="utf-8", errors="replace") as f:
+        with open(filepath, "r", encoding="utf-8", errors=encoding_errors) as f:
             yield f
 
 
