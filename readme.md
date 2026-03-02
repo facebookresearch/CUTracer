@@ -167,25 +167,6 @@ CUTracer supports dumping delay configurations to JSON for deterministic reprodu
 2. When a failure occurs, save the config file
 3. Replay with `CUTRACER_DELAY_LOAD_PATH=/tmp/config.json` to reproduce deterministically
 
-## Trace Output Fields
-
-### The `pc` Field (Program Counter / Instruction Offset)
-
-The `pc` field in trace output (both NDJSON and text formats) represents the **instruction byte offset within the kernel function**, not an absolute virtual address. Internally, NVBit provides the offset via `Instr::getOffset()`, and CUTracer records this value directly.
-
-In other words:
--   `pc` = byte offset of the instruction relative to the start of the kernel function
--   It is **not** a runtime virtual address (which would be `func_addr + offset`)
--   The kernel's runtime base address is available separately in the `func_addr` field of the `kernel_metadata` record written as the first line of each NDJSON trace file
-
-To reconstruct the full runtime virtual address of an instruction, combine the two:
-
-```
-runtime_address = kernel_metadata.func_addr + trace_record.pc
-```
-
-> **Note**: The field is named `pc` for historical reasons. A future version may rename it to `offset` or add a dedicated `offset` field for clarity. See [#40](https://github.com/facebookresearch/CUTracer/issues/40) for discussion.
-
 ## Troubleshooting
 
 -   No CSV/log: check `CUDA_INJECTION64_PATH`, `KERNEL_FILTERS`, and write permissions
