@@ -17,6 +17,8 @@
 
 #include <chrono>
 #include <map>
+#include <set>
+#include <sstream>
 #include <string>
 #include <unordered_map>
 #include <unordered_set>
@@ -627,7 +629,240 @@ static void clear_deadlock_state(CTXstate* ctx_state, uint64_t kernel_launch_id 
 }
 
 /**
+ * @brief Compress a sorted set of integer IDs into a JSON array of compact range strings.
+ *
+ * Consecutive IDs are collapsed into "start-end" strings; singletons become plain
+ * numbers. Example: {0,1,2,3,5,8,9,10} → ["0-3","5","8-10"]
+ */
+static nlohmann::json format_ranges_json(const std::set<int>& ids) {
+  using json = nlohmann::json;
+  json arr = json::array();
+  if (ids.empty()) return arr;
+
+  auto it = ids.begin();
+  int range_start = *it;
+  int range_end = *it;
+
+  for (++it; it != ids.end(); ++it) {
+    if (*it == range_end + 1) {
+      range_end = *it;
+    } else {
+      if (range_start == range_end) {
+        arr.push_back(std::to_string(range_start));
+      } else {
+        arr.push_back(std::to_string(range_start) + "-" + std::to_string(range_end));
+      }
+      range_start = range_end = *it;
+    }
+  }
+  if (range_start == range_end) {
+    arr.push_back(std::to_string(range_start));
+  } else {
+    arr.push_back(std::to_string(range_start) + "-" + std::to_string(range_end));
+  }
+  return arr;
+}
+
+/**
+ * @brief Build a JSON object for a single instruction record.
+ */
+static nlohmann::json build_instruction_json(const TraceRecordMerged& instr,
+                                             const std::map<int, std::string>* sass_map_for_func) {
+  using json = nlohmann::json;
+  json j;
+  uint64_t pc_val = instr.reg.pc;
+  j["pc"] = pc_val;
+
+  std::ostringstream hex_oss;
+  hex_oss << "0x" << std::hex << pc_val;
+  j["offset_hex"] = hex_oss.str();
+
+  const char* sass_cstr = "UNKNOWN";
+  if (sass_map_for_func && sass_map_for_func->count(instr.reg.opcode_id)) {
+    sass_cstr = sass_map_for_func->at(instr.reg.opcode_id).c_str();
+  }
+  j["mnemonic"] = std::string(sass_cstr);
+  j["has_mem"] = instr.has_mem;
+  return j;
+}
+
+/**
+ * @brief Build a JSON object for the most recent instruction in a warp's ring buffer.
+ */
+static nlohmann::json build_last_instruction_json(const WarpLoopState* loop_state,
+                                                  const std::map<int, std::string>* sass_map_for_func) {
+  using json = nlohmann::json;
+  if (!loop_state || loop_state->filled == 0) {
+    return nullptr;
+  }
+  int idx_last = (loop_state->head + (int)loop_state->filled + PC_HISTORY_LEN - 1) % PC_HISTORY_LEN;
+  const TraceRecordMerged& instr = loop_state->history[idx_last];
+  return build_instruction_json(instr, sass_map_for_func);
+}
+
+/**
+ * @brief Build and write JSON warp status summary to a file.
+ *
+ * Called when trace_format_ndjson != 0 (NDJSON/Zstd modes). Writes a structured
+ * JSON file with compact warp ID ranges, per-warp status, and loop body details.
+ */
+static void write_warp_status_json(CTXstate* ctx_state, uint64_t current_kernel_launch_id) {
+  using json = nlohmann::json;
+  time_t now = time(nullptr);
+
+  json root;
+  root["kernel_launch_id"] = current_kernel_launch_id;
+
+  // Resolve SASS map
+  const std::map<int, std::string>* sass_map_for_func = nullptr;
+  {
+    auto func_iter = kernel_launch_to_func_map.find(current_kernel_launch_id);
+    if (func_iter != kernel_launch_to_func_map.end()) {
+      CUfunction f_func = func_iter->second.second;
+      if (ctx_state->id_to_sass_map.count(f_func)) {
+        sass_map_for_func = &ctx_state->id_to_sass_map[f_func];
+      }
+    }
+  }
+
+  // Warp statistics
+  if (ctx_state->kernel_warp_tracking.count(current_kernel_launch_id)) {
+    const KernelWarpStats& stats = ctx_state->kernel_warp_tracking[current_kernel_launch_id];
+    size_t total_warps = stats.total_warps;
+    size_t finished_warps = stats.finished_warps.size();
+    size_t active_warps = ctx_state->active_warps.size();
+
+    std::set<int> finished_warp_ids;
+    std::set<int> active_warp_ids;
+    std::set<int> never_executed_warp_ids;
+
+    for (const WarpKey& key : stats.finished_warps) finished_warp_ids.insert(key.warp_id);
+    for (const WarpKey& key : ctx_state->active_warps) active_warp_ids.insert(key.warp_id);
+
+    std::set<int> all_seen_warp_ids;
+    for (const WarpKey& key : stats.all_seen_warps) all_seen_warp_ids.insert(key.warp_id);
+    for (uint32_t wid = 0; wid < total_warps; wid++) {
+      if (all_seen_warp_ids.count(wid) == 0) never_executed_warp_ids.insert(static_cast<int>(wid));
+    }
+
+    size_t never_executed = never_executed_warp_ids.size();
+
+    json warp_stats;
+    warp_stats["grid"] = {
+        {"x", stats.dimensions.gridDimX}, {"y", stats.dimensions.gridDimY}, {"z", stats.dimensions.gridDimZ}};
+    warp_stats["block"] = {
+        {"x", stats.dimensions.blockDimX}, {"y", stats.dimensions.blockDimY}, {"z", stats.dimensions.blockDimZ}};
+    warp_stats["summary"] = {{"total_warps", total_warps},
+                             {"finished_warps", finished_warps},
+                             {"finished_warps_pct", total_warps > 0 ? 100.0 * finished_warps / total_warps : 0.0},
+                             {"active_warps", active_warps},
+                             {"active_warps_pct", total_warps > 0 ? 100.0 * active_warps / total_warps : 0.0},
+                             {"never_executed_warps", never_executed},
+                             {"never_executed_warps_pct", total_warps > 0 ? 100.0 * never_executed / total_warps : 0.0}};
+    warp_stats["warp_id_ranges"] = {{"finished", format_ranges_json(finished_warp_ids)},
+                                    {"active", format_ranges_json(active_warp_ids)},
+                                    {"never_executed", format_ranges_json(never_executed_warp_ids)}};
+    root["warp_statistics"] = warp_stats;
+  }
+
+  // Per-warp details
+  json warps_array = json::array();
+  for (const auto& warp_key : ctx_state->active_warps) {
+    json warp_obj;
+    warp_obj["warp_id"] = warp_key.warp_id;
+    warp_obj["cta"] = {{"x", warp_key.cta_id_x}, {"y", warp_key.cta_id_y}, {"z", warp_key.cta_id_z}};
+
+    auto loop_iter = ctx_state->loop_states.find(warp_key);
+    bool is_looping = false;
+
+    if (loop_iter != ctx_state->loop_states.end() && loop_iter->second.loop_flag) {
+      is_looping = true;
+      time_t last_seen_secs = 0;
+      auto seen_it2 = ctx_state->last_seen_time_by_warp.find(warp_key);
+      if (seen_it2 != ctx_state->last_seen_time_by_warp.end()) last_seen_secs = now - seen_it2->second;
+
+      warp_obj["status"] = "LOOPING";
+      warp_obj["loop"] = {
+          {"period", loop_iter->second.last_period}, {"repeat", loop_iter->second.repeat_cnt}, {"last_seen_secs", last_seen_secs}};
+    }
+
+    time_t inactive_duration = 0;
+    auto seen_iter = ctx_state->last_seen_time_by_warp.find(warp_key);
+    if (seen_iter != ctx_state->last_seen_time_by_warp.end()) inactive_duration = now - seen_iter->second;
+    warp_obj["inactive_secs"] = inactive_duration;
+
+    if (!is_looping) {
+      bool is_barrier = false;
+      auto itBar = ctx_state->last_is_defer_blocking_by_warp.find(warp_key);
+      if (itBar != ctx_state->last_is_defer_blocking_by_warp.end()) is_barrier = itBar->second;
+
+      int period_val = 0, repeat_val = 0;
+      if (loop_iter != ctx_state->loop_states.end()) {
+        period_val = loop_iter->second.last_period;
+        repeat_val = loop_iter->second.repeat_cnt;
+      }
+
+      warp_obj["status"] = is_barrier ? "BARRIER" : "PROGRESSING";
+      warp_obj["loop"] = {{"period", period_val}, {"repeat", repeat_val}};
+
+      json last_instr = build_last_instruction_json(
+          loop_iter != ctx_state->loop_states.end() ? &loop_iter->second : nullptr, sass_map_for_func);
+      if (!last_instr.is_null()) warp_obj["last_instruction"] = last_instr;
+    }
+
+    auto exit_iter = ctx_state->exit_candidate_since_by_warp.find(warp_key);
+    if (exit_iter != ctx_state->exit_candidate_since_by_warp.end()) {
+      warp_obj["exit_candidate_secs"] = static_cast<time_t>(now - exit_iter->second);
+    }
+
+    // Loop body
+    if (loop_iter != ctx_state->loop_states.end() && loop_iter->second.loop_flag) {
+      const WarpLoopState& loop_state = loop_iter->second;
+      if (!loop_state.current_loop.instructions.empty()) {
+        json loop_body;
+        loop_body["instruction_count"] = loop_state.current_loop.period;
+        json instructions = json::array();
+        for (size_t i = 0;
+             i < static_cast<size_t>(loop_state.current_loop.period) && i < loop_state.current_loop.instructions.size();
+             ++i) {
+          json instr_obj = build_instruction_json(loop_state.current_loop.instructions[i], sass_map_for_func);
+          instr_obj["index"] = i;
+          instructions.push_back(instr_obj);
+        }
+        loop_body["instructions"] = instructions;
+        warp_obj["loop_body"] = loop_body;
+      }
+    }
+
+    warps_array.push_back(warp_obj);
+  }
+  root["active_warps"] = warps_array;
+
+  // Write to file
+  std::string filename = "warp_status_summary.json";
+  if (!trace_output_dir.empty()) {
+    filename = trace_output_dir;
+    if (filename.back() != '/') filename += "/";
+    filename += "warp_status_summary.json";
+  }
+
+  FILE* fp = fopen(filename.c_str(), "w");
+  if (fp) {
+    std::string json_str = root.dump(2);
+    fwrite(json_str.c_str(), 1, json_str.size(), fp);
+    fwrite("\n", 1, 1, fp);
+    fclose(fp);
+    loprintf("Warp status JSON written to %s\n", filename.c_str());
+  } else {
+    loprintf("WARNING: Failed to write warp status JSON to %s\n", filename.c_str());
+  }
+}
+
+/**
  * @brief Prints detailed status information for all active warps including loop states.
+ *
+ * When trace_format_ndjson == 0 (text mode), prints human-readable output via loprintf.
+ * When trace_format_ndjson != 0 (NDJSON/Zstd modes), writes structured JSON to a file.
  *
  * This function provides a comprehensive view of each warp's current state including:
  * - Basic warp identification (CTA coordinates, warp ID)
@@ -639,6 +874,13 @@ static void clear_deadlock_state(CTXstate* ctx_state, uint64_t kernel_launch_id 
  * @param current_kernel_launch_id The current kernel launch ID for context
  */
 static void print_warp_status_summary(CTXstate* ctx_state, uint64_t current_kernel_launch_id) {
+  // JSON mode: write structured output to file
+  if (trace_format_ndjson != 0) {
+    write_warp_status_json(ctx_state, current_kernel_launch_id);
+    return;
+  }
+
+  // Text mode: original human-readable output via loprintf
   time_t now = time(nullptr);
 
   // Print warp statistics if available
