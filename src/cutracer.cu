@@ -10,6 +10,7 @@
  */
 
 #include <assert.h>
+#include <cxxabi.h>
 #include <dlfcn.h>
 #include <execinfo.h>
 #include <pthread.h>
@@ -99,7 +100,7 @@ static bool generate_random_delay_enabled() {
  * @brief Capture the current CPU call stack using backtrace() and dladdr().
  *
  * Returns a vector of human-readable frame strings containing:
- * - Function name (demangled if available via dladdr)
+ * - Function name (demangled via abi::__cxa_demangle when possible)
  * - Shared object path
  * - Offset within the symbol
  *
@@ -125,13 +126,24 @@ static std::vector<std::string> capture_cpu_callstack(int max_frames = 64, int s
     std::ostringstream oss;
 
     if (dladdr(buffer[i], &info)) {
-      const char* fname = info.dli_sname ? info.dli_sname : "??";
       const char* soname = info.dli_fname ? info.dli_fname : "??";
       ptrdiff_t offset = 0;
       if (info.dli_saddr) {
         offset = static_cast<const char*>(buffer[i]) - static_cast<const char*>(info.dli_saddr);
       }
-      oss << fname << "+0x" << std::hex << offset << " (" << soname << ")";
+
+      // Attempt C++ name demangling for readable output
+      std::string display_name = info.dli_sname ? info.dli_sname : "??";
+      if (info.dli_sname) {
+        int status = 0;
+        char* demangled = abi::__cxa_demangle(info.dli_sname, nullptr, nullptr, &status);
+        if (status == 0 && demangled) {
+          display_name = demangled;
+          free(demangled);
+        }
+      }
+
+      oss << display_name << "+0x" << std::hex << offset << " (" << soname << ")";
     } else {
       // Fallback: use backtrace_symbols for this single frame
       char** symbols = backtrace_symbols(&buffer[i], 1);
@@ -621,7 +633,10 @@ static bool enter_kernel_launch(CUcontext ctx, CUfunction func, uint64_t& kernel
                                 void* params, bool stream_capture = false, bool build_graph = false) {
   // Capture the CPU call stack early, before synchronization, so it reflects
   // the actual application call site that triggered this kernel launch.
-  std::vector<std::string> cpu_callstack = capture_cpu_callstack();
+  std::vector<std::string> cpu_callstack;
+  if (cpu_callstack_enabled) {
+    cpu_callstack = capture_cpu_callstack();
+  }
 
   CTXstate* ctx_state = ctx_state_map[ctx];
   // no need to sync during stream capture or manual graph build, since no
@@ -985,7 +1000,10 @@ void nvbit_at_graph_node_launch(CUcontext ctx, CUfunction func, CUstream stream,
   kernel_launch_to_dimensions_map[global_kernel_launch_id] = dims;
 
   // Capture the CPU call stack for graph node launches as well
-  std::vector<std::string> cpu_callstack = capture_cpu_callstack();
+  std::vector<std::string> cpu_callstack;
+  if (cpu_callstack_enabled) {
+    cpu_callstack = capture_cpu_callstack();
+  }
 
   // Create TraceWriter for this graph node launch only if instrumentation is enabled
   // Otherwise, trace files would be empty (no data to write)

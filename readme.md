@@ -93,6 +93,8 @@ CUDA_INJECTION64_PATH=~/CUTracer/lib/cutracer.so \
 - `CUTRACER_DELAY_DUMP_PATH`: Output path for delay config JSON file (for recording instrumentation patterns)
 - `CUTRACER_DELAY_LOAD_PATH`: Input path for delay config JSON file (for replay mode - deterministic reproduction)
 - `CUTRACER_OUTPUT_DIR`: Output directory for all CUTracer files (trace files and log files). Defaults to the current directory. The directory must exist and be writable
+- `CUTRACER_CPU_CALLSTACK`: Enable/disable CPU call stack capture at each kernel launch (default: 1 = enabled)
+    - When enabled, the `kernel_metadata` trace event includes a `cpu_callstack` array with demangled C++ frame names
 
 Note: The tool sets `CUDA_MANAGED_FORCE_DEVICE_ALLOC=1` to simplify channel memory handling.
 
