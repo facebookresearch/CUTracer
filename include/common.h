@@ -61,7 +61,7 @@ typedef struct {
   int cta_id_x;
   int cta_id_y;
   int cta_id_z;
-  uint64_t pc;              // Instruction byte offset within the kernel (from Instr::getOffset())
+  uint64_t pc;  // Instruction byte offset within the kernel (from Instr::getOffset())
   int warp_id;
   int opcode_id;
   uint64_t addrs[32];
@@ -83,7 +83,7 @@ typedef struct {
   int cta_id_x;
   int cta_id_y;
   int cta_id_z;
-  uint64_t pc;              // Instruction byte offset within the kernel (from Instr::getOffset())
+  uint64_t pc;  // Instruction byte offset within the kernel (from Instr::getOffset())
   int warp_id;
   int opcode_id;
   int mem_space;           // Memory space: GLOBAL=1, SHARED=4, LOCAL=5 (matches InstrType::MemorySpace)
@@ -107,7 +107,7 @@ typedef struct {
   int cta_id_x;
   int cta_id_y;
   int cta_id_z;
-  uint64_t pc;              // Instruction byte offset within the kernel (from Instr::getOffset())
+  uint64_t pc;  // Instruction byte offset within the kernel (from Instr::getOffset())
   int warp_id;
   int opcode_id;
 } opcode_only_t;
@@ -150,7 +150,7 @@ typedef struct {
   int cta_id_x;
   int cta_id_y;
   int cta_id_z;
-  uint64_t pc;              // Instruction byte offset within the kernel (from Instr::getOffset())
+  uint64_t pc;  // Instruction byte offset within the kernel (from Instr::getOffset())
   int warp_id;
   int opcode_id;
 
