@@ -377,8 +377,8 @@ bool has_category_filter_enabled() {
  * If not set, all output files are written to the current directory.
  *
  * This must run before init_log_handle() so the main log file is placed
- * in the configured directory. Because the logger is not yet available,
- * diagnostics use printf/fprintf directly.
+ * in the configured directory. Fatal errors use fprintf(stderr) directly
+ * since the logger is not yet available.
  */
 void init_output_dir() {
   // Read directly with getenv() because this runs before init_log_handle(),
@@ -387,8 +387,6 @@ void init_output_dir() {
   if (env_val) {
     output_dir = std::string(env_val);
   }
-  printf("CUTRACER_OUTPUT_DIR = %s (Output directory for all files (default: current directory))\n",
-         output_dir.empty() ? "" : output_dir.c_str());
 
   if (!output_dir.empty()) {
     fs::path dir_path(output_dir);
@@ -426,6 +424,8 @@ void init_config_from_env() {
   init_output_dir();
   // Initialize log handle
   init_log_handle();
+  // Log after init so it appears in both stdout and the log file
+  loprintf("CUTRACER_OUTPUT_DIR = %s\n", output_dir.empty() ? "(not set)" : output_dir.c_str());
   // Get other configuration variables
   get_var_int(verbose, "TOOL_VERBOSE", 0, "Enable verbosity inside the tool");
   int dump_cubin_int = 0;
