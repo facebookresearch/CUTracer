@@ -108,8 +108,9 @@ extern std::string trace_output_dir;
 extern std::unordered_set<InstrCategory> enabled_instr_categories;
 
 // Deadlock timeout in seconds (0 = disabled)
-// When deadlock detection is active and a potential deadlock is detected for
-// longer than this timeout, the process is automatically terminated with SIGTERM.
+// When deadlock detection is active and a kernel runs longer than this timeout,
+// the process is automatically terminated with SIGTERM. Acts as a fallback
+// safety net independent of the heuristic-based hang detection.
 // Set via CUTRACER_DEADLOCK_TIMEOUT_S environment variable
 extern uint32_t deadlock_timeout_s;
 

@@ -164,9 +164,9 @@ size_t TraceWriter::get_file_size_bytes() const {
       return static_cast<size_t>(st.st_size);
     }
   } else if (file_handle_) {
-    long pos = ftell(file_handle_);
-    if (pos >= 0) {
-      return static_cast<size_t>(pos);
+    struct stat st;
+    if (fstat(fileno(file_handle_), &st) == 0) {
+      return static_cast<size_t>(st.st_size);
     }
   }
   return 0;

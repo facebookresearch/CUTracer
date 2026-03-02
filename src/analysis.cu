@@ -963,6 +963,7 @@ static void check_kernel_hang(CTXstate* ctx_state, uint64_t current_kernel_launc
     candidate_hang = true;
   }
 
+  // Layer 1: Heuristic — fast kill for known patterns (all warps stuck)
   if (candidate_hang) {
     time_t hang_time = 0;
     if (!ctx_state->loop_states.empty()) {
@@ -974,20 +975,8 @@ static void check_kernel_hang(CTXstate* ctx_state, uint64_t current_kernel_launc
     print_warp_status_summary(ctx_state, current_kernel_launch_id);
     if (!ctx_state->deadlock_termination_initiated) {
       ctx_state->deadlock_consecutive_hits++;
-
-      // Determine whether to terminate: use timeout if configured, otherwise
-      // fall back to the default consecutive-hits heuristic (3 checks).
-      bool should_terminate = false;
-      if (deadlock_timeout_s > 0 && hang_time >= static_cast<time_t>(deadlock_timeout_s)) {
-        should_terminate = true;
-        loprintf("Deadlock timeout reached (%u seconds configured, %ld seconds elapsed); sending SIGTERM.\n",
-                 deadlock_timeout_s, hang_time);
-      } else if (deadlock_timeout_s == 0 && ctx_state->deadlock_consecutive_hits >= 3) {
-        should_terminate = true;
+      if (ctx_state->deadlock_consecutive_hits >= 3) {
         loprintf("Deadlock sustained for %d checks; sending SIGTERM.\n", ctx_state->deadlock_consecutive_hits);
-      }
-
-      if (should_terminate) {
         ctx_state->deadlock_termination_initiated = true;
         fflush(stdout);
         fflush(stderr);
@@ -999,6 +988,25 @@ static void check_kernel_hang(CTXstate* ctx_state, uint64_t current_kernel_launc
     }
   } else {
     ctx_state->deadlock_consecutive_hits = 0;
+  }
+
+  // Layer 2: Timeout — fallback kill for unknown patterns.
+  // Tracks kernel wall-clock time independently of warp analysis, so it catches
+  // novel deadlocks where some warps still appear to be "progressing".
+  if (deadlock_timeout_s > 0 && !ctx_state->deadlock_termination_initiated && ctx_state->kernel_start_time > 0) {
+    time_t kernel_running_time = now - ctx_state->kernel_start_time;
+    if (kernel_running_time >= static_cast<time_t>(deadlock_timeout_s)) {
+      loprintf("Deadlock timeout reached: kernel running for %ld seconds (limit: %u seconds); sending SIGTERM.\n",
+               kernel_running_time, deadlock_timeout_s);
+      print_warp_status_summary(ctx_state, current_kernel_launch_id);
+      ctx_state->deadlock_termination_initiated = true;
+      fflush(stdout);
+      fflush(stderr);
+      raise(SIGTERM);
+      sleep(2);
+      loprintf("Process still alive after SIGTERM; sending SIGKILL.\n");
+      raise(SIGKILL);
+    }
   }
 }
 
@@ -1083,6 +1091,9 @@ void* recv_thread_fun(void* args) {
   // Used to detect when a new kernel begins.
   uint64_t last_seen_kernel_launch_id = UINT64_MAX;  // Initial invalid value
 
+  // Throttle counter for trace size limit checks (every 10,000 iterations)
+  uint64_t size_check_counter = 0;
+
   while (ctx_state->recv_thread_done == RecvThreadState::WORKING) {
     uint32_t num_recv_bytes = ch_host->recv(recv_buffer, CHANNEL_SIZE);
 
@@ -1155,6 +1166,7 @@ void* recv_thread_fun(void* args) {
             WarpKey key = {ri->cta_id_x, ri->cta_id_y, ri->cta_id_z, ri->warp_id};
             if (is_new_kernel) {
               ctx_state->last_hang_check_time = time(nullptr);
+              ctx_state->kernel_start_time = time(nullptr);
             }
             ctx_state->active_warps.insert(key);
             // Update last seen time for this warp
@@ -1337,8 +1349,10 @@ void* recv_thread_fun(void* args) {
       check_kernel_hang(ctx_state, last_seen_kernel_launch_id);
     }
 
-    // Check trace file size limit (if configured)
-    check_trace_size_limit(ctx_state);
+    // Check trace file size limit (if configured), throttled to every 10,000 iterations
+    if (trace_size_limit_mb > 0 && ++size_check_counter % 10000 == 0) {
+      check_trace_size_limit(ctx_state);
+    }
   }
 
   // Dump data for the very last kernel if it exists.

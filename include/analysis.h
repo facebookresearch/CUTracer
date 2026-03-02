@@ -266,6 +266,7 @@ struct CTXstate {
   std::unordered_map<WarpKey, bool, WarpKey::Hash> last_is_defer_blocking_by_warp;
 
   // Deadlock handling
+  time_t kernel_start_time = 0;
   int deadlock_consecutive_hits = 0;
   bool deadlock_termination_initiated = false;
 
