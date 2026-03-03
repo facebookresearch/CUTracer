@@ -1,6 +1,6 @@
 #!/bin/bash
 # Usage: CUDA_INSTALL_PREFIX=/home/yhao/opt ./install_cuda.sh 12.8
-#        CUDA_INSTALL_PREFIX=/opt ./install_cuda.sh --arch aarch64 12.8
+#        TARGETARCH=aarch64 CUDA_INSTALL_PREFIX=/opt ./install_cuda.sh 12.8
 #
 # Notice: Part of this script is synced with https://github.com/pytorch/pytorch/blob/main/.ci/docker/common/install_cuda.sh
 #
@@ -8,11 +8,10 @@
 #   - x86_64: Standard x86-64 systems
 #   - aarch64 (sbsa): ARM64 server platforms including NVIDIA GB200 / Grace Hopper
 #
-# The architecture is auto-detected from `uname -m` but can be overridden:
-#   --arch <arch>     Explicitly set target architecture (x86_64|aarch64|arm64)
-#                     Useful for cross-compilation or container builds targeting
-#                     GB200 (aarch64) from an x86_64 host.
-#   TARGETARCH=<arch> Environment variable alternative to --arch
+# Architecture is auto-detected from `uname -m` but can be overridden via:
+#   TARGETARCH=<arch>  Set target architecture (x86_64|aarch64|arm64)
+#                      Useful for cross-compilation or container builds targeting
+#                      GB200 (aarch64) from an x86_64 host.
 #
 set -ex
 
@@ -148,7 +147,7 @@ trap cleanup_on_exit EXIT
 trap 'error_exit "Script interrupted"' INT TERM
 
 # Detect architecture
-# TARGETARCH can be set via environment variable or overridden with --arch flag.
+# TARGETARCH can be set via environment variable to override auto-detection.
 # On GB200 / Grace Hopper systems, uname -m returns 'aarch64' and the NVIDIA
 # download paths use the 'sbsa' (Server Base System Architecture) identifier.
 export TARGETARCH=${TARGETARCH:-$(uname -m)}
@@ -610,43 +609,6 @@ function install_cuda_version {
 
 
 
-# Usage / help message
-function print_usage {
-  echo "Usage: $0 [OPTIONS] [CUDA_VERSION]"
-  echo ""
-  echo "Install CUDA toolkit and related libraries (cuDNN, NCCL, cuSparseLt, nvSHMEM)."
-  echo ""
-  echo "Positional arguments:"
-  echo "  CUDA_VERSION        CUDA version to install (e.g., 12.8, 13.0)"
-  echo ""
-  echo "Options:"
-  echo "  --arch <ARCH>       Target architecture: x86_64, aarch64, or arm64"
-  echo "                      Default: auto-detected from uname -m"
-  echo "                      Use this for cross-compilation or when building containers"
-  echo "                      for GB200/Grace Hopper (aarch64) on an x86_64 host."
-  echo "  --help              Show this help message and exit"
-  echo ""
-  echo "Environment variables:"
-  echo "  CUDA_INSTALL_PREFIX Install prefix (default: \$HOME/opt)"
-  echo "  CUDA_VERSION        CUDA version (default: 12.8)"
-  echo "  TARGETARCH          Target architecture (overridden by --arch)"
-  echo "  INSTALL_NCCL        Set to 0 to skip NCCL (default: 1)"
-  echo "  NCCL_VERSION        NCCL version tag (default: v2.28.9-1)"
-  echo "  NVSHMEM_VERSION     nvSHMEM version (default: 3.4.5)"
-  echo ""
-  echo "Examples:"
-  echo "  # Install on x86_64 (auto-detected)"
-  echo "  CUDA_INSTALL_PREFIX=/opt ./install_cuda.sh 12.8"
-  echo ""
-  echo "  # Install for GB200 / Grace Hopper (aarch64)"
-  echo "  CUDA_INSTALL_PREFIX=/opt ./install_cuda.sh --arch aarch64 12.8"
-  echo ""
-  echo "  # Cross-compile for aarch64 from x86_64 host"
-  echo "  TARGETARCH=aarch64 CUDA_INSTALL_PREFIX=/opt ./install_cuda.sh 12.8"
-  echo ""
-  echo "Supported CUDA versions: ${VALID_VERSIONS[*]}"
-}
-
 # Main execution logic
 echo "🔧 ===== Parsing command line arguments ====="
 # Generate VALID_VERSIONS from the configuration arrays to keep them in sync
@@ -654,35 +616,15 @@ VALID_VERSIONS=("${!CUDA_FULL_VERSION[@]}")
 # Sort the versions for consistent ordering
 mapfile -t VALID_VERSIONS < <(printf '%s\n' "${VALID_VERSIONS[@]}" | sort -V)
 
-# Parse command line arguments
-while test $# -gt 0; do
-  echo "Processing argument: $1"
-  case "$1" in
-    --arch)
-      shift
-      if [ $# -eq 0 ]; then
-        error_exit "--arch requires an argument (x86_64, aarch64, or arm64)"
-      fi
-      export TARGETARCH="$1"
-      resolve_arch
-      echo "Architecture overridden to: ${TARGETARCH} (download path: ${ARCH_PATH})"
-      ;;
-    --help|-h)
-      print_usage
-      exit 0
-      ;;
-    *)
-      if [[ " ${VALID_VERSIONS[*]} " =~ " $1 " ]]; then
-        CUDA_VERSION=$1
-        echo "Setting CUDA version to: $CUDA_VERSION"
-      else
-        error_exit "Invalid argument: $1, CUDA version must be one of: ${VALID_VERSIONS[*]}
-  Use --help for usage information."
-      fi
-      ;;
-  esac
-  shift
-done
+# Parse positional CUDA version argument
+if [ $# -gt 0 ]; then
+  if [[ " ${VALID_VERSIONS[*]} " =~ " $1 " ]]; then
+    CUDA_VERSION=$1
+    echo "Setting CUDA version to: $CUDA_VERSION"
+  else
+    error_exit "Invalid CUDA version: $1. Must be one of: ${VALID_VERSIONS[*]}"
+  fi
+fi
 
 # Note: Version validation is already done in the while loop above
 # No need for redundant validation here
