@@ -124,3 +124,7 @@ tests/unit/test_instr_category
 !python/tests/example_inputs/*.ndjson
 !python/tests/example_inputs/*.log
 !python/tests/example_inputs/*.zst
+
+# Exception for example trace files
+!examples/proton_trace/*.csv
+!examples/proton_trace/*.log

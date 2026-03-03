@@ -1,0 +1,19 @@
+[2025-06-15 14:32:01.102] [CUTracer] Initializing CUTracer v0.3.0
+[2025-06-15 14:32:01.103] [CUTracer] Environment: CUTRACER_ANALYSIS=proton_instr_histogram
+[2025-06-15 14:32:01.103] [CUTracer] Environment: KERNEL_FILTERS=add_kernel
+[2025-06-15 14:32:01.103] [CUTracer] Environment: TRACE_FORMAT_NDJSON=0
+[2025-06-15 14:32:01.104] [CUTracer] Proton instruction histogram analysis enabled (auto-enabling opcode_only)
+[2025-06-15 14:32:01.104] [CUTracer] CUDA_MANAGED_FORCE_DEVICE_ALLOC=1 set for channel memory
+[2025-06-15 14:32:03.218] [CUTracer] CTX 0x563a1b200000 - Kernel name: _ZN2at6native13vectorized...memcpy_kernel - SKIPPED (no filter match)
+[2025-06-15 14:32:03.340] [CUTracer] CTX 0x563a1b200000 - Kernel name: add_kernel_0d1d2d3d4 - MATCH filter 'add_kernel'
+[2025-06-15 14:32:03.340] [CUTracer] CTX 0x563a1b200000 - LAUNCH kernel hash 0x7fa21c3 grid size 97,1,1 block size 32,1,1
+[2025-06-15 14:32:03.341] [CUTracer] Instrumenting 42 SASS instructions for kernel add_kernel_0d1d2d3d4
+[2025-06-15 14:32:03.345] [CUTracer] Instruction histogram: found 2 clock-delimited regions
+[2025-06-15 14:32:03.482] [CUTracer] Histogram flush: 97 warps, 2 regions, 1746 total instruction records
+[2025-06-15 14:32:03.483] [CUTracer] Written: kernel_7fa21c3_add_kernel_hist.csv
+[2025-06-15 14:32:03.610] [CUTracer] CTX 0x563a1b200000 - Kernel name: add_kernel_0d1d2d3d4 - MATCH filter 'add_kernel'
+[2025-06-15 14:32:03.610] [CUTracer] CTX 0x563a1b200000 - LAUNCH kernel hash 0x7fa21c3 grid size 97,1,1 block size 32,1,1
+[2025-06-15 14:32:03.611] [CUTracer] Instrumenting 42 SASS instructions for kernel add_kernel_0d1d2d3d4 (cached)
+[2025-06-15 14:32:03.750] [CUTracer] Histogram flush: 97 warps, 2 regions, 1746 total instruction records
+[2025-06-15 14:32:03.751] [CUTracer] Written: kernel_7fa21c3_add_kernel_hist.csv
+[2025-06-15 14:32:03.752] [CUTracer] Finalizing: 2 kernel launches traced, 2 matched filter
