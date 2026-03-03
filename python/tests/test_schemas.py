@@ -10,6 +10,7 @@ import unittest
 import jsonschema
 from cutracer.validation.schema_loader import (
     DELAY_CONFIG_SCHEMA,
+    KERNEL_METADATA_SCHEMA,
     MEM_ACCESS_SCHEMA,
     OPCODE_ONLY_SCHEMA,
     REG_INFO_SCHEMA,
@@ -23,7 +24,7 @@ class SchemaTest(unittest.TestCase):
 
     def test_schemas_contain_all_types(self):
         """Test that SCHEMAS_BY_TYPE contains all expected message types."""
-        expected_types = ["reg_trace", "mem_trace", "opcode_only"]
+        expected_types = ["reg_trace", "mem_trace", "opcode_only", "kernel_metadata"]
         for msg_type in expected_types:
             self.assertIn(msg_type, SCHEMAS_BY_TYPE)
 
@@ -59,6 +60,64 @@ class SchemaTest(unittest.TestCase):
         # opcode_only should NOT have regs or addrs
         self.assertNotIn("regs", OPCODE_ONLY_SCHEMA.get("required", []))
         self.assertNotIn("addrs", OPCODE_ONLY_SCHEMA.get("required", []))
+
+
+class KernelMetadataSchemaTest(unittest.TestCase):
+    """Tests for kernel_metadata schema."""
+
+    def test_valid_kernel_metadata_passes(self):
+        """Test that a valid kernel_metadata record passes schema validation."""
+        valid_record = {
+            "type": "kernel_metadata",
+            "mangled_name": "_Z6kernelPfS_i",
+            "unmangled_name": "kernel(float*, float*, int)",
+            "kernel_checksum": "a1b2c3d4e5f67890",
+            "func_addr": "0x7f1234567890",
+            "nregs": 32,
+            "shmem_static": 0,
+            "grid": [128, 1, 1],
+            "block": [256, 1, 1],
+            "shmem_dynamic": 0,
+        }
+        jsonschema.validate(valid_record, KERNEL_METADATA_SCHEMA)
+
+    def test_valid_kernel_metadata_with_callstack_passes(self):
+        """Test that kernel_metadata with cpu_callstack passes validation."""
+        valid_record = {
+            "type": "kernel_metadata",
+            "mangled_name": "_Z6kernelPfS_i",
+            "unmangled_name": "kernel(float*, float*, int)",
+            "kernel_checksum": "a1b2c3d4e5f67890",
+            "func_addr": "0x7f1234567890",
+            "nregs": 32,
+            "shmem_static": 0,
+            "grid": [128, 1, 1],
+            "block": [256, 1, 1],
+            "shmem_dynamic": 0,
+            "cpu_callstack": [
+                "cudaLaunchKernel+0x1a2",
+                "main+0x45",
+            ],
+        }
+        jsonschema.validate(valid_record, KERNEL_METADATA_SCHEMA)
+
+    def test_unexpected_field_fails(self):
+        """Test that unexpected additional properties fail validation."""
+        invalid_record = {
+            "type": "kernel_metadata",
+            "mangled_name": "_Z6kernelPfS_i",
+            "unmangled_name": "kernel(float*, float*, int)",
+            "kernel_checksum": "a1b2c3d4e5f67890",
+            "func_addr": "0x7f1234567890",
+            "nregs": 32,
+            "shmem_static": 0,
+            "grid": [128, 1, 1],
+            "block": [256, 1, 1],
+            "shmem_dynamic": 0,
+            "unknown_field": "should_fail",
+        }
+        with self.assertRaises(jsonschema.ValidationError):
+            jsonschema.validate(invalid_record, KERNEL_METADATA_SCHEMA)
 
 
 class DelayConfigSchemaTest(unittest.TestCase):
