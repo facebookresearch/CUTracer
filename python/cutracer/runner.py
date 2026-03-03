@@ -260,6 +260,7 @@ def trace_command(
       cutracer trace -i tma_trace --instr-categories=tma --trace-format=2 -- ./my_app
       cutracer trace -i reg_trace --kernel-filters=matmul_kernel -- python -m pytest test.py
       cutracer trace -i tma_trace --cutracer-so=/path/to/cutracer.so -- ./app
+      cutracer trace -i tma_trace -- CUDA_VISIBLE_DEVICES=6 TRITON_PRINT_AUTOTUNING=1 python3 test.py
     """
     if not cmd:
         raise click.UsageError(
@@ -268,7 +269,7 @@ def trace_command(
 
     so_path = resolve_cutracer_so(cutracer_so)
 
-    env = _build_cutracer_env(
+    run_env = _build_cutracer_env(
         cutracer_so=so_path,
         instrument=instrument,
         analysis=analysis,
@@ -283,9 +284,20 @@ def trace_command(
         delay_load_path=delay_load_path,
     )
 
-    _print_config_summary(env)
-    click.echo(f"Running: {' '.join(cmd)}")
+    _print_config_summary(run_env)
+
+    # Join all args into a single shell command string and execute via bash.
+    # This lets shell-style syntax work naturally:
+    #   VAR=value cmd args    (env var assignment)
+    #   cmd1 | cmd2           (pipes)
+    #   cmd1 && cmd2          (chaining)
+    import shlex
+    import subprocess
+    import sys
+
+    cmd_string = shlex.join(cmd)
+    click.echo(f"Running: {cmd_string}")
     click.echo("=" * 60)
 
-    # Replace current process with the user's command
-    os.execvpe(cmd[0], list(cmd), env)
+    result = subprocess.run(cmd_string, shell=True, env=run_env)
+    sys.exit(result.returncode)
