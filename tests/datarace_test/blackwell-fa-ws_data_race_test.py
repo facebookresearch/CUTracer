@@ -18,7 +18,12 @@ import triton
 import triton.language as tl
 import triton.language.extra.tlx as tlx
 from triton.tools.tensor_descriptor import TensorDescriptor
-
+import tritonparse.structured_logging
+tritonparse.structured_logging.init(
+    "./logs/",
+    enable_trace_launch=True,                 # Capture kernel launch events (enables torch.compile tracing automatically)
+    enable_more_tensor_information=True,      # Optional: collect tensor statistics (min/max/mean/std)
+)
 logger = logging.getLogger(__name__)
 
 
