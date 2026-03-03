@@ -105,6 +105,10 @@ TraceWriter::~TraceWriter() {
 
   // Close file descriptor (Mode 1/2/3)
   if (fd_ >= 0) {
+    // Ensure all buffered data is persisted to disk before closing.
+    // This replaces the per-write fsync in write_data() which caused
+    // excessive I/O pressure and potential partial writes under load.
+    fsync(fd_);
     close(fd_);
     fd_ = -1;
   }
@@ -205,8 +209,6 @@ bool TraceWriter::write_data(const char* data, size_t size, const char* data_typ
     total_written += written;
   }
 
-  // Force data to disk (optional but recommended for reliability)
-  fsync(fd_);
   return true;
 }
 
