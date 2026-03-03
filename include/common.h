@@ -61,10 +61,10 @@ typedef struct {
   // Predicate registers are 1-bit per thread (true/false).
   // pred_vals layout: [lane][pred_idx], each value is 0 or 1.
   // upred_vals: uniform predicates, shared across all threads in the warp.
-  int32_t num_preds;                              // Number of predicate register operands
-  int32_t num_upreds;                             // Number of uniform predicate register operands
-  uint32_t pred_vals[32][MAX_PRED_OPERANDS];      // Per-thread predicate values (0 or 1)
-  uint32_t upred_vals[MAX_UPRED_OPERANDS];        // Uniform predicate values (0 or 1)
+  int32_t num_preds;                          // Number of predicate register operands
+  int32_t num_upreds;                         // Number of uniform predicate register operands
+  uint32_t pred_vals[32][MAX_PRED_OPERANDS];  // Per-thread predicate values (0 or 1)
+  uint32_t upred_vals[MAX_UPRED_OPERANDS];    // Uniform predicate values (0 or 1)
 } reg_info_t;
 
 /* Based on NVIDIA mem_trace example with Meta modifications for message type support */
