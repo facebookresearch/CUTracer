@@ -92,6 +92,7 @@ CUDA_INJECTION64_PATH=~/CUTracer/lib/cutracer.so \
 - `CUTRACER_DELAY_NS`: Fixed delay value in nanoseconds for race detection (required for `random_delay` analysis)
 - `CUTRACER_DELAY_DUMP_PATH`: Output path for delay config JSON file (for recording instrumentation patterns)
 - `CUTRACER_DELAY_LOAD_PATH`: Input path for delay config JSON file (for replay mode - deterministic reproduction)
+- `CUTRACER_OUTPUT_DIR`: Output directory for all CUTracer files (trace files and log files). Defaults to the current directory. The directory must exist and be writable
 
 Note: The tool sets `CUDA_MANAGED_FORCE_DEVICE_ALLOC=1` to simplify channel memory handling.
 

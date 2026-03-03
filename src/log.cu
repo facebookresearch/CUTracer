@@ -34,7 +34,7 @@
  *   - The iteration number (decimal)
  *   - A truncated copy (first 150 chars) of the mangled name for readability
  *
- * If trace_output_dir is set (via CUTRACER_TRACE_OUTPUT_DIR), the filename
+ * If output_dir is set (via CUTRACER_OUTPUT_DIR), the filename
  * will be prefixed with that directory path.
  *
  * Example: "kernel_7fa21c3_iter42__Z23my_kernelPiS_..."
@@ -54,11 +54,11 @@ std::string generate_kernel_log_basename(CUcontext ctx, CUfunction func, uint32_
 
   std::stringstream ss;
 
-  // Prepend trace_output_dir if specified
-  if (!trace_output_dir.empty()) {
-    ss << trace_output_dir;
+  // Prepend output_dir if specified
+  if (!output_dir.empty()) {
+    ss << output_dir;
     // Ensure path ends with a separator
-    if (trace_output_dir.back() != '/') {
+    if (output_dir.back() != '/') {
       ss << "/";
     }
   }
@@ -183,10 +183,19 @@ void init_log_handle() {
   char timestamp[32];
   strftime(timestamp, sizeof(timestamp), "%Y%m%d_%H%M%S", timeinfo);
 
-  char main_log_filename[256];
-  snprintf(main_log_filename, sizeof(main_log_filename), "cutracer_main_%s.log", timestamp);
+  // Build the log filename, prepending output_dir if set
+  std::string main_log_filename;
+  if (!output_dir.empty()) {
+    main_log_filename = output_dir;
+    if (main_log_filename.back() != '/') {
+      main_log_filename += "/";
+    }
+  }
+  main_log_filename += "cutracer_main_";
+  main_log_filename += timestamp;
+  main_log_filename += ".log";
 
-  g_main_log_file = fopen(main_log_filename, "w");
+  g_main_log_file = fopen(main_log_filename.c_str(), "w");
   if (!g_main_log_file) {
     // Fallback to stdout if file creation fails
     g_main_log_file = stdout;
@@ -194,7 +203,7 @@ void init_log_handle() {
   }
 
   loprintf("Log handle system initialized. Main log is %s.\n",
-           (g_main_log_file == stdout) ? "stdout" : main_log_filename);
+           (g_main_log_file == stdout) ? "stdout" : main_log_filename.c_str());
 }
 
 void cleanup_log_handle() {

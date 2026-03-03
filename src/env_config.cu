@@ -47,8 +47,8 @@ std::string delay_dump_path;
 // Delay config load path (optional)
 std::string delay_load_path;
 
-// Trace output directory for dumping trace files (optional)
-std::string trace_output_dir;
+// Output directory for all CUTracer files (traces and logs)
+std::string output_dir;
 
 /**
  * @brief Parses a comma-separated string of kernel name filters for substring matching.
@@ -368,41 +368,49 @@ bool has_category_filter_enabled() {
 }
 
 /**
- * @brief Initialize trace output directory from environment variable
+ * @brief Initialize output directory from environment variable
  *
- * Reads CUTRACER_TRACE_OUTPUT_DIR and validates:
+ * Reads CUTRACER_OUTPUT_DIR and validates:
  * 1. The path exists
  * 2. It is a directory
  * 3. The directory has write permission
- * If not set, trace files will be written to the current directory.
+ * If not set, all output files are written to the current directory.
+ *
+ * This must run before init_log_handle() so the main log file is placed
+ * in the configured directory. Fatal errors use fprintf(stderr) directly
+ * since the logger is not yet available.
  */
-void init_trace_output_dir() {
-  get_var_str(trace_output_dir, "CUTRACER_TRACE_OUTPUT_DIR", "",
-              "Output directory for trace files (default: current directory)");
+void init_output_dir() {
+  // Read directly with getenv() because this runs before init_log_handle(),
+  // so the logging system is not yet available.
+  const char* env_val = getenv("CUTRACER_OUTPUT_DIR");
+  if (env_val) {
+    output_dir = std::string(env_val);
+  }
 
-  if (!trace_output_dir.empty()) {
-    fs::path dir_path(trace_output_dir);
+  if (!output_dir.empty()) {
+    fs::path dir_path(output_dir);
 
     if (!fs::exists(dir_path)) {
       fprintf(stderr,
-              "FATAL: CUTRACER_TRACE_OUTPUT_DIR '%s' does not exist.\n"
+              "FATAL: CUTRACER_OUTPUT_DIR '%s' does not exist.\n"
               "Please create the directory first or specify a valid directory.\n",
-              trace_output_dir.c_str());
+              output_dir.c_str());
       exit(1);
     }
     if (!fs::is_directory(dir_path)) {
       fprintf(stderr,
-              "FATAL: CUTRACER_TRACE_OUTPUT_DIR '%s' is not a directory.\n"
+              "FATAL: CUTRACER_OUTPUT_DIR '%s' is not a directory.\n"
               "Please specify a valid directory.\n",
-              trace_output_dir.c_str());
+              output_dir.c_str());
       exit(1);
     }
     auto perms = fs::status(dir_path).permissions();
     if ((perms & fs::perms::owner_write) == fs::perms::none) {
       fprintf(stderr,
-              "FATAL: CUTRACER_TRACE_OUTPUT_DIR '%s' is not writable.\n"
+              "FATAL: CUTRACER_OUTPUT_DIR '%s' is not writable.\n"
               "Please check directory permissions (chmod) or choose a different directory.\n",
-              trace_output_dir.c_str());
+              output_dir.c_str());
       exit(1);
     }
   }
@@ -412,8 +420,12 @@ void init_trace_output_dir() {
 void init_config_from_env() {
   // Enable device memory allocation
   setenv("CUDA_MANAGED_FORCE_DEVICE_ALLOC", "1", 1);
+  // Initialize output directory first (log file is placed there)
+  init_output_dir();
   // Initialize log handle
   init_log_handle();
+  // Log after init so it appears in both stdout and the log file
+  loprintf("CUTRACER_OUTPUT_DIR = %s\n", output_dir.empty() ? "(not set)" : output_dir.c_str());
   // Get other configuration variables
   get_var_int(verbose, "TOOL_VERBOSE", 0, "Enable verbosity inside the tool");
   int dump_cubin_int = 0;
@@ -466,9 +478,6 @@ void init_config_from_env() {
 
   // Parse and validate delay configuration (includes config paths)
   parse_delay_config();
-
-  // Initialize trace output directory
-  init_trace_output_dir();
 
   // Parse instruction category filters (optional)
   std::string instr_categories_str;
