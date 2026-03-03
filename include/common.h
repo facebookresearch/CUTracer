@@ -49,7 +49,7 @@ typedef struct {
 
   // CUTracer extensions
   uint64_t kernel_launch_id;              // Global kernel launch id
-  uint64_t pc;                            // Program counter for the instruction
+  uint64_t pc;                            // Instruction byte offset within the kernel (from Instr::getOffset())
   int32_t num_uregs;                      // Number of unified registers
   uint32_t ureg_vals[MAX_UREG_OPERANDS];  // Unified registers shared by all threads in the same warp
 } reg_info_t;
@@ -61,7 +61,7 @@ typedef struct {
   int cta_id_x;
   int cta_id_y;
   int cta_id_z;
-  uint64_t pc;
+  uint64_t pc;  // Instruction byte offset within the kernel (from Instr::getOffset())
   int warp_id;
   int opcode_id;
   uint64_t addrs[32];
@@ -83,7 +83,7 @@ typedef struct {
   int cta_id_x;
   int cta_id_y;
   int cta_id_z;
-  uint64_t pc;
+  uint64_t pc;  // Instruction byte offset within the kernel (from Instr::getOffset())
   int warp_id;
   int opcode_id;
   int mem_space;           // Memory space: GLOBAL=1, SHARED=4, LOCAL=5 (matches InstrType::MemorySpace)
@@ -107,7 +107,7 @@ typedef struct {
   int cta_id_x;
   int cta_id_y;
   int cta_id_z;
-  uint64_t pc;
+  uint64_t pc;  // Instruction byte offset within the kernel (from Instr::getOffset())
   int warp_id;
   int opcode_id;
 } opcode_only_t;
@@ -150,7 +150,7 @@ typedef struct {
   int cta_id_x;
   int cta_id_y;
   int cta_id_z;
-  uint64_t pc;
+  uint64_t pc;  // Instruction byte offset within the kernel (from Instr::getOffset())
   int warp_id;
   int opcode_id;
 
