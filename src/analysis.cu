@@ -842,8 +842,8 @@ static void write_warp_status_json(CTXstate* ctx_state, uint64_t current_kernel_
 
   // Write to file
   std::string filename = "warp_status_summary.json";
-  if (!trace_output_dir.empty()) {
-    filename = trace_output_dir;
+  if (!output_dir.empty()) {
+    filename = output_dir;
     if (filename.back() != '/') filename += "/";
     filename += "warp_status_summary.json";
   }
