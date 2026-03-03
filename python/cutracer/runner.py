@@ -105,6 +105,20 @@ def _build_cutracer_env(
     if delay_load_path is not None:
         env["CUTRACER_DELAY_LOAD_PATH"] = delay_load_path
 
+    # Add bundled CUDA tools (nvdisasm, cuobjdump) to PATH so NVBit can find them.
+    # These are bundled as buck resources from fbsource's third-party CUDA,
+    # matching the CUDA version specified via -c fbcode.platform010_cuda_version.
+    try:
+        import pkg_resources
+
+        bin_dir = os.path.dirname(
+            pkg_resources.resource_filename("cutracer", "bin/nvdisasm")
+        )
+        if os.path.isdir(bin_dir):
+            env["PATH"] = bin_dir + ":" + env.get("PATH", "")
+    except Exception:
+        pass
+
     return env
 
 
