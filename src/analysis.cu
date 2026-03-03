@@ -752,13 +752,14 @@ static void write_warp_status_json(CTXstate* ctx_state, uint64_t current_kernel_
         {"x", stats.dimensions.gridDimX}, {"y", stats.dimensions.gridDimY}, {"z", stats.dimensions.gridDimZ}};
     warp_stats["block"] = {
         {"x", stats.dimensions.blockDimX}, {"y", stats.dimensions.blockDimY}, {"z", stats.dimensions.blockDimZ}};
-    warp_stats["summary"] = {{"total_warps", total_warps},
-                             {"finished_warps", finished_warps},
-                             {"finished_warps_pct", total_warps > 0 ? 100.0 * finished_warps / total_warps : 0.0},
-                             {"active_warps", active_warps},
-                             {"active_warps_pct", total_warps > 0 ? 100.0 * active_warps / total_warps : 0.0},
-                             {"never_executed_warps", never_executed},
-                             {"never_executed_warps_pct", total_warps > 0 ? 100.0 * never_executed / total_warps : 0.0}};
+    warp_stats["summary"] = {
+        {"total_warps", total_warps},
+        {"finished_warps", finished_warps},
+        {"finished_warps_pct", total_warps > 0 ? 100.0 * finished_warps / total_warps : 0.0},
+        {"active_warps", active_warps},
+        {"active_warps_pct", total_warps > 0 ? 100.0 * active_warps / total_warps : 0.0},
+        {"never_executed_warps", never_executed},
+        {"never_executed_warps_pct", total_warps > 0 ? 100.0 * never_executed / total_warps : 0.0}};
     warp_stats["warp_id_ranges"] = {{"finished", format_ranges_json(finished_warp_ids)},
                                     {"active", format_ranges_json(active_warp_ids)},
                                     {"never_executed", format_ranges_json(never_executed_warp_ids)}};
@@ -782,8 +783,9 @@ static void write_warp_status_json(CTXstate* ctx_state, uint64_t current_kernel_
       if (seen_it2 != ctx_state->last_seen_time_by_warp.end()) last_seen_secs = now - seen_it2->second;
 
       warp_obj["status"] = "LOOPING";
-      warp_obj["loop"] = {
-          {"period", loop_iter->second.last_period}, {"repeat", loop_iter->second.repeat_cnt}, {"last_seen_secs", last_seen_secs}};
+      warp_obj["loop"] = {{"period", loop_iter->second.last_period},
+                          {"repeat", loop_iter->second.repeat_cnt},
+                          {"last_seen_secs", last_seen_secs}};
     }
 
     time_t inactive_duration = 0;
