@@ -129,9 +129,9 @@
       "items": {
         "type": "integer",
         "minimum": 0,
-        "maximum": 6
+        "maximum": 7
       },
-      "description": "Predicate register indices corresponding to preds values (e.g., [0, 1] means P0, P1)"
+      "description": "Predicate register indices corresponding to preds values (P0-P6, PT=7)"
     },
     "upreds": {
       "type": "array",
@@ -147,9 +147,9 @@
       "items": {
         "type": "integer",
         "minimum": 0,
-        "maximum": 6
+        "maximum": 7
       },
-      "description": "Uniform predicate register indices corresponding to upreds values (e.g., [0, 1] means UP0, UP1)"
+      "description": "Uniform predicate register indices corresponding to upreds values (UP0-UP6, UPT=7)"
     }
   },
   "additionalProperties": false
