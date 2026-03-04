@@ -50,6 +50,9 @@ std::string delay_load_path;
 // Output directory for all CUTracer files (traces and logs)
 std::string output_dir;
 
+// CPU call stack capture at kernel launch (default: enabled)
+bool cpu_callstack_enabled;
+
 /**
  * @brief Parses a comma-separated string of kernel name filters for substring matching.
  *
@@ -484,6 +487,11 @@ void init_config_from_env() {
   get_var_str(instr_categories_str, "CUTRACER_INSTR_CATEGORIES", "",
               "Instruction categories to instrument (mma,tma,sync). Empty = all instructions");
   init_instr_categories(instr_categories_str);
+
+  // CPU call stack capture (default: enabled)
+  int cpu_callstack_int;
+  get_var_int(cpu_callstack_int, "CUTRACER_CPU_CALLSTACK", 1, "CPU call stack capture (1=enabled, 0=disabled)");
+  cpu_callstack_enabled = (cpu_callstack_int != 0);
 
   std::string pad(100, '-');
   loprintf("%s\n", pad.c_str());

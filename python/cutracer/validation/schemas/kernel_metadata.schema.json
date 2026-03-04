@@ -80,6 +80,13 @@
       "type": "integer",
       "minimum": 0,
       "description": "Dynamic shared memory size in bytes"
+    },
+    "cpu_callstack": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      },
+      "description": "CPU call stack frames captured at kernel launch (when CUTRACER_CPU_CALLSTACK=1)"
     }
   },
   "additionalProperties": false

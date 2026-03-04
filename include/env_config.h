@@ -102,6 +102,10 @@ extern std::string delay_load_path;
 // Set via CUTRACER_OUTPUT_DIR environment variable
 extern std::string output_dir;
 
+// CPU call stack capture at kernel launch (default: enabled)
+// Set CUTRACER_CPU_CALLSTACK=0 to disable
+extern bool cpu_callstack_enabled;
+
 // Instruction category filtering for conditional instrumentation
 // If empty, all instructions are instrumented
 // If set, only instructions in the specified categories are instrumented

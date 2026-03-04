@@ -10,6 +10,9 @@
  */
 
 #include <assert.h>
+#include <cxxabi.h>
+#include <dlfcn.h>
+#include <execinfo.h>
 #include <pthread.h>
 #include <stdio.h>
 #include <unistd.h>
@@ -21,6 +24,7 @@
 #include <string>
 #include <unordered_map>
 #include <unordered_set>
+#include <vector>
 
 /* every tool needs to include this once */
 #include "nvbit_tool.h"
@@ -90,6 +94,70 @@ static bool generate_random_delay_enabled() {
   }
   std::uniform_int_distribution<int> dist(0, 1);
   return dist(g_delay_rng) == 1;
+}
+
+/**
+ * @brief Capture the current CPU call stack using backtrace() and dladdr().
+ *
+ * Returns a vector of human-readable frame strings containing:
+ * - Function name (demangled via abi::__cxa_demangle when possible)
+ * - Shared object path
+ * - Offset within the symbol
+ *
+ * Skips the first `skip` frames (default 2) to exclude this function
+ * and internal NVBit callback frames from the output.
+ *
+ * @param max_frames Maximum number of frames to capture
+ * @param skip Number of leading frames to skip
+ * @return Vector of frame description strings
+ */
+static std::vector<std::string> capture_cpu_callstack(int max_frames = 64, int skip = 2) {
+  std::vector<std::string> result;
+  std::vector<void*> buffer(max_frames);
+
+  int nframes = backtrace(buffer.data(), max_frames);
+  if (nframes <= skip) {
+    return result;
+  }
+
+  result.reserve(nframes - skip);
+  for (int i = skip; i < nframes; i++) {
+    Dl_info info;
+    std::ostringstream oss;
+
+    if (dladdr(buffer[i], &info)) {
+      const char* soname = info.dli_fname ? info.dli_fname : "??";
+      ptrdiff_t offset = 0;
+      if (info.dli_saddr) {
+        offset = static_cast<const char*>(buffer[i]) - static_cast<const char*>(info.dli_saddr);
+      }
+
+      // Attempt C++ name demangling for readable output
+      std::string display_name = info.dli_sname ? info.dli_sname : "??";
+      if (info.dli_sname) {
+        int status = 0;
+        char* demangled = abi::__cxa_demangle(info.dli_sname, nullptr, nullptr, &status);
+        if (status == 0 && demangled) {
+          display_name = demangled;
+          free(demangled);
+        }
+      }
+
+      oss << display_name << "+0x" << std::hex << offset << " (" << soname << ")";
+    } else {
+      // Fallback: use backtrace_symbols for this single frame
+      char** symbols = backtrace_symbols(&buffer[i], 1);
+      if (symbols && symbols[0]) {
+        oss << symbols[0];
+      } else {
+        oss << "0x" << std::hex << reinterpret_cast<uintptr_t>(buffer[i]);
+      }
+      free(symbols);
+    }
+    result.push_back(oss.str());
+  }
+
+  return result;
 }
 
 // Global mapping tables for kernel launch tracking
@@ -524,14 +592,19 @@ void init_context_state(CUcontext ctx) {
  *
  * Combines per-function static attributes (from KernelFuncMetadata) with
  * per-launch dynamic attributes (grid/block dims, dynamic shared memory).
+ * Optionally includes the CPU-side call stack captured at kernel launch time.
  */
 static nlohmann::json build_kernel_metadata_json(const KernelFuncMetadata& meta, const KernelDimensions& dims,
-                                                 unsigned int dynamic_shmem) {
+                                                 unsigned int dynamic_shmem,
+                                                 const std::vector<std::string>& cpu_callstack = {}) {
   auto md = meta.to_json();
   md["type"] = "kernel_metadata";
   md["grid"] = {dims.gridDimX, dims.gridDimY, dims.gridDimZ};
   md["block"] = {dims.blockDimX, dims.blockDimY, dims.blockDimZ};
   md["shmem_dynamic"] = dynamic_shmem;
+  if (!cpu_callstack.empty()) {
+    md["cpu_callstack"] = cpu_callstack;
+  }
   return md;
 }
 
@@ -558,6 +631,13 @@ static nlohmann::json build_kernel_metadata_json(const KernelFuncMetadata& meta,
  */
 static bool enter_kernel_launch(CUcontext ctx, CUfunction func, uint64_t& kernel_launch_id, nvbit_api_cuda_t cbid,
                                 void* params, bool stream_capture = false, bool build_graph = false) {
+  // Capture the CPU call stack early, before synchronization, so it reflects
+  // the actual application call site that triggered this kernel launch.
+  std::vector<std::string> cpu_callstack;
+  if (cpu_callstack_enabled) {
+    cpu_callstack = capture_cpu_callstack();
+  }
+
   CTXstate* ctx_state = ctx_state_map[ctx];
   // no need to sync during stream capture or manual graph build, since no
   // kernel is actually launched.
@@ -653,7 +733,7 @@ static bool enter_kernel_launch(CUcontext ctx, CUfunction func, uint64_t& kernel
     // Write kernel_metadata as the first JSON line in the trace file.
     // Only for normal launches (stream_capture/build_graph get metadata at graph node launch time).
     if (!stream_capture && !build_graph) {
-      auto metadata = build_kernel_metadata_json(meta, dims, dynamic_shmem);
+      auto metadata = build_kernel_metadata_json(meta, dims, dynamic_shmem, cpu_callstack);
       ctx_state->trace_writers[current_launch_id]->write_metadata(metadata);
     }
 
@@ -919,6 +999,12 @@ void nvbit_at_graph_node_launch(CUcontext ctx, CUfunction func, CUstream stream,
                            config.blockDimX, config.blockDimY, config.blockDimZ};
   kernel_launch_to_dimensions_map[global_kernel_launch_id] = dims;
 
+  // Capture the CPU call stack for graph node launches as well
+  std::vector<std::string> cpu_callstack;
+  if (cpu_callstack_enabled) {
+    cpu_callstack = capture_cpu_callstack();
+  }
+
   // Create TraceWriter for this graph node launch only if instrumentation is enabled
   // Otherwise, trace files would be empty (no data to write)
   if (has_any_instrumentation_enabled()) {
@@ -931,7 +1017,7 @@ void nvbit_at_graph_node_launch(CUcontext ctx, CUfunction func, CUstream stream,
     ctx_state->trace_index_by_kernel[global_kernel_launch_id] = 0;
 
     // Write kernel_metadata for graph node launch trace files
-    auto metadata = build_kernel_metadata_json(meta, dims, config.shmem_dynamic_nbytes);
+    auto metadata = build_kernel_metadata_json(meta, dims, config.shmem_dynamic_nbytes, cpu_callstack);
     ctx_state->trace_writers[global_kernel_launch_id]->write_metadata(metadata);
 
     loprintf_v("Created TraceWriter for graph node launch_id %lu, file: %s\n", global_kernel_launch_id,
