@@ -72,7 +72,7 @@ def _build_cutracer_env(
     kernel_filters: Optional[str],
     instr_categories: Optional[str],
     trace_format: Optional[int],
-    trace_output_dir: Optional[str],
+    output_dir: Optional[str],
     verbose: Optional[int],
     zstd_level: Optional[int],
     delay_ns: Optional[int],
@@ -92,8 +92,8 @@ def _build_cutracer_env(
         env["CUTRACER_INSTR_CATEGORIES"] = instr_categories
     if trace_format is not None:
         env["TRACE_FORMAT_NDJSON"] = str(trace_format)
-    if trace_output_dir is not None:
-        env["CUTRACER_TRACE_OUTPUT_DIR"] = trace_output_dir
+    if output_dir is not None:
+        env["CUTRACER_OUTPUT_DIR"] = output_dir
     if verbose is not None:
         env["TOOL_VERBOSE"] = str(verbose)
     if zstd_level is not None:
@@ -131,7 +131,7 @@ def _print_config_summary(env: dict) -> None:
         "KERNEL_FILTERS",
         "CUTRACER_INSTR_CATEGORIES",
         "TRACE_FORMAT_NDJSON",
-        "CUTRACER_TRACE_OUTPUT_DIR",
+        "CUTRACER_OUTPUT_DIR",
         "TOOL_VERBOSE",
         "CUTRACER_ZSTD_LEVEL",
         "CUTRACER_DELAY_NS",
@@ -179,6 +179,7 @@ _CUTRACER_OPTIONS = [
         help="Trace format: 0=text, 1=ndjson+zstd (default), 2=ndjson-only",
     ),
     click.option(
+        "--output-dir",
         "--trace-output-dir",
         default=None,
         help="Output directory for trace files",
@@ -239,7 +240,7 @@ def trace_command(
     kernel_filters: Optional[str],
     instr_categories: Optional[str],
     trace_format: Optional[int],
-    trace_output_dir: Optional[str],
+    output_dir: Optional[str],
     verbose: Optional[int],
     cutracer_so: Optional[str],
     zstd_level: Optional[int],
@@ -276,7 +277,7 @@ def trace_command(
         kernel_filters=kernel_filters,
         instr_categories=instr_categories,
         trace_format=trace_format,
-        trace_output_dir=trace_output_dir,
+        output_dir=output_dir,
         verbose=verbose,
         zstd_level=zstd_level,
         delay_ns=delay_ns,
