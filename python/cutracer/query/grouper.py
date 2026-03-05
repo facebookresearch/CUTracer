@@ -10,6 +10,8 @@ using single-pass streaming with bounded memory per group.
 from collections import Counter, defaultdict, deque
 from typing import Any, Iterator
 
+from cutracer.types import TraceRecord
+
 
 class StreamingGrouper:
     """
@@ -31,7 +33,7 @@ class StreamingGrouper:
         ...     print(f"Warp {warp}: {len(records)} records")
     """
 
-    def __init__(self, records: Iterator[dict], group_field: str) -> None:
+    def __init__(self, records: Iterator[TraceRecord], group_field: str) -> None:
         """
         Initialize the streaming grouper.
 
@@ -52,7 +54,7 @@ class StreamingGrouper:
             )
         self._consumed = True
 
-    def head_per_group(self, n: int) -> dict[Any, list[dict]]:
+    def head_per_group(self, n: int) -> dict[Any, list[TraceRecord]]:
         """
         Get first N records per group.
 
@@ -69,7 +71,7 @@ class StreamingGrouper:
         if n <= 0:
             return {}
 
-        groups: dict[Any, list[dict]] = defaultdict(list)
+        groups: dict[Any, list[TraceRecord]] = defaultdict(list)
         group_counts: Counter = Counter()
 
         for record in self._records:
@@ -80,7 +82,7 @@ class StreamingGrouper:
 
         return dict(groups)
 
-    def tail_per_group(self, n: int) -> dict[Any, list[dict]]:
+    def tail_per_group(self, n: int) -> dict[Any, list[TraceRecord]]:
         """
         Get last N records per group.
 
@@ -125,7 +127,7 @@ class StreamingGrouper:
 
         return dict(counts)
 
-    def all_per_group(self) -> dict[Any, list[dict]]:
+    def all_per_group(self) -> dict[Any, list[TraceRecord]]:
         """
         Get all records per group.
 
@@ -137,7 +139,7 @@ class StreamingGrouper:
         """
         self._ensure_not_consumed()
 
-        groups: dict[Any, list[dict]] = defaultdict(list)
+        groups: dict[Any, list[TraceRecord]] = defaultdict(list)
 
         for record in self._records:
             key = record.get(self._group_field)

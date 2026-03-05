@@ -12,6 +12,8 @@ import io
 import json
 from typing import Optional
 
+from cutracer.types import TraceRecord
+
 # Default fields to display when --fields is not specified
 DEFAULT_FIELDS = ["warp", "pc", "sass"]
 
@@ -45,7 +47,7 @@ def format_value(value) -> str:
 
 
 def get_display_fields(
-    records: list[dict], requested_fields: Optional[str] = None
+    records: list[TraceRecord], requested_fields: Optional[str] = None
 ) -> list[str]:
     """
     Determine which fields to display.
@@ -87,7 +89,7 @@ def get_display_fields(
 
 
 def format_records_table(
-    records: list[dict],
+    records: list[TraceRecord],
     fields: list[str],
     show_header: bool = True,
 ) -> str:
@@ -133,7 +135,7 @@ def format_records_table(
     return "\n".join(lines)
 
 
-def format_records_json(records: list[dict], fields: list[str]) -> str:
+def format_records_json(records: list[TraceRecord], fields: list[str]) -> str:
     """
     Format records as JSON.
 
@@ -157,7 +159,7 @@ def format_records_json(records: list[dict], fields: list[str]) -> str:
 
 
 def format_records_csv(
-    records: list[dict],
+    records: list[TraceRecord],
     fields: list[str],
     show_header: bool = True,
 ) -> str:
@@ -189,7 +191,7 @@ def format_records_csv(
 
 
 def format_records_ndjson(
-    records: list[dict], fields: Optional[list[str]] = None
+    records: list[TraceRecord], fields: Optional[list[str]] = None
 ) -> str:
     """
     Format records as NDJSON (Newline-Delimited JSON).

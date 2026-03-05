@@ -13,6 +13,8 @@ from trace records grouped by warp ID. It identifies:
 from dataclasses import dataclass, field
 from typing import Any, Optional
 
+from cutracer.types import TraceRecord
+
 
 @dataclass
 class WarpSummary:
@@ -26,7 +28,7 @@ class WarpSummary:
     missing_warp_ids: list[int] = field(default_factory=list)
 
 
-def is_exit_instruction(record: dict) -> bool:
+def is_exit_instruction(record: TraceRecord) -> bool:
     """
     Check if a record's SASS instruction is an EXIT instruction.
 
@@ -105,7 +107,7 @@ def format_ranges(ranges: list[tuple[int, int]]) -> str:
     return ", ".join(parts)
 
 
-def compute_warp_summary(groups: dict[Any, list[dict]]) -> Optional[WarpSummary]:
+def compute_warp_summary(groups: dict[Any, list[TraceRecord]]) -> Optional[WarpSummary]:
     """
     Compute warp summary statistics from grouped records.
 

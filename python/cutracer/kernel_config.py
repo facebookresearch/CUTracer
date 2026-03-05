@@ -10,7 +10,8 @@ from the kernel_metadata event in CUTracer trace files.
 """
 
 from dataclasses import dataclass
-from typing import Any
+
+from cutracer.types import TraceRecord
 
 THREADS_PER_WARP = 32
 WARPS_PER_WARPGROUP = 4  # Hopper (SM90) warpgroup size
@@ -70,7 +71,7 @@ class KernelConfig:
         return self.grid_dims[0] * self.grid_dims[1] * self.grid_dims[2]
 
 
-def parse_kernel_metadata(record: dict[str, Any]) -> KernelConfig | None:
+def parse_kernel_metadata(record: TraceRecord) -> KernelConfig | None:
     """
     Parse kernel_metadata event into KernelConfig.
 

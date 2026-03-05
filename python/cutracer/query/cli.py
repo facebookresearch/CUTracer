@@ -27,6 +27,7 @@ from cutracer.query.warp_summary import (
     format_warp_summary_text,
     warp_summary_to_dict,
 )
+from cutracer.types import TraceRecord
 from tabulate import tabulate
 
 
@@ -105,7 +106,7 @@ def _format_counts(
 
 
 def _format_groups(
-    groups: dict[Any, list[dict]],
+    groups: dict[Any, list["TraceRecord"]],
     group_by: str,
     output_format: str,
     fields: Optional[str],
@@ -153,7 +154,7 @@ def _format_groups(
             for record in records:
                 if is_all_fields:
                     # All fields: output each record as-is, preserving all fields
-                    out_record = dict(record)
+                    out_record = {**record}
                 else:
                     display_fields = get_display_fields(records, fields)
                     out_record = {

@@ -14,10 +14,11 @@ from itertools import islice
 from pathlib import Path
 from typing import Any, Callable, Iterator, Optional, Union
 
+from cutracer.types import TraceRecord
 from cutracer.validation.compression import detect_compression, open_trace_file
 
 
-def _parse_single_filter(expr: str) -> Callable[[dict], bool]:
+def _parse_single_filter(expr: str) -> Callable[[TraceRecord], bool]:
     """
     Parse a single 'field=value' filter expression and return a predicate.
 
@@ -65,7 +66,7 @@ def _parse_single_filter(expr: str) -> Callable[[dict], bool]:
     return lambda record: record.get(field) == value
 
 
-def parse_filter_expr(filter_expr: str) -> Callable[[dict], bool]:
+def parse_filter_expr(filter_expr: str) -> Callable[[TraceRecord], bool]:
     """
     Parse a filter expression and return a predicate function.
 
@@ -110,7 +111,7 @@ def parse_filter_expr(filter_expr: str) -> Callable[[dict], bool]:
 
 def build_filter_predicate(
     filter_exprs: tuple[str, ...],
-) -> Callable[[dict], bool]:
+) -> Callable[[TraceRecord], bool]:
     """
     Build a combined AND predicate from multiple filter expressions.
 
@@ -132,17 +133,17 @@ def build_filter_predicate(
     if len(predicates) == 1:
         return predicates[0]
 
-    def combined(record: dict) -> bool:
+    def combined(record: TraceRecord) -> bool:
         return all(p(record) for p in predicates)
 
     return combined
 
 
 def select_records(
-    records: Iterator[dict],
+    records: Iterator[TraceRecord],
     head: Optional[int] = None,
     tail: Optional[int] = None,
-) -> list[dict]:
+) -> list[TraceRecord]:
     """
     Memory-efficient record selection using streaming.
 
@@ -194,7 +195,7 @@ class TraceReaderBase(ABC):
     @abstractmethod
     def iter_records(
         self, filter_exprs: Optional[tuple[str, ...]] = None
-    ) -> Iterator[dict]:
+    ) -> Iterator[TraceRecord]:
         pass
 
 
@@ -230,7 +231,7 @@ class TraceReader(TraceReaderBase):
 
     def iter_records(
         self, filter_exprs: Optional[tuple[str, ...]] = None
-    ) -> Iterator[dict]:
+    ) -> Iterator[TraceRecord]:
         """
         Iterate over all trace records in the file.
 
