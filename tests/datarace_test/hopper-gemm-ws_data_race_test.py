@@ -773,7 +773,9 @@ def run_matmul_with_kernel(
     return True, c, None
 
 
-def run_multiple_iterations(kernel, num_iterations=10, matrix_size=None):
+def run_multiple_iterations(
+    kernel, num_iterations=10, matrix_size=None, spin_count=None
+):
     """Run kernel multiple times to increase chance of triggering race.
 
     Returns a dict with test results for summary report.
@@ -791,6 +793,14 @@ def run_multiple_iterations(kernel, num_iterations=10, matrix_size=None):
         "exception_iterations": [],
     }
 
+    # Build kwargs for spin_count override
+    spin_kwargs = {}
+    if spin_count is not None:
+        if kernel == matmul_kernel_bug1_late_barrier_a:
+            spin_kwargs["spin_count_a"] = spin_count
+        elif kernel == matmul_kernel_bug2_missing_barrier_b:
+            spin_kwargs["spin_count_b"] = spin_count
+
     for i in range(num_iterations):
         # Use different random seed each iteration for variety
         torch.manual_seed(i * 42)
@@ -798,7 +808,7 @@ def run_multiple_iterations(kernel, num_iterations=10, matrix_size=None):
         b = torch.randn((k, n), dtype=torch.float16, device=DEVICE)
 
         try:
-            correct, output, ref = run_matmul_with_kernel(kernel, a, b)
+            correct, output, ref = run_matmul_with_kernel(kernel, a, b, **spin_kwargs)
             if not correct:
                 results["failures"] += 1
                 max_diff = (output - ref).abs().max().item()
@@ -912,7 +922,14 @@ def print_summary_report(all_results):
     flag_value="/tmp/tritonparse_logs/",
     help="Enable tritonparse structured logging. Optionally specify output path (default: /tmp/tritonparse_logs/)",
 )
-def main(iters, bug, tritonparse_path):
+@click.option(
+    "--spin-count",
+    "-s",
+    default=None,
+    type=int,
+    help="Override SPIN_COUNT for the spin loop (higher = less likely to race without CUTracer)",
+)
+def main(iters, bug, tritonparse_path, spin_count):
     if not is_cuda() or torch.cuda.get_device_capability()[0] != 9:
         print("Skipping: No Hopper GPU found")
         return
@@ -946,11 +963,13 @@ def main(iters, bug, tritonparse_path):
         all_results["Bug 1: Late barrier_wait for A"] = run_multiple_iterations(
             matmul_kernel_bug1_late_barrier_a,
             num_iterations=iters,
+            spin_count=spin_count,
         )
     if bug in ("all", "2"):
         all_results["Bug 2: Missing barrier_wait for B"] = run_multiple_iterations(
             matmul_kernel_bug2_missing_barrier_b,
             num_iterations=iters,
+            spin_count=spin_count,
         )
 
     # Print summary report at the end

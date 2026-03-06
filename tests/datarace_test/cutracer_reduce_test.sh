@@ -22,7 +22,7 @@ LOG="/tmp/cutracer_reduce_test.log"
 # Note: CUTRACER_DELAY_LOAD_PATH is set by the python reducer
 CUTRACER_ANALYSIS=random_delay \
 CUTRACER_DELAY_NS=10000 \
-CUTRACER_KERNEL_FILTERS=matmul_kernel_bug1_late_barrier_a \
+KERNEL_FILTERS=matmul_kernel_bug1_late_barrier_a \
 CUDA_INJECTION64_PATH="$CUTRACER_ROOT/lib/cutracer.so" \
 python3 "$SCRIPT_DIR/hopper-gemm-ws_data_race_test.py" --bug 1 --iters 10 > "$LOG" 2>&1
 
