@@ -78,6 +78,7 @@ def _build_cutracer_env(
     delay_ns: Optional[int],
     delay_dump_path: Optional[str],
     delay_load_path: Optional[str],
+    cpu_callstack: Optional[int],
     channel_records: Optional[int],
 ) -> dict:
     """Build environment dict with CUTracer variables."""
@@ -105,6 +106,8 @@ def _build_cutracer_env(
         env["CUTRACER_DELAY_DUMP_PATH"] = delay_dump_path
     if delay_load_path is not None:
         env["CUTRACER_DELAY_LOAD_PATH"] = delay_load_path
+    if cpu_callstack is not None:
+        env["CUTRACER_CPU_CALLSTACK"] = str(cpu_callstack)
     if channel_records is not None:
         env["CUTRACER_CHANNEL_RECORDS"] = str(channel_records)
 
@@ -140,6 +143,7 @@ def _print_config_summary(env: dict) -> None:
         "CUTRACER_DELAY_NS",
         "CUTRACER_DELAY_DUMP_PATH",
         "CUTRACER_DELAY_LOAD_PATH",
+        "CUTRACER_CPU_CALLSTACK",
         "CUTRACER_CHANNEL_RECORDS",
     ]
     click.echo("=" * 60)
@@ -223,6 +227,12 @@ _CUTRACER_OPTIONS = [
         help="Load delay config JSON for replay mode",
     ),
     click.option(
+        "--cpu-callstack",
+        type=int,
+        default=None,
+        help="CPU call stack capture at kernel launch (1=enabled, 0=disabled, default: 1)",
+    ),
+    click.option(
         "--channel-records",
         type=int,
         default=None,
@@ -258,6 +268,7 @@ def trace_command(
     delay_ns: Optional[int],
     delay_dump_path: Optional[str],
     delay_load_path: Optional[str],
+    cpu_callstack: Optional[int],
     channel_records: Optional[int],
     cmd: tuple,
 ) -> None:
@@ -295,6 +306,7 @@ def trace_command(
         delay_ns=delay_ns,
         delay_dump_path=delay_dump_path,
         delay_load_path=delay_load_path,
+        cpu_callstack=cpu_callstack,
         channel_records=channel_records,
     )
 
