@@ -14,7 +14,6 @@
 #include <iomanip>
 #include <nlohmann/json.hpp>
 #include <sstream>
-#include <stdexcept>
 
 #include "env_config.h"
 
