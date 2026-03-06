@@ -25,12 +25,23 @@ int verbose;
 bool dump_cubin;
 // kernel name filters
 std::vector<std::string> kernel_filters;
-// enabled instrumentation types
-std::unordered_set<InstrumentType> enabled_instrument_types;
+
+// Instrumentation configuration - single source of truth
+// enabled_instrument_types_ordered: preserves insertion order for IPOINT mapping
+// instrument_type_to_index: O(1) lookup for "is enabled" check (replaces the old set)
+std::vector<InstrumentType> enabled_instrument_types_ordered;
+std::unordered_map<InstrumentType, int> instrument_type_to_index;
+
 // enabled analysis types
 std::unordered_set<AnalysisType> enabled_analysis_types;
 // enabled instruction categories for conditional instrumentation
 std::unordered_set<InstrCategory> enabled_instr_categories;
+
+// Uniform IPOINT for all instrumentation (CUTRACER_INSTRUMENT_IPOINT_UNIFORM)
+IPointType uniform_ipoint = IPointType::DEFAULT;
+
+// Per-instrument IPOINT overrides (CUTRACER_INSTRUMENT_IPOINT)
+std::vector<IPointType> ipoint_overrides;
 
 // Trace format configuration variable
 int trace_format_ndjson;
@@ -185,10 +196,31 @@ static void get_var_str(std::string& var, const char* env_name, const std::strin
 }
 
 /**
+ * @brief Helper function to convert InstrumentType to its string name (forward declaration)
+ */
+static const char* instrument_type_to_name(InstrumentType type);
+
+/**
+ * @brief Helper to add an instrument type (avoids duplicates via map check)
+ *
+ * Only adds if not already present. Updates both ordered list and index map.
+ * Returns true if added, false if already present (duplicate).
+ */
+static bool add_enabled_instrument_type(InstrumentType type) {
+  // Check if already added (O(1) lookup)
+  if (instrument_type_to_index.find(type) != instrument_type_to_index.end()) {
+    return false;  // Already enabled, skip duplicate
+  }
+  int index = static_cast<int>(enabled_instrument_types_ordered.size());
+  enabled_instrument_types_ordered.push_back(type);
+  instrument_type_to_index[type] = index;
+  return true;
+}
+
+/**
  * @brief Initialize instrumentation system based on environment variables
  *
  * Parses CUTRACER_INSTRUMENT environment variable and sets up enabled types.
- * This function is called within init_config_from_env().
  */
 void init_instrumentation(const std::string& instrument_str) {
   if (instrument_str.empty()) {
@@ -196,30 +228,34 @@ void init_instrumentation(const std::string& instrument_str) {
   }
   loprintf("Using instrumentation types: %s\n", instrument_str.c_str());
 
+  if (instrument_str.find("opcode_only") != std::string::npos) {
+    add_enabled_instrument_type(InstrumentType::OPCODE_ONLY);
+    loprintf("  - Enabled: opcode_only\n");
+  }
   if (instrument_str.find("reg_trace") != std::string::npos) {
-    enabled_instrument_types.insert(InstrumentType::REG_TRACE);
+    add_enabled_instrument_type(InstrumentType::REG_TRACE);
     loprintf("  - Enabled: reg_trace (register value tracing)\n");
   }
   if (instrument_str.find("mem_addr_trace") != std::string::npos) {
-    enabled_instrument_types.insert(InstrumentType::MEM_ADDR_TRACE);
+    add_enabled_instrument_type(InstrumentType::MEM_ADDR_TRACE);
     loprintf("  - Enabled: mem_addr_trace (memory access address tracing)\n");
   }
   if (instrument_str.find("mem_value_trace") != std::string::npos) {
-    enabled_instrument_types.insert(InstrumentType::MEM_VALUE_TRACE);
+    add_enabled_instrument_type(InstrumentType::MEM_VALUE_TRACE);
     loprintf("  - Enabled: mem_value_trace (memory access with value tracing)\n");
   }
   if (instrument_str.find("random_delay") != std::string::npos) {
-    enabled_instrument_types.insert(InstrumentType::RANDOM_DELAY);
+    add_enabled_instrument_type(InstrumentType::RANDOM_DELAY);
     loprintf("  - Enabled: random_delay (random delay injection)\n");
   }
   if (instrument_str.find("tma_trace") != std::string::npos) {
-    enabled_instrument_types.insert(InstrumentType::TMA_TRACE);
+    add_enabled_instrument_type(InstrumentType::TMA_TRACE);
     loprintf("  - Enabled: tma_trace (TMA descriptor tracing)\n");
   }
 
   // Warn if both mem_addr_trace and mem_value_trace are enabled
-  if (enabled_instrument_types.count(InstrumentType::MEM_ADDR_TRACE) &&
-      enabled_instrument_types.count(InstrumentType::MEM_VALUE_TRACE)) {
+  if (is_instrument_type_enabled(InstrumentType::MEM_ADDR_TRACE) &&
+      is_instrument_type_enabled(InstrumentType::MEM_VALUE_TRACE)) {
     loprintf("WARNING: Both 'mem_addr_trace' and 'mem_value_trace' are enabled.\n");
     loprintf("- mem_addr_trace: records addresses at IPOINT_BEFORE\n");
     loprintf("- mem_value_trace: records addresses+values at IPOINT_AFTER\n");
@@ -280,11 +316,8 @@ void init_analysis(const std::string& analysis_str) {
     loprintf("  - Enabled: proton_instr_histogram\n");
 
     // If proton_instr_histogram is enabled, force opcode_only instrumentation
-    if (!is_instrument_type_enabled(InstrumentType::OPCODE_ONLY)) {
-      enabled_instrument_types.insert(InstrumentType::OPCODE_ONLY);
-      loprintf(
-          "`proton_instr_histogram` analysis is enabled, forcing `opcode_only` "
-          "instrumentation.\n");
+    if (add_enabled_instrument_type(InstrumentType::OPCODE_ONLY)) {
+      loprintf("  NOTE: proton_instr_histogram requires opcode_only instrumentation (auto-added).\n");
     }
   }
 
@@ -292,9 +325,8 @@ void init_analysis(const std::string& analysis_str) {
   if (analysis_str.find("deadlock_detection") != std::string::npos) {
     enabled_analysis_types.insert(AnalysisType::DEADLOCK_DETECTION);
     loprintf("  - Enabled: deadlock_detection\n");
-    if (!is_instrument_type_enabled(InstrumentType::REG_TRACE)) {
-      enabled_instrument_types.insert(InstrumentType::REG_TRACE);
-      loprintf("  - deadlock_detection: forcing reg_trace instrumentation\n");
+    if (add_enabled_instrument_type(InstrumentType::REG_TRACE)) {
+      loprintf("  NOTE: deadlock_detection requires reg_trace instrumentation (auto-added).\n");
     }
   }
 
@@ -303,9 +335,8 @@ void init_analysis(const std::string& analysis_str) {
   if (analysis_str.find("random_delay") != std::string::npos) {
     enabled_analysis_types.insert(AnalysisType::RANDOM_DELAY);
     loprintf("  - Enabled: random_delay\n");
-    if (!is_instrument_type_enabled(InstrumentType::RANDOM_DELAY)) {
-      enabled_instrument_types.insert(InstrumentType::RANDOM_DELAY);
-      loprintf("  - random_delay: forcing random_delay instrumentation\n");
+    if (add_enabled_instrument_type(InstrumentType::RANDOM_DELAY)) {
+      loprintf("  NOTE: random_delay analysis requires random_delay instrumentation (auto-added).\n");
     }
   }
 }
@@ -317,7 +348,7 @@ void init_analysis(const std::string& analysis_str) {
  * @return true if the instrumentation type is enabled
  */
 bool is_instrument_type_enabled(InstrumentType type) {
-  return enabled_instrument_types.count(type);
+  return instrument_type_to_index.find(type) != instrument_type_to_index.end();
 }
 
 /**
@@ -332,7 +363,7 @@ bool is_instrument_type_enabled(InstrumentType type) {
  * @return true if at least one instrumentation type is enabled
  */
 bool has_any_instrumentation_enabled() {
-  return !enabled_instrument_types.empty();
+  return !enabled_instrument_types_ordered.empty();
 }
 
 bool is_analysis_type_enabled(AnalysisType type) {
@@ -407,6 +438,195 @@ bool should_instrument_category(InstrCategory category) {
  */
 bool has_category_filter_enabled() {
   return !enabled_instr_categories.empty();
+}
+
+/**
+ * @brief Helper function to convert InstrumentType to its string name
+ */
+static const char* instrument_type_to_name(InstrumentType type) {
+  switch (type) {
+    case InstrumentType::OPCODE_ONLY:
+      return "opcode_only";
+    case InstrumentType::REG_TRACE:
+      return "reg_trace";
+    case InstrumentType::MEM_ADDR_TRACE:
+      return "mem_addr_trace";
+    case InstrumentType::MEM_VALUE_TRACE:
+      return "mem_value_trace";
+    case InstrumentType::RANDOM_DELAY:
+      return "random_delay";
+    case InstrumentType::TMA_TRACE:
+      return "tma_trace";
+    default:
+      return "unknown";
+  }
+}
+
+/**
+ * @brief Parse IPOINT value from string
+ *
+ * @param str Input string (should be lowercase and trimmed)
+ * @return IPointType parsed value, or DEFAULT if invalid
+ */
+static IPointType parse_ipoint_value(const std::string& str) {
+  if (str == "b" || str == "before") {
+    return IPointType::BEFORE;
+  } else if (str == "a" || str == "after") {
+    return IPointType::AFTER;
+  }
+  return IPointType::DEFAULT;
+}
+
+/**
+ * @brief Trim whitespace and convert string to lowercase in-place
+ */
+static void trim_and_lowercase(std::string& s) {
+  while (!s.empty() && std::isspace(s.front())) s.erase(0, 1);
+  while (!s.empty() && std::isspace(s.back())) s.pop_back();
+  for (char& c : s) c = std::tolower(c);
+}
+
+/**
+ * @brief Parse comma-separated IPOINT list
+ *
+ * @param ipoint_str The IPOINT configuration string
+ * @return Vector of IPointType values
+ */
+static std::vector<IPointType> parse_ipoint_list(const std::string& ipoint_str) {
+  std::vector<IPointType> result;
+  std::string str = ipoint_str;
+  size_t pos = 0;
+
+  while ((pos = str.find(',')) != std::string::npos) {
+    std::string token = str.substr(0, pos);
+    trim_and_lowercase(token);
+
+    IPointType ipoint = parse_ipoint_value(token);
+    if (ipoint == IPointType::DEFAULT) {
+      loprintf("WARNING: Invalid IPOINT value '%s' at index %zu\n", token.c_str(), result.size());
+    }
+    result.push_back(ipoint);
+    str.erase(0, pos + 1);
+  }
+
+  // Handle last token
+  trim_and_lowercase(str);
+  if (!str.empty()) {
+    IPointType ipoint = parse_ipoint_value(str);
+    if (ipoint == IPointType::DEFAULT) {
+      loprintf("WARNING: Invalid IPOINT value '%s' at index %zu\n", str.c_str(), result.size());
+    }
+    result.push_back(ipoint);
+  }
+
+  return result;
+}
+
+/**
+ * @brief Warn if mem_value_trace uses IPOINT_BEFORE
+ */
+static void warn_mem_value_trace_before(IPointType ipoint) {
+  if (ipoint == IPointType::BEFORE && is_instrument_type_enabled(InstrumentType::MEM_VALUE_TRACE)) {
+    loprintf(
+        "WARNING: mem_value_trace with IPOINT_BEFORE may not capture loaded values correctly.\n"
+        "         Load instructions need IPOINT_AFTER to capture values after memory read.\n");
+  }
+}
+
+/**
+ * @brief Handle CUTRACER_INSTRUMENT_IPOINT_UNIFORM env var
+ *
+ * Applies the same IPOINT to all enabled instruments.
+ */
+static void init_uniform_ipoint(const char* uniform_env) {
+  std::string str = uniform_env;
+  trim_and_lowercase(str);
+
+  uniform_ipoint = parse_ipoint_value(str);
+  if (uniform_ipoint == IPointType::DEFAULT) {
+    fprintf(stderr,
+            "FATAL: Invalid CUTRACER_INSTRUMENT_IPOINT_UNIFORM value '%s'\n"
+            "Valid values: 'a'/'after' or 'b'/'before'\n",
+            uniform_env);
+    exit(1);
+  }
+
+  const char* name = (uniform_ipoint == IPointType::BEFORE) ? "BEFORE" : "AFTER";
+  loprintf("CUTRACER_INSTRUMENT_IPOINT_UNIFORM: IPOINT_%s for all instruments\n", name);
+  warn_mem_value_trace_before(uniform_ipoint);
+}
+
+/**
+ * @brief Handle CUTRACER_INSTRUMENT_IPOINT env var (per-instrument list)
+ *
+ * Count must match the final enabled_instrument_types_ordered (including
+ * both user-specified and analysis-added instruments).
+ */
+static void init_per_instrument_ipoint(const char* list_env) {
+  ipoint_overrides = parse_ipoint_list(list_env);
+
+  size_t enabled_count = enabled_instrument_types_ordered.size();
+  size_t ipoint_count = ipoint_overrides.size();
+
+  if (ipoint_count != enabled_count) {
+    fprintf(stderr,
+            "FATAL: CUTRACER_INSTRUMENT_IPOINT has %zu values, but %zu instruments are enabled.\n"
+            "The IPOINT list count must match the number of enabled instruments.\n"
+            "\nEnabled instruments (in order):\n",
+            ipoint_count, enabled_count);
+    for (size_t i = 0; i < enabled_count; ++i) {
+      fprintf(stderr, "  %zu: %s\n", i + 1, instrument_type_to_name(enabled_instrument_types_ordered[i]));
+    }
+    fprintf(stderr,
+            "\nExample: CUTRACER_INSTRUMENT=reg_trace,mem_value_trace\n"
+            "         CUTRACER_INSTRUMENT_IPOINT=b,a\n");
+    exit(1);
+  }
+
+  loprintf("CUTRACER_INSTRUMENT_IPOINT per-instrument configuration:\n");
+  for (size_t i = 0; i < ipoint_count; ++i) {
+    const char* ipoint_name = (ipoint_overrides[i] == IPointType::BEFORE)  ? "BEFORE"
+                              : (ipoint_overrides[i] == IPointType::AFTER) ? "AFTER"
+                                                                           : "DEFAULT";
+    const char* instr_name = instrument_type_to_name(enabled_instrument_types_ordered[i]);
+    loprintf("  - %s: IPOINT_%s\n", instr_name, ipoint_name);
+
+    if (enabled_instrument_types_ordered[i] == InstrumentType::MEM_VALUE_TRACE) {
+      warn_mem_value_trace_before(ipoint_overrides[i]);
+    }
+  }
+}
+
+/**
+ * @brief Initialize IPOINT configuration from environment variables
+ *
+ * Reads CUTRACER_INSTRUMENT_IPOINT_UNIFORM and CUTRACER_INSTRUMENT_IPOINT,
+ * validates mutual exclusivity, and delegates to the appropriate handler.
+ */
+void init_instrument_ipoint() {
+  uniform_ipoint = IPointType::DEFAULT;
+  ipoint_overrides.clear();
+
+  const char* uniform_env = getenv("CUTRACER_INSTRUMENT_IPOINT_UNIFORM");
+  const char* list_env = getenv("CUTRACER_INSTRUMENT_IPOINT");
+
+  bool has_uniform = (uniform_env != nullptr && uniform_env[0] != '\0');
+  bool has_list = (list_env != nullptr && list_env[0] != '\0');
+
+  if (has_uniform && has_list) {
+    fprintf(stderr,
+            "FATAL: Both CUTRACER_INSTRUMENT_IPOINT_UNIFORM and CUTRACER_INSTRUMENT_IPOINT are set.\n"
+            "Please use only one:\n"
+            "  - CUTRACER_INSTRUMENT_IPOINT_UNIFORM=a|b for uniform IPOINT for all instruments\n"
+            "  - CUTRACER_INSTRUMENT_IPOINT=a,b,... for per-instrument IPOINT list\n");
+    exit(1);
+  }
+
+  if (has_uniform) {
+    init_uniform_ipoint(uniform_env);
+  } else if (has_list) {
+    init_per_instrument_ipoint(list_env);
+  }
 }
 
 /**
@@ -491,13 +711,15 @@ void init_config_from_env() {
   // Get kernel name filters
   parse_kernel_filters(kernel_filters_env);
 
-  // Clear enabled types at the beginning
-  enabled_instrument_types.clear();
+  // Clear all instrumentation data structures at the beginning
+  enabled_instrument_types_ordered.clear();
+  instrument_type_to_index.clear();
 
-  // Initialize analysis first, as it may enable instrumentation types
-  init_analysis(analysis_str);
-  // Initialize instrumentation from user settings
+  // Initialize instrumentation from CUTRACER_INSTRUMENT
   init_instrumentation(instrument_str);
+
+  // Initialize analysis - may add additional instruments (always use defaults for IPOINT)
+  init_analysis(analysis_str);
 
   // Trace format configuration
   get_var_int(trace_format_ndjson, "TRACE_FORMAT_NDJSON", 1,
@@ -551,6 +773,9 @@ void init_config_from_env() {
     channel_buffer_size = (1 << 22);  // Default 4MB
     loprintf("Channel buffer: default %d bytes (4MB)\n", channel_buffer_size);
   }
+
+  // Parse IPOINT configuration (optional) - after instrumentation is initialized
+  init_instrument_ipoint();
 
   std::string pad(100, '-');
   loprintf("%s\n", pad.c_str());
