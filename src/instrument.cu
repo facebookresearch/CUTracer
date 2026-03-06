@@ -12,9 +12,51 @@
 #include <cstdlib>
 
 #include "analysis.h"
+#include "env_config.h"
 #include "instrument.h"
 #include "log.h"
 #include "nvbit.h"
+
+/**
+ * @brief Convert IPointType to NVBit's ipoint_t
+ */
+static ipoint_t to_ipoint(IPointType type) {
+  return (type == IPointType::BEFORE) ? IPOINT_BEFORE : IPOINT_AFTER;
+}
+
+/**
+ * @brief Get the IPOINT to use based on configuration
+ *
+ * Priority:
+ * 1. Per-instrument override (from CUTRACER_INSTRUMENT_IPOINT list)
+ * 2. Uniform IPOINT (from CUTRACER_INSTRUMENT_IPOINT_UNIFORM)
+ * 3. Default IPOINT passed as parameter
+ *
+ * @param type The instrument type to get IPOINT for
+ * @param default_ipoint The default IPOINT to use if no override is set
+ * @return The IPOINT to use for instrumentation
+ */
+static ipoint_t get_ipoint_from_config(InstrumentType type, ipoint_t default_ipoint) {
+  // Check per-instrument override (indexed by position in enabled_instrument_types_ordered)
+  auto it = instrument_type_to_index.find(type);
+  if (it != instrument_type_to_index.end()) {
+    int index = it->second;
+    if (static_cast<size_t>(index) < ipoint_overrides.size()) {
+      IPointType override_val = ipoint_overrides[index];
+      if (override_val != IPointType::DEFAULT) {
+        return to_ipoint(override_val);
+      }
+    }
+  }
+
+  // Then, check uniform IPOINT
+  if (uniform_ipoint != IPointType::DEFAULT) {
+    return to_ipoint(uniform_ipoint);
+  }
+
+  // Finally, use default
+  return default_ipoint;
+}
 
 /**
  * @brief Instruments an instruction to record its opcode for lightweight analysis.
@@ -28,7 +70,7 @@
  */
 void instrument_opcode_only(Instr* instr, int opcode_id, CTXstate* ctx_state) {
   /* insert call to the instrumentation function with its arguments */
-  nvbit_insert_call(instr, "instrument_opcode", IPOINT_BEFORE);
+  nvbit_insert_call(instr, "instrument_opcode", get_ipoint_from_config(InstrumentType::OPCODE_ONLY, IPOINT_BEFORE));
   /* guard predicate value */
   nvbit_add_call_arg_guard_pred_val(instr);
   /* opcode id */
@@ -61,7 +103,7 @@ void instrument_opcode_only(Instr* instr, int opcode_id, CTXstate* ctx_state) {
  */
 void instrument_register_trace(Instr* instr, int opcode_id, CTXstate* ctx_state, const OperandLists& operands) {
   /* insert call to the instrumentation function with its arguments */
-  nvbit_insert_call(instr, "instrument_reg_val", IPOINT_BEFORE);
+  nvbit_insert_call(instr, "instrument_reg_val", get_ipoint_from_config(InstrumentType::REG_TRACE, IPOINT_BEFORE));
   /* guard predicate value */
   nvbit_add_call_arg_guard_pred_val(instr);
   /* opcode id */
@@ -109,7 +151,7 @@ void instrument_register_trace(Instr* instr, int opcode_id, CTXstate* ctx_state,
 void instrument_memory_addr_trace(Instr* instr, int opcode_id, CTXstate* ctx_state, int mref_idx) {
   /* insert call to the instrumentation function with its
    * arguments */
-  nvbit_insert_call(instr, "instrument_mem", IPOINT_BEFORE);
+  nvbit_insert_call(instr, "instrument_mem", get_ipoint_from_config(InstrumentType::MEM_ADDR_TRACE, IPOINT_BEFORE));
   /* predicate value */
   nvbit_add_call_arg_guard_pred_val(instr);
   /* opcode id */
@@ -159,7 +201,7 @@ bool shouldInjectDelay(Instr* instr, const std::vector<const char*>& patterns) {
  */
 void instrument_delay_injection(Instr* instr, uint32_t delay_ns) {
   /* insert call to the instrumentation function with its arguments */
-  nvbit_insert_call(instr, "instrument_delay", IPOINT_BEFORE);
+  nvbit_insert_call(instr, "instrument_delay", get_ipoint_from_config(InstrumentType::RANDOM_DELAY, IPOINT_BEFORE));
   /* guard predicate value */
   nvbit_add_call_arg_guard_pred_val(instr);
   /* delay in nanoseconds */
@@ -171,8 +213,8 @@ void instrument_delay_injection(Instr* instr, uint32_t delay_ns) {
  *
  * This function instruments memory instructions to capture both addresses AND
  * values for detailed data flow analysis. Unlike instrument_memory_trace() which
- * uses IPOINT_BEFORE, this function uses IPOINT_AFTER to capture values after
- * the memory operation completes.
+ * uses IPOINT_BEFORE, this function defaults to IPOINT_AFTER to capture values after
+ * the memory operation completes, but can be overridden via CUTRACER_INSTRUMENT_IPOINT.
  *
  * For Global/Local memory: values are read from registers
  *   - Load instructions: read from destination register (value is in reg after load)
@@ -190,8 +232,9 @@ void instrument_memory_value_trace(Instr* instr, int opcode_id, CTXstate* ctx_st
   bool is_load = instr->isLoad();
   int access_size = instr->getSize();
 
-  // Use IPOINT_AFTER for consistent timing semantics
-  nvbit_insert_call(instr, "instrument_mem_value", IPOINT_AFTER);
+  // Default to IPOINT_AFTER for value capture (values available after load completes)
+  nvbit_insert_call(instr, "instrument_mem_value",
+                    get_ipoint_from_config(InstrumentType::MEM_VALUE_TRACE, IPOINT_AFTER));
 
   // Guard predicate value
   nvbit_add_call_arg_guard_pred_val(instr);

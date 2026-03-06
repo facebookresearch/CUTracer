@@ -10,11 +10,24 @@
 #include <stdint.h>
 
 #include <string>
+#include <unordered_map>
 #include <unordered_set>
 #include <vector>
+
 // Forward declaration to avoid circular dependency
 enum class InstrumentType;
 enum class InstrCategory;
+
+/**
+ * @brief Instrumentation point type for NVBit
+ *
+ * Controls whether instrumentation is inserted before or after the instruction.
+ */
+enum class IPointType {
+  DEFAULT = -1,  // Not set - use the default_ipoint passed to get_ipoint_from_config
+  BEFORE = 0,    // IPOINT_BEFORE - instrument before instruction execution
+  AFTER = 1,     // IPOINT_AFTER - instrument after instruction execution
+};
 
 /**
  * @brief Defines the type of analysis to be performed on the collected trace
@@ -52,8 +65,13 @@ extern bool dump_cubin;
 
 // Kernel name filters
 extern std::vector<std::string> kernel_filters;
+
 // Instrumentation configuration
-extern std::unordered_set<InstrumentType> enabled_instrument_types;
+// Uses instrument_type_to_index map for O(1) lookup (replaces the old unordered_set)
+// Ordered list of enabled instrument types (preserves insertion order for IPOINT mapping)
+extern std::vector<InstrumentType> enabled_instrument_types_ordered;
+// Map from InstrumentType to its index in enabled_instrument_types_ordered (O(1) lookup)
+extern std::unordered_map<InstrumentType, int> instrument_type_to_index;
 
 // Analysis configuration
 extern std::unordered_set<AnalysisType> enabled_analysis_types;
@@ -119,3 +137,32 @@ bool should_instrument_category(InstrCategory category);
 
 // Check if category-based filtering is enabled
 bool has_category_filter_enabled();
+
+// IPOINT configuration for instrumentation
+//
+// Two environment variables control IPOINT behavior:
+//
+// 1. CUTRACER_INSTRUMENT_IPOINT_UNIFORM=a|b
+//    Applies the same IPOINT to ALL enabled instruments.
+//    Example: CUTRACER_INSTRUMENT_IPOINT_UNIFORM=b  (all use IPOINT_BEFORE)
+//
+// 2. CUTRACER_INSTRUMENT_IPOINT=a,b,a,...
+//    Per-instrument IPOINT list. Count MUST match the final enabled instruments
+//    (including analysis-added ones). Order follows enabled_instrument_types_ordered.
+//    Example: CUTRACER_INSTRUMENT=reg_trace,mem_value_trace
+//             CUTRACER_INSTRUMENT_IPOINT=b,a  (reg_trace=BEFORE, mem_value_trace=AFTER)
+//
+// Error if both are set simultaneously.
+// Warning if mem_value_trace uses IPOINT_BEFORE (may not capture loaded values).
+//
+// Values: 'a'/'after' = IPOINT_AFTER, 'b'/'before' = IPOINT_BEFORE
+
+// Uniform IPOINT for all instrumentation (set via CUTRACER_INSTRUMENT_IPOINT_UNIFORM)
+extern IPointType uniform_ipoint;
+
+// Per-instrument IPOINT overrides (set via CUTRACER_INSTRUMENT_IPOINT)
+// Indexed by position in enabled_instrument_types_ordered
+extern std::vector<IPointType> ipoint_overrides;
+
+// Initialize IPOINT configuration from environment variables
+void init_instrument_ipoint();
