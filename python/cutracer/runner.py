@@ -80,6 +80,7 @@ def _build_cutracer_env(
     delay_load_path: Optional[str],
     cpu_callstack: Optional[int],
     channel_records: Optional[int],
+    dump_cubin: bool = False,
 ) -> dict:
     """Build environment dict with CUTracer variables."""
     env = os.environ.copy()
@@ -110,6 +111,8 @@ def _build_cutracer_env(
         env["CUTRACER_CPU_CALLSTACK"] = str(cpu_callstack)
     if channel_records is not None:
         env["CUTRACER_CHANNEL_RECORDS"] = str(channel_records)
+    if dump_cubin:
+        env["CUTRACER_DUMP_CUBIN"] = "1"
 
     # Add bundled CUDA tools (nvdisasm, cuobjdump) to PATH so NVBit can find them.
     # These are bundled as buck resources from fbsource's third-party CUDA,
@@ -138,6 +141,7 @@ def _print_config_summary(env: dict) -> None:
         "CUTRACER_INSTR_CATEGORIES",
         "TRACE_FORMAT_NDJSON",
         "CUTRACER_OUTPUT_DIR",
+        "CUTRACER_DUMP_CUBIN",
         "TOOL_VERBOSE",
         "CUTRACER_ZSTD_LEVEL",
         "CUTRACER_DELAY_NS",
@@ -239,6 +243,12 @@ _CUTRACER_OPTIONS = [
         help="Channel buffer capacity in records (default: auto/4MB). "
         "Set to 1 for per-record flush (useful for hang debugging)",
     ),
+    click.option(
+        "--dump-cubin",
+        is_flag=True,
+        default=False,
+        help="Dump cubin files for instrumented kernels (for SASS disassembly via nvdisasm)",
+    ),
 ]
 
 
@@ -270,6 +280,7 @@ def trace_command(
     delay_load_path: Optional[str],
     cpu_callstack: Optional[int],
     channel_records: Optional[int],
+    dump_cubin: bool,
     cmd: tuple,
 ) -> None:
     """Trace a CUDA application with CUTracer instrumentation.
@@ -308,6 +319,7 @@ def trace_command(
         delay_load_path=delay_load_path,
         cpu_callstack=cpu_callstack,
         channel_records=channel_records,
+        dump_cubin=dump_cubin,
     )
 
     _print_config_summary(run_env)
