@@ -356,7 +356,12 @@ bool instrument_function_if_needed(CUcontext ctx, CUfunction func) {
       // so Python analyze can derive cubin path from trace filename
       // (trace: kernel_{checksum}_iter{N}_{name}.ndjson → cubin: kernel_{checksum}_{name}.cubin)
       std::string truncated_name = std::string(mangled_name).substr(0, 150);
-      meta.cubin_path = "kernel_" + meta.kernel_checksum + "_" + truncated_name + ".cubin";
+      std::string cubin_filename = "kernel_" + meta.kernel_checksum + "_" + truncated_name + ".cubin";
+      if (!output_dir.empty()) {
+        meta.cubin_path = output_dir + (output_dir.back() != '/' ? "/" : "") + cubin_filename;
+      } else {
+        meta.cubin_path = cubin_filename;
+      }
       nvbit_dump_cubin(ctx, f, meta.cubin_path.c_str());
     }
 
