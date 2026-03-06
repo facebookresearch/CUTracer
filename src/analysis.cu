@@ -33,6 +33,8 @@
 #define LOOP_REPEAT_THRESH 3
 // Throttle interval for hang checks (seconds)
 #define HANG_CHECK_THROTTLE_SECS 1
+// Throttle interval for periodic TraceWriter/log flush (seconds)
+#define PERIODIC_FLUSH_SECS 1
 
 extern pthread_mutex_t mutex;
 extern std::unordered_map<CUcontext, CTXstate*> ctx_state_map;
@@ -1037,6 +1039,10 @@ void* recv_thread_fun(void* args) {
   // Used to detect when a new kernel begins.
   uint64_t last_seen_kernel_launch_id = UINT64_MAX;  // Initial invalid value
 
+  // Timer for periodic TraceWriter flush (ensures data reaches disk
+  // even when json_buffer_ hasn't hit the 1MB threshold, e.g. during kernel hang).
+  time_t last_periodic_flush_time = 0;
+
   while (ctx_state->recv_thread_done == RecvThreadState::WORKING) {
     uint32_t num_recv_bytes = ch_host->recv(recv_buffer, CHANNEL_SIZE);
 
@@ -1284,6 +1290,30 @@ void* recv_thread_fun(void* args) {
                   header->type);
           continue;
         }
+      }
+    }
+
+    // Periodic flush: write all TraceWriters' json_buffer_ to disk every PERIODIC_FLUSH_SECS,
+    // even if they haven't reached the 1MB threshold.
+    // This ensures partial trace data (including metadata written during
+    // enter_kernel_launch) is persisted during kernel hangs. We iterate ALL
+    // writers because in barrier hang scenarios, no GPU data arrives and
+    // last_seen_kernel_launch_id remains UINT64_MAX, so we can't rely on it.
+    {
+      time_t now = time(nullptr);
+      if (now - last_periodic_flush_time >= PERIODIC_FLUSH_SECS) {
+        last_periodic_flush_time = now;
+        // Flush TraceWriter buffers
+        std::shared_lock<std::shared_mutex> lock(ctx_state->writers_mutex);
+        for (auto& [launch_id, writer] : ctx_state->trace_writers) {
+          if (writer) {
+            writer->flush();
+          }
+        }
+        lock.unlock();
+
+        // Flush log file buffers
+        flush_log_files();
       }
     }
 

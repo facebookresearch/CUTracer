@@ -206,6 +206,15 @@ void init_log_handle() {
            (g_main_log_file == stdout) ? "stdout" : main_log_filename.c_str());
 }
 
+void flush_log_files() {
+  if (g_main_log_file && g_main_log_file != stdout) {
+    fflush(g_main_log_file);
+  }
+  if (g_kernel_log_file) {
+    fflush(g_kernel_log_file);
+  }
+}
+
 void cleanup_log_handle() {
   log_close_kernel_file();
 

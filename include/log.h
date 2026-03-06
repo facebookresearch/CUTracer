@@ -113,6 +113,13 @@ void init_log_handle();
 void cleanup_log_handle();
 
 /**
+ * Flushes all open log file buffers to disk.
+ * Called periodically from recv_thread to ensure log data is persisted
+ * during kernel hangs (when normal cleanup paths are blocked).
+ */
+void flush_log_files();
+
+/**
  * Builds a deterministic base filename for a kernel's trace log.
  *
  * Format:
