@@ -5,7 +5,7 @@ CUTracer analyze module.
 
 Provides analysis algorithms that produce derived insights:
 - warp-summary: Warp execution status analysis (completed, in-progress, missing)
-- (future: hot-instructions, data-race, memory-pattern, divergence, ...)
+- tma: TMA descriptor analysis for data flow modeling
 """
 
 from cutracer.query.warp_summary import (
