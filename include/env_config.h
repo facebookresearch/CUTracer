@@ -106,6 +106,13 @@ extern std::string output_dir;
 // Set CUTRACER_CPU_CALLSTACK=0 to disable
 extern bool cpu_callstack_enabled;
 
+// GPU channel buffer size for GPU→CPU communication (in bytes)
+// Computed from CUTRACER_CHANNEL_RECORDS (number of records the buffer can hold)
+// or defaults to 4MB if not set. Smaller values force more frequent flushes,
+// which is useful for hang debugging (ensures trace data reaches CPU promptly).
+// Set via CUTRACER_CHANNEL_RECORDS environment variable.
+extern int channel_buffer_size;
+
 // Instruction category filtering for conditional instrumentation
 // If empty, all instructions are instrumented
 // If set, only instructions in the specified categories are instrumented

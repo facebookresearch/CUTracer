@@ -30,9 +30,6 @@
 // Forward declaration for TraceWriter (defined in trace_writer.h)
 class TraceWriter;
 
-/* Channel buffer size - increased for mem_value_trace support */
-#define CHANNEL_SIZE (1l << 22)  // 4MB
-
 /* Thread state enum */
 enum class RecvThreadState {
   WORKING,

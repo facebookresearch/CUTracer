@@ -582,8 +582,8 @@ void init_context_state(CUcontext ctx) {
   CTXstate* ctx_state = ctx_state_map[ctx];
   ctx_state->recv_thread_done = RecvThreadState::WORKING;
   cudaMallocManaged(&ctx_state->channel_dev, sizeof(ChannelDev));
-  ctx_state->channel_host.init((int)ctx_state_map.size() - 1, CHANNEL_SIZE, ctx_state->channel_dev, recv_thread_fun,
-                               ctx);
+  ctx_state->channel_host.init((int)ctx_state_map.size() - 1, channel_buffer_size, ctx_state->channel_dev,
+                               recv_thread_fun, ctx);
   nvbit_set_tool_pthread(ctx_state->channel_host.get_thread());
 }
 

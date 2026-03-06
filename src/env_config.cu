@@ -53,6 +53,45 @@ std::string output_dir;
 // CPU call stack capture at kernel launch (default: enabled)
 bool cpu_callstack_enabled;
 
+// GPU channel buffer size (in bytes), computed from CUTRACER_CHANNEL_RECORDS
+// Default: 4MB (1 << 22)
+int channel_buffer_size;
+
+/**
+ * @brief Compute the largest record size among all currently enabled instrument types.
+ *
+ * Must be called after init_analysis() and init_instrumentation(), since
+ * analysis types can implicitly enable instrument types (e.g., deadlock_detection
+ * forces REG_TRACE).
+ *
+ * @return The sizeof() of the largest enabled record type, or sizeof(reg_info_t) as fallback.
+ */
+static size_t compute_max_record_size() {
+  size_t max_size = 0;
+
+  if (is_instrument_type_enabled(InstrumentType::REG_TRACE)) {
+    max_size = std::max(max_size, sizeof(reg_info_t));
+  }
+  if (is_instrument_type_enabled(InstrumentType::MEM_ADDR_TRACE)) {
+    max_size = std::max(max_size, sizeof(mem_addr_access_t));
+  }
+  if (is_instrument_type_enabled(InstrumentType::MEM_VALUE_TRACE)) {
+    max_size = std::max(max_size, sizeof(mem_value_access_t));
+  }
+  if (is_instrument_type_enabled(InstrumentType::OPCODE_ONLY)) {
+    max_size = std::max(max_size, sizeof(opcode_only_t));
+  }
+  if (is_instrument_type_enabled(InstrumentType::TMA_TRACE)) {
+    max_size = std::max(max_size, sizeof(tma_access_t));
+  }
+
+  if (max_size == 0) {
+    max_size = sizeof(reg_info_t);
+  }
+
+  return max_size;
+}
+
 /**
  * @brief Parses a comma-separated string of kernel name filters for substring matching.
  *
@@ -492,6 +531,26 @@ void init_config_from_env() {
   int cpu_callstack_int;
   get_var_int(cpu_callstack_int, "CUTRACER_CPU_CALLSTACK", 1, "CPU call stack capture (1=enabled, 0=disabled)");
   cpu_callstack_enabled = (cpu_callstack_int != 0);
+
+  // Channel buffer size configuration
+  // Users specify the number of records the buffer can hold.
+  // The actual byte size is computed as: max_record_size * channel_records.
+  // This must be after init_analysis() + init_instrumentation() since analysis
+  // types can implicitly enable instrument types (e.g., deadlock_detection → REG_TRACE).
+  int channel_records = 0;
+  get_var_int(channel_records, "CUTRACER_CHANNEL_RECORDS", 0,
+              "Channel buffer capacity in records (0=default 4MB). "
+              "Set to 1 for per-record flush (useful for hang debugging)");
+
+  if (channel_records > 0) {
+    int max_record = (int)compute_max_record_size();
+    channel_buffer_size = max_record * channel_records;
+    loprintf("Channel buffer: %d records x %d bytes/record = %d bytes\n", channel_records, max_record,
+             channel_buffer_size);
+  } else {
+    channel_buffer_size = (1 << 22);  // Default 4MB
+    loprintf("Channel buffer: default %d bytes (4MB)\n", channel_buffer_size);
+  }
 
   std::string pad(100, '-');
   loprintf("%s\n", pad.c_str());

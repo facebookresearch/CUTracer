@@ -78,6 +78,7 @@ def _build_cutracer_env(
     delay_ns: Optional[int],
     delay_dump_path: Optional[str],
     delay_load_path: Optional[str],
+    channel_records: Optional[int],
 ) -> dict:
     """Build environment dict with CUTracer variables."""
     env = os.environ.copy()
@@ -104,6 +105,8 @@ def _build_cutracer_env(
         env["CUTRACER_DELAY_DUMP_PATH"] = delay_dump_path
     if delay_load_path is not None:
         env["CUTRACER_DELAY_LOAD_PATH"] = delay_load_path
+    if channel_records is not None:
+        env["CUTRACER_CHANNEL_RECORDS"] = str(channel_records)
 
     # Add bundled CUDA tools (nvdisasm, cuobjdump) to PATH so NVBit can find them.
     # These are bundled as buck resources from fbsource's third-party CUDA,
@@ -137,6 +140,7 @@ def _print_config_summary(env: dict) -> None:
         "CUTRACER_DELAY_NS",
         "CUTRACER_DELAY_DUMP_PATH",
         "CUTRACER_DELAY_LOAD_PATH",
+        "CUTRACER_CHANNEL_RECORDS",
     ]
     click.echo("=" * 60)
     click.echo("CUTracer Configuration:")
@@ -218,6 +222,13 @@ _CUTRACER_OPTIONS = [
         default=None,
         help="Load delay config JSON for replay mode",
     ),
+    click.option(
+        "--channel-records",
+        type=int,
+        default=None,
+        help="Channel buffer capacity in records (default: auto/4MB). "
+        "Set to 1 for per-record flush (useful for hang debugging)",
+    ),
 ]
 
 
@@ -247,6 +258,7 @@ def trace_command(
     delay_ns: Optional[int],
     delay_dump_path: Optional[str],
     delay_load_path: Optional[str],
+    channel_records: Optional[int],
     cmd: tuple,
 ) -> None:
     """Trace a CUDA application with CUTracer instrumentation.
@@ -283,6 +295,7 @@ def trace_command(
         delay_ns=delay_ns,
         delay_dump_path=delay_dump_path,
         delay_load_path=delay_load_path,
+        channel_records=channel_records,
     )
 
     _print_config_summary(run_env)

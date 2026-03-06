@@ -1030,7 +1030,7 @@ void* recv_thread_fun(void* args) {
 
   ChannelHost* ch_host = &ctx_state->channel_host;
   pthread_mutex_unlock(&mutex);
-  char* recv_buffer = (char*)malloc(CHANNEL_SIZE);
+  char* recv_buffer = (char*)malloc(channel_buffer_size);
 
   // Per-thread, per-context state for histogram analysis.
   std::unordered_map<int, WarpState> warp_states;
@@ -1044,7 +1044,7 @@ void* recv_thread_fun(void* args) {
   time_t last_periodic_flush_time = 0;
 
   while (ctx_state->recv_thread_done == RecvThreadState::WORKING) {
-    uint32_t num_recv_bytes = ch_host->recv(recv_buffer, CHANNEL_SIZE);
+    uint32_t num_recv_bytes = ch_host->recv(recv_buffer, channel_buffer_size);
 
     if (num_recv_bytes > 0) {
       // Process data packets in this chunk
