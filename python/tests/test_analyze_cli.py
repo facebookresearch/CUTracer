@@ -157,6 +157,163 @@ class AnalyzeWarpSummaryTest(unittest.TestCase):
         self.assertIn("warp-summary", result.output)
 
 
+# Real Blackwell GEMM TMA descriptor (float16, 8192x8192, box_dim 128x64)
+_BLACKWELL_DESC_RAW = [
+    "0x00007fb61c000000",
+    "0x0000040000246310",
+    "0x0000000000000000",
+    "0x0000000000000000",
+    "0x00001fff00001fff",
+    "0x0000000000000000",
+    "0x3f00000000000000",
+    "0x000000000000007f",
+    "0x0000000000004000",
+    "0x0000000000000400",
+    "0x0000000000000000",
+    "0x0000000000000000",
+    "0x0000000000000000",
+    "0x0000000000000000",
+    "0x0000000000000000",
+    "0x0000000000000000",
+]
+
+
+class AnalyzeTMAJsonTest(unittest.TestCase):
+    """Tests for analyze tma command JSON output fields."""
+
+    def setUp(self):
+        self.runner = CliRunner()
+        self.temp_dir = tempfile.mkdtemp()
+
+        # Create a test trace file with TMA records
+        self.trace_file = Path(self.temp_dir) / "tma_trace.ndjson"
+        records = [
+            {
+                "type": "tma_trace",
+                "desc_addr": "0xABCD",
+                "pc": "0x100",
+                "cta": [0, 0, 0],
+                "desc_raw": _BLACKWELL_DESC_RAW,
+                "sass": "UTMALDG.2D [UR16], [UR10] ;",
+            },
+            {
+                "type": "tma_trace",
+                "desc_addr": "0xABCD",
+                "pc": "0x200",
+                "cta": [0, 0, 0],
+                "desc_raw": _BLACKWELL_DESC_RAW,
+                "sass": "UTMALDG.2D [UR16], [UR10] ;",
+            },
+            {
+                "type": "tma_trace",
+                "desc_addr": "0xABCD",
+                "pc": "0x100",
+                "cta": [1, 0, 0],
+                "desc_raw": _BLACKWELL_DESC_RAW,
+                "sass": "UTMALDG.2D [UR16], [UR10] ;",
+            },
+        ]
+        with open(self.trace_file, "w") as f:
+            for record in records:
+                f.write(json.dumps(record) + "\n")
+
+    def test_tma_json_has_raw_descriptor_fields(self):
+        """Test that JSON output includes raw descriptor fields."""
+        result = self.runner.invoke(
+            main,
+            ["analyze", "tma", str(self.trace_file), "--format", "json"],
+        )
+
+        self.assertEqual(result.exit_code, 0)
+        output = json.loads(result.output)
+        desc = output["descriptors"][0]
+
+        self.assertEqual(desc["tensor_rank"], 2)
+        self.assertEqual(desc["data_type"], 6)
+        self.assertEqual(desc["element_size"], 2)
+        self.assertEqual(desc["global_dim"], [8192, 8192, 0, 0, 0])
+        self.assertIsInstance(desc["global_stride"], list)
+        self.assertEqual(desc["box_dim"], [128, 64, 0, 0, 0])
+        self.assertEqual(desc["swizzle_mode"], 4)
+
+    def test_tma_json_has_trace_statistics(self):
+        """Test that JSON output includes trace statistics."""
+        result = self.runner.invoke(
+            main,
+            ["analyze", "tma", str(self.trace_file), "--format", "json"],
+        )
+
+        self.assertEqual(result.exit_code, 0)
+        output = json.loads(result.output)
+        desc = output["descriptors"][0]
+
+        # 2 unique PCs: 0x100 and 0x200
+        self.assertEqual(desc["unique_pcs"], 2)
+
+        # ops_per_cta stats
+        ops = desc["ops_per_cta"]
+        self.assertIn("min", ops)
+        self.assertIn("max", ops)
+        self.assertIn("avg", ops)
+        self.assertIn("sample_ctas", ops)
+        self.assertEqual(ops["sample_ctas"], 2)
+
+    def test_tma_json_has_inferred_block_shape(self):
+        """Test that JSON output includes inferred block shape."""
+        result = self.runner.invoke(
+            main,
+            ["analyze", "tma", str(self.trace_file), "--format", "json"],
+        )
+
+        self.assertEqual(result.exit_code, 0)
+        output = json.loads(result.output)
+        desc = output["descriptors"][0]
+
+        self.assertIn("inferred_block_shape", desc)
+        self.assertIsInstance(desc["inferred_block_shape"], list)
+
+    def test_tma_json_has_source_reconstruction(self):
+        """Test that JSON output includes source reconstruction."""
+        result = self.runner.invoke(
+            main,
+            ["analyze", "tma", str(self.trace_file), "--format", "json"],
+        )
+
+        self.assertEqual(result.exit_code, 0)
+        output = json.loads(result.output)
+
+        self.assertIn("source_reconstruction", output)
+        self.assertIsInstance(output["source_reconstruction"], str)
+
+    def test_tma_json_preserves_existing_fields(self):
+        """Test that existing JSON fields are still present."""
+        result = self.runner.invoke(
+            main,
+            ["analyze", "tma", str(self.trace_file), "--format", "json"],
+        )
+
+        self.assertEqual(result.exit_code, 0)
+        output = json.loads(result.output)
+
+        # Summary
+        self.assertIn("summary", output)
+        self.assertEqual(output["summary"]["total_accesses"], 3)
+        self.assertEqual(output["summary"]["unique_descriptors"], 1)
+
+        # Existing descriptor fields
+        desc = output["descriptors"][0]
+        self.assertEqual(desc["desc_addr"], "0xABCD")
+        self.assertTrue(desc["is_load"])
+        self.assertEqual(desc["dtype"], "float16")
+        self.assertEqual(desc["swizzle"], "128B_ATOM_32B")
+        self.assertEqual(desc["interleave"], "16B")
+        self.assertEqual(desc["access_count"], 3)
+        self.assertIn("shape", desc)
+        self.assertIn("strides", desc)
+        self.assertIn("block_shape", desc)
+        self.assertIn("sass", desc)
+
+
 class AnalyzeIntegrationTest(unittest.TestCase):
     """Integration tests for analyze command with compressed files."""
 
