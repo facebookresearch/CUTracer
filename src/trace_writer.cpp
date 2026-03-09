@@ -129,15 +129,21 @@ TraceWriter::~TraceWriter() {
 // ============================================================================
 
 void TraceWriter::write_metadata(const nlohmann::json& metadata) {
-  if (!enabled_) return;
+  if (!enabled_) {
+    return;
+  }
   // Text mode (mode 0) does not use json_buffer_; skip.
-  if (trace_mode_ == TraceMode::TEXT) return;
+  if (trace_mode_ == TraceMode::TEXT) {
+    return;
+  }
 
   json_buffer_ += metadata.dump() + "\n";
 }
 
 bool TraceWriter::write_trace(const TraceRecord& record) {
-  if (!enabled_) return false;
+  if (!enabled_) {
+    return false;
+  }
 
   // Dispatch based on trace mode
   if (trace_mode_ == TraceMode::TEXT) {
@@ -176,7 +182,9 @@ void serialize_common_fields(nlohmann::json& j, const T* data) {
 }
 
 bool TraceWriter::write_data(const char* data, size_t size, const char* data_type) {
-  if (fd_ < 0) return false;
+  if (fd_ < 0) {
+    return false;
+  }
 
   size_t total_written = 0;
 
@@ -212,7 +220,9 @@ bool TraceWriter::write_data(const char* data, size_t size, const char* data_typ
 }
 
 void TraceWriter::write_uncompressed() {
-  if (json_buffer_.empty() || !enabled_) return;
+  if (json_buffer_.empty() || !enabled_) {
+    return;
+  }
 
   // CRITICAL FIX: Move json_buffer_ to temp to prevent data corruption
   //
@@ -256,7 +266,9 @@ void TraceWriter::write_clp_archive() {
 }
 
 void TraceWriter::write_compressed() {
-  if (json_buffer_.empty() || !enabled_ || !zstd_ctx_) return;
+  if (json_buffer_.empty() || !enabled_ || !zstd_ctx_) {
+    return;
+  }
 
   // CRITICAL FIX: Move json_buffer_ to temp to prevent data loss
   //
@@ -290,7 +302,9 @@ void TraceWriter::write_compressed() {
 }
 
 void TraceWriter::serialize_reg_info(nlohmann::json& j, const reg_info_t* reg, const RegIndices* indices) {
-  if (!reg) return;
+  if (!reg) {
+    return;
+  }
 
   using json = nlohmann::json;
 
@@ -339,7 +353,9 @@ void TraceWriter::serialize_reg_info(nlohmann::json& j, const reg_info_t* reg, c
 }
 
 void TraceWriter::serialize_mem_access(nlohmann::json& j, const mem_addr_access_t* mem) {
-  if (!mem) return;
+  if (!mem) {
+    return;
+  }
 
   serialize_common_fields(j, mem);
 
@@ -349,13 +365,17 @@ void TraceWriter::serialize_mem_access(nlohmann::json& j, const mem_addr_access_
 }
 
 void TraceWriter::serialize_opcode_only(nlohmann::json& j, const opcode_only_t* opcode) {
-  if (!opcode) return;
+  if (!opcode) {
+    return;
+  }
 
   serialize_common_fields(j, opcode);
 }
 
 void TraceWriter::serialize_mem_value_access(nlohmann::json& j, const mem_value_access_t* mem) {
-  if (!mem) return;
+  if (!mem) {
+    return;
+  }
 
   using json = nlohmann::json;
 
@@ -373,7 +393,9 @@ void TraceWriter::serialize_mem_value_access(nlohmann::json& j, const mem_value_
   // Convert values array (32 lanes x up to 4 registers based on access_size)
   // Only include registers needed for the access size
   int regs_needed = (mem->access_size + 3) / 4;
-  if (regs_needed > 4) regs_needed = 4;
+  if (regs_needed > 4) {
+    regs_needed = 4;
+  }
 
   json::array_t values_array;
   for (int lane = 0; lane < 32; lane++) {
@@ -387,7 +409,9 @@ void TraceWriter::serialize_mem_value_access(nlohmann::json& j, const mem_value_
 }
 
 void TraceWriter::serialize_tma_access(nlohmann::json& j, const tma_access_t* tma) {
-  if (!tma) return;
+  if (!tma) {
+    return;
+  }
 
   using json = nlohmann::json;
 
@@ -413,7 +437,9 @@ void TraceWriter::serialize_tma_access(nlohmann::json& j, const tma_access_t* tm
 // ============================================================================
 
 void TraceWriter::write_text_format(const TraceRecord& record) {
-  if (!file_handle_) return;
+  if (!file_handle_) {
+    return;
+  }
 
   // Dispatch by trace type
   switch (record.type) {
