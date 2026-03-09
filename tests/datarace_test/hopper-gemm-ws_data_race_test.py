@@ -1,3 +1,5 @@
+# Copyright (c) Meta Platforms, Inc. and affiliates.
+
 """
 Data Race Test for Hopper GEMM Warp-Specialized Kernel
 

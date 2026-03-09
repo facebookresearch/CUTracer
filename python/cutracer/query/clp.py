@@ -1,3 +1,5 @@
+# Copyright (c) Meta Platforms, Inc. and affiliates.
+
 from typing import Generator, Optional
 
 import yscope_clp_core  # type: ignore

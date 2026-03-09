@@ -1,3 +1,5 @@
+# Copyright (c) Meta Platforms, Inc. and affiliates.
+
 """
 Data race reproducer for the Blackwell flash-attention warp-specialized kernel.
 

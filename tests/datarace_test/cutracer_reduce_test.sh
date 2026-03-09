@@ -1,4 +1,5 @@
 #!/bin/bash
+# Copyright (c) Meta Platforms, Inc. and affiliates.
 # =============================================================================
 # cutracer_reduce_test.sh - Demo test script for cutracer reduce
 # =============================================================================

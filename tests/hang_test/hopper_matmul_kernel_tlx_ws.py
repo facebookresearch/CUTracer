@@ -1,3 +1,5 @@
+# Copyright (c) Meta Platforms, Inc. and affiliates.
+
 """
 Mini-reproducer for Hopper TLX warp-specialized GEMM kernel hang.
 
