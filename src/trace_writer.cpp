@@ -318,9 +318,9 @@ void TraceWriter::serialize_reg_info(nlohmann::json& j, const reg_info_t* reg, c
   for (int reg_idx = 0; reg_idx < reg->num_regs; reg_idx++) {
     json::array_t thread_vals;
     for (int thread = 0; thread < 32; thread++) {
-      thread_vals.push_back(reg->reg_vals[thread][reg_idx]);
+      thread_vals.emplace_back(reg->reg_vals[thread][reg_idx]);
     }
-    regs_array.push_back(thread_vals);
+    regs_array.emplace_back(thread_vals);
   }
   j["regs"] = regs_array;
 
@@ -328,7 +328,7 @@ void TraceWriter::serialize_reg_info(nlohmann::json& j, const reg_info_t* reg, c
   if (indices && !indices->reg_indices.empty()) {
     json::array_t regs_indices_array;
     for (auto idx : indices->reg_indices) {
-      regs_indices_array.push_back(idx);
+      regs_indices_array.emplace_back(idx);
     }
     j["regs_indices"] = regs_indices_array;
   }
@@ -337,7 +337,7 @@ void TraceWriter::serialize_reg_info(nlohmann::json& j, const reg_info_t* reg, c
   if (reg->num_uregs > 0) {
     json::array_t uregs_array;
     for (int i = 0; i < reg->num_uregs; i++) {
-      uregs_array.push_back(reg->ureg_vals[i]);
+      uregs_array.emplace_back(reg->ureg_vals[i]);
     }
     j["uregs"] = uregs_array;
 
@@ -345,7 +345,7 @@ void TraceWriter::serialize_reg_info(nlohmann::json& j, const reg_info_t* reg, c
     if (indices && !indices->ureg_indices.empty()) {
       json::array_t uregs_indices_array;
       for (auto idx : indices->ureg_indices) {
-        uregs_indices_array.push_back(idx);
+        uregs_indices_array.emplace_back(idx);
       }
       j["uregs_indices"] = uregs_indices_array;
     }
@@ -401,9 +401,9 @@ void TraceWriter::serialize_mem_value_access(nlohmann::json& j, const mem_value_
   for (int lane = 0; lane < 32; lane++) {
     json::array_t lane_vals;
     for (int r = 0; r < regs_needed; r++) {
-      lane_vals.push_back(mem->values[lane][r]);
+      lane_vals.emplace_back(mem->values[lane][r]);
     }
-    values_array.push_back(lane_vals);
+    values_array.emplace_back(lane_vals);
   }
   j["values"] = values_array;
 }
@@ -427,7 +427,7 @@ void TraceWriter::serialize_tma_access(nlohmann::json& j, const tma_access_t* tm
   for (int i = 0; i < 16; i++) {
     std::stringstream ss;
     ss << "0x" << std::hex << std::setfill('0') << std::setw(16) << tma->desc_raw[i];
-    desc_raw_array.push_back(ss.str());
+    desc_raw_array.emplace_back(ss.str());
   }
   j["desc_raw"] = desc_raw_array;
 }
