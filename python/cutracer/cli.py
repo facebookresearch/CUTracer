@@ -41,7 +41,12 @@ Examples:
 @click.version_option(version=_get_package_version(), prog_name="cutraceross")
 def main() -> None:
     """CUTracer: CUDA trace validation, query, and analysis tools."""
-    pass
+    from cutracer.shared_vars import is_fbcode
+
+    if is_fbcode():
+        from cutracer.fb.usage import usage_report_logger
+
+        usage_report_logger()
 
 
 # Register subcommands
