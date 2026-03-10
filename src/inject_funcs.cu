@@ -20,10 +20,11 @@
 #include "utils/channel.hpp"
 
 /* Based on NVIDIA NVBit reg_trace example with Meta modifications for
-message type, unified register, and kernel launch id support*/
+message type, unified register, predicate register, and kernel launch id support*/
 extern "C" __device__ __noinline__ void instrument_reg_val(int pred, int opcode_id, uint64_t pchannel_dev,
                                                            uint64_t kernel_launch_id, uint64_t pc, int32_t num_regs,
-                                                           int32_t num_uregs, ...) {
+                                                           int32_t num_uregs, int32_t num_preds, int32_t num_upreds,
+                                                           ...) {
   if (!pred) {
     return;
   }
@@ -44,13 +45,15 @@ extern "C" __device__ __noinline__ void instrument_reg_val(int pred, int opcode_
   ri.opcode_id = opcode_id;
   ri.num_regs = num_regs;
   ri.num_uregs = num_uregs;
+  ri.num_preds = num_preds;
+  ri.num_upreds = num_upreds;
   ri.kernel_launch_id = kernel_launch_id;
   ri.pc = pc;
 
-  if (num_regs || num_uregs) {
+  if (num_regs || num_uregs || num_preds || num_upreds) {
     // Initialize variable argument list
     va_list vl;
-    va_start(vl, num_uregs);
+    va_start(vl, num_upreds);
 
     // First batch: collect register values
     for (int i = 0; i < num_regs; i++) {
@@ -65,6 +68,22 @@ extern "C" __device__ __noinline__ void instrument_reg_val(int pred, int opcode_
     if (first_laneid == laneid) {
       for (int i = 0; i < num_uregs; i++) {
         ri.ureg_vals[i] = va_arg(vl, uint32_t);
+      }
+    }
+
+    // Collect predicate register values (1-bit per thread, stored as uint32_t 0/1)
+    for (int i = 0; i < num_preds; i++) {
+      uint32_t val = va_arg(vl, uint32_t);
+
+      /* collect predicate values from other threads */
+      for (int tid = 0; tid < 32; tid++) {
+        ri.pred_vals[tid][i] = __shfl_sync(active_mask, val, tid);
+      }
+    }
+    // Uniform predicate registers (shared across the warp)
+    if (first_laneid == laneid) {
+      for (int i = 0; i < num_upreds; i++) {
+        ri.upred_vals[i] = va_arg(vl, uint32_t);
       }
     }
 

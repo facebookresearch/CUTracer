@@ -31,9 +31,10 @@ enum class InstrumentType {
  * changing function signatures.
  */
 struct OperandLists {
-  std::vector<int> reg_nums;   // Regular register numbers
-  std::vector<int> ureg_nums;  // Uniform register numbers
-  // Future: add support for other types like pred_nums, generic_vals, etc.
+  std::vector<int> reg_nums;    // Regular register numbers
+  std::vector<int> ureg_nums;   // Uniform register numbers
+  std::vector<int> pred_nums;   // Predicate register numbers (P0-P6)
+  std::vector<int> upred_nums;  // Uniform predicate register numbers (UP0-UP6)
 };
 
 /**
