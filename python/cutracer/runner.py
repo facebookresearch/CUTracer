@@ -67,7 +67,7 @@ def resolve_cutracer_so(explicit_path: Optional[str] = None) -> str:
 
 def _build_cutracer_env(
     cutracer_so: str,
-    instrument: str,
+    instrument: Optional[str],
     analysis: Optional[str],
     kernel_filters: Optional[str],
     instr_categories: Optional[str],
@@ -85,7 +85,9 @@ def _build_cutracer_env(
     """Build environment dict with CUTracer variables."""
     env = os.environ.copy()
     env["CUDA_INJECTION64_PATH"] = cutracer_so
-    env["CUTRACER_INSTRUMENT"] = instrument
+
+    if instrument is not None:
+        env["CUTRACER_INSTRUMENT"] = instrument
 
     if analysis is not None:
         env["CUTRACER_ANALYSIS"] = analysis
@@ -163,9 +165,10 @@ _CUTRACER_OPTIONS = [
     click.option(
         "--instrument",
         "-i",
-        required=True,
+        default=None,
         help="Instrumentation type(s): opcode_only, reg_trace, mem_addr_trace, "
-        "mem_value_trace, tma_trace, random_delay",
+        "mem_value_trace, tma_trace, random_delay. "
+        "If omitted, CUTracer acts as a kernel launch logger (no trace files).",
     ),
     click.option(
         "--analysis",
@@ -244,10 +247,10 @@ _CUTRACER_OPTIONS = [
         "Set to 1 for per-record flush (useful for hang debugging)",
     ),
     click.option(
-        "--dump-cubin",
-        is_flag=True,
-        default=False,
-        help="Dump cubin files for instrumented kernels (for SASS disassembly via nvdisasm)",
+        "--dump-cubin/--no-dump-cubin",
+        default=None,
+        help="Dump cubin files for instrumented kernels (for SASS disassembly via nvdisasm). "
+        "Auto-enabled when --instrument is set; use --no-dump-cubin to override.",
     ),
 ]
 
@@ -266,7 +269,7 @@ def cutracer_options(func):
 @cutracer_options
 @click.argument("cmd", nargs=-1, type=click.UNPROCESSED, required=True)
 def trace_command(
-    instrument: str,
+    instrument: Optional[str],
     analysis: Optional[str],
     kernel_filters: Optional[str],
     instr_categories: Optional[str],
@@ -280,7 +283,7 @@ def trace_command(
     delay_load_path: Optional[str],
     cpu_callstack: Optional[int],
     channel_records: Optional[int],
-    dump_cubin: bool,
+    dump_cubin: Optional[bool],
     cmd: tuple,
 ) -> None:
     """Trace a CUDA application with CUTracer instrumentation.
@@ -289,13 +292,17 @@ def trace_command(
     The cutracer.so shared library is bundled via buck2 resources if not
     explicitly provided.
 
+    When --instrument is omitted, CUTracer acts as a lightweight kernel launch
+    logger: kernel names, grid/block dims, and shared memory usage are printed
+    but no trace files are created and no instrumentation overhead is added.
+
     \b
     Examples:
       cutracer trace --instrument=tma_trace -- ./vectoradd
       cutracer trace -i tma_trace --instr-categories=tma --trace-format=2 -- ./my_app
       cutracer trace -i reg_trace --kernel-filters=matmul_kernel -- python -m pytest test.py
       cutracer trace -i tma_trace --cutracer-so=/path/to/cutracer.so -- ./app
-      cutracer trace -i tma_trace -- CUDA_VISIBLE_DEVICES=6 TRITON_PRINT_AUTOTUNING=1 python3 test.py
+      cutracer trace -- ./my_app  # kernel launch logger only (no instrumentation)
     """
     if not cmd:
         raise click.UsageError(
@@ -303,6 +310,11 @@ def trace_command(
         )
 
     so_path = resolve_cutracer_so(cutracer_so)
+
+    # Auto-enable cubin dumping when instrumentation is active, unless
+    # the user explicitly passed --no-dump-cubin.
+    if dump_cubin is None:
+        dump_cubin = instrument is not None
 
     run_env = _build_cutracer_env(
         cutracer_so=so_path,
