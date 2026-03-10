@@ -9,6 +9,7 @@ from pathlib import Path
 
 from click.testing import CliRunner
 from cutracer.cli import main
+from cutracer.shared_vars import is_fbcode
 
 
 class AnalyzeWarpSummaryTest(unittest.TestCase):
@@ -178,6 +179,7 @@ _BLACKWELL_DESC_RAW = [
 ]
 
 
+@unittest.skipUnless(is_fbcode(), "TMA command only available in fbcode")
 class AnalyzeTMAJsonTest(unittest.TestCase):
     """Tests for analyze tma command JSON output fields."""
 
