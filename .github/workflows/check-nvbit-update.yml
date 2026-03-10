@@ -38,22 +38,63 @@ jobs:
 
       - name: Get latest NVBit release
         id: latest
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          RESPONSE=$(curl -s https://api.github.com/repos/NVlabs/NVBit/releases/latest)
-          LATEST=$(echo "$RESPONSE" | jq -r '.tag_name' | sed 's/^v//')
-          PUBLISHED=$(echo "$RESPONSE" | jq -r '.published_at')
+          MAX_RETRIES=3
+          RETRY_DELAY=10
+          RESPONSE=""
+          SUCCESS=false
 
-          echo "version=$LATEST" >> $GITHUB_OUTPUT
-          echo "published=$PUBLISHED" >> $GITHUB_OUTPUT
-          echo "🆕 Latest NVBit version: $LATEST (published: $PUBLISHED)"
+          for i in $(seq 1 $MAX_RETRIES); do
+            echo "🔄 Attempt $i/$MAX_RETRIES: Fetching latest NVBit release..."
+            RESPONSE=$(curl -s -H "Authorization: Bearer $GH_TOKEN" \
+              https://api.github.com/repos/NVlabs/NVBit/releases/latest)
+            CURL_EXIT=$?
+
+            if [ $CURL_EXIT -ne 0 ]; then
+              echo "⚠️ curl failed with exit code $CURL_EXIT"
+            elif echo "$RESPONSE" | jq -e '.message' > /dev/null 2>&1; then
+              echo "⚠️ API returned error: $(echo "$RESPONSE" | jq -r '.message')"
+            else
+              echo "✅ API request succeeded on attempt $i"
+              SUCCESS=true
+              break
+            fi
+
+            if [ $i -lt $MAX_RETRIES ]; then
+              echo "⏳ Waiting ${RETRY_DELAY}s before retry..."
+              sleep $RETRY_DELAY
+              RETRY_DELAY=$((RETRY_DELAY * 2))
+            fi
+          done
+
+          LATEST=$(echo "$RESPONSE" | jq -r '.tag_name // empty' | sed 's/^v//')
+          PUBLISHED=$(echo "$RESPONSE" | jq -r '.published_at // empty')
+
+          if [ "$SUCCESS" = true ] && [ -n "$LATEST" ] && [ "$LATEST" != "null" ]; then
+            echo "valid=true" >> $GITHUB_OUTPUT
+            echo "version=$LATEST" >> $GITHUB_OUTPUT
+            echo "published=$PUBLISHED" >> $GITHUB_OUTPUT
+            echo "🆕 Latest NVBit version: $LATEST (published: $PUBLISHED)"
+          else
+            echo "❌ Failed to get valid version after $MAX_RETRIES attempts"
+            echo "valid=false" >> $GITHUB_OUTPUT
+            echo "version=" >> $GITHUB_OUTPUT
+            echo "published=" >> $GITHUB_OUTPUT
+          fi
 
       - name: Check if update needed
         id: check
         run: |
+          VALID="${{ steps.latest.outputs.valid }}"
           CURRENT="${{ steps.current.outputs.version }}"
           LATEST="${{ steps.latest.outputs.version }}"
 
-          if [ "$CURRENT" != "$LATEST" ]; then
+          if [ "$VALID" != "true" ]; then
+            echo "update_needed=false" >> $GITHUB_OUTPUT
+            echo "⚠️ Skipping update: could not retrieve valid latest version"
+          elif [ "$CURRENT" != "$LATEST" ]; then
             echo "update_needed=true" >> $GITHUB_OUTPUT
             echo "✅ Update available: $CURRENT → $LATEST"
           else
