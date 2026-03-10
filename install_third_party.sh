@@ -15,7 +15,7 @@
 # ============================================================
 # Configuration: Set default values if not provided
 # ============================================================
-NVBIT_VERSION="${NVBIT_VERSION:-1.7.7.3}"
+NVBIT_VERSION="${NVBIT_VERSION:-null}"
 JSON_VERSION="${JSON_VERSION:-3.11.3}"
 
 # ============================================================
