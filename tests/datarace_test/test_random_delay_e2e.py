@@ -76,11 +76,13 @@ class TestRandomDelayDataRace(unittest.TestCase):
             delay_ns=10000,
             instr_categories=None,
             trace_format=None,
-            trace_output_dir=self.trace_dir,
+            output_dir=self.trace_dir,
             verbose=None,
             zstd_level=None,
             delay_dump_path=None,
             delay_load_path=None,
+            cpu_callstack=None,
+            channel_records=None,
         )
 
         # Run the data race test as a subprocess (same as cutracer trace does)
@@ -129,43 +131,78 @@ class TestRandomDelayDataRace(unittest.TestCase):
         return None, None
 
     def test_bug1_late_barrier_a_detected(self):
-        """Random delay exposes bug1: late barrier_wait for A."""
-        result = self._run_with_random_delay(
-            bug_num=1,
-            kernel_filter="matmul_kernel_bug1_late_barrier_a",
-        )
-        failures, total = self._parse_failure_count(result.stdout)
-        self.assertIsNotNone(
-            failures,
-            f"Could not parse failure count from output.\n"
-            f"STDOUT: {result.stdout}\nSTDERR: {result.stderr}",
-        )
+        """Random delay exposes bug1: late barrier_wait for A.
+
+        CUTracer instruments each kernel once per process with a fixed random
+        delay configuration.  All iterations within a single subprocess share
+        the same delay pattern, so multiple iterations are redundant.  We use
+        1 iteration per attempt and retry with independent subprocess
+        invocations (each getting a fresh random config) to handle the rare
+        case where the config doesn't trigger the race.
+        """
+        max_attempts = 10
+        detected = 0
+        last_result = None
+        for attempt in range(max_attempts):
+            result = self._run_with_random_delay(
+                bug_num=1,
+                kernel_filter="matmul_kernel_bug1_late_barrier_a",
+                num_iters=1,
+            )
+            failures, total = self._parse_failure_count(result.stdout)
+            self.assertIsNotNone(
+                failures,
+                f"Could not parse failure count from output (attempt {attempt + 1}).\n"
+                f"STDOUT: {result.stdout}\nSTDERR: {result.stderr}",
+            )
+            last_result = result
+            if failures > 0:
+                detected += 1
         self.assertGreaterEqual(
-            failures,
-            total // 2,
-            f"Expected >= 50% failure rate with random delay, "
-            f"got {failures}/{total}. "
-            f"Random delay should expose the late-barrier-A data race.",
+            detected,
+            max_attempts // 2,
+            f"Expected >= 50% race detection rate across {max_attempts} independent "
+            f"random delay configurations, but only {detected}/{max_attempts} detected. "
+            f"Random delay should expose the late-barrier-A data race.\n"
+            f"STDOUT: {last_result.stdout}\nSTDERR: {last_result.stderr}",
         )
 
     def test_bug2_missing_barrier_b_detected(self):
-        """Random delay exposes bug2: missing barrier_wait for B."""
-        result = self._run_with_random_delay(
-            bug_num=2,
-            kernel_filter="matmul_kernel_bug2_missing_barrier_b",
-        )
-        failures, total = self._parse_failure_count(result.stdout)
-        self.assertIsNotNone(
-            failures,
-            f"Could not parse failure count from output.\n"
-            f"STDOUT: {result.stdout}\nSTDERR: {result.stderr}",
-        )
+        """Random delay exposes bug2: missing barrier_wait for B.
+
+        CUTracer instruments each kernel once per process with a fixed random
+        delay configuration (which instructions get delays is decided at
+        instrumentation time).  All iterations within a single subprocess
+        share the same delay pattern, so multiple iterations are redundant.
+        We use 1 iteration per attempt and retry with independent subprocess
+        invocations (each getting a fresh random config) to make the test
+        robust against unlucky configs.
+        """
+        max_attempts = 10
+        detected = 0
+        last_result = None
+        for attempt in range(max_attempts):
+            result = self._run_with_random_delay(
+                bug_num=2,
+                kernel_filter="matmul_kernel_bug2_missing_barrier_b",
+                num_iters=1,
+            )
+            failures, total = self._parse_failure_count(result.stdout)
+            self.assertIsNotNone(
+                failures,
+                f"Could not parse failure count from output (attempt {attempt + 1}).\n"
+                f"STDOUT: {result.stdout}\nSTDERR: {result.stderr}",
+            )
+            last_result = result
+            if failures > 0:
+                detected += 1
         self.assertGreaterEqual(
-            failures,
-            total // 2,
-            f"Expected >= 50% failure rate with random delay, "
-            f"got {failures}/{total}. "
-            f"Random delay should expose the missing-barrier-B data race.",
+            detected,
+            max_attempts // 2,
+            f"Expected >= 50% race detection rate across {max_attempts} independent "
+            f"random delay configurations, but only {detected}/{max_attempts} detected. "
+            f"Random delay should expose the missing-barrier-B data race.\n"
+            f"STDOUT: {last_result.stdout}\nSTDERR: {last_result.stderr}",
         )
 
     def test_bug1_passes_without_random_delay(self):
