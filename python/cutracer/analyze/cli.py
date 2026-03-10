@@ -106,7 +106,8 @@ analyze_command.add_command(warp_summary_command)
 # Conditionally register internal commands (fb/ modules not synced to OSS)
 if is_fbcode():
     from cutracer.analyze.fb.data_race.cli import data_race_command
-    from cutracer.analyze.fb.dataflow.cli import tma_command
+    from cutracer.analyze.fb.dataflow.cli import mma_command, tma_command
 
     analyze_command.add_command(data_race_command)
     analyze_command.add_command(tma_command)
+    analyze_command.add_command(mma_command)
