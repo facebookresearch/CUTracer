@@ -76,6 +76,8 @@ def _build_cutracer_env(
     verbose: Optional[int],
     zstd_level: Optional[int],
     delay_ns: Optional[int],
+    delay_min_ns: Optional[int],
+    delay_mode: Optional[str],
     delay_dump_path: Optional[str],
     delay_load_path: Optional[str],
     cpu_callstack: Optional[int],
@@ -106,6 +108,10 @@ def _build_cutracer_env(
         env["CUTRACER_ZSTD_LEVEL"] = str(zstd_level)
     if delay_ns is not None:
         env["CUTRACER_DELAY_NS"] = str(delay_ns)
+    if delay_min_ns is not None:
+        env["CUTRACER_DELAY_MIN_NS"] = str(delay_min_ns)
+    if delay_mode is not None:
+        env["CUTRACER_DELAY_MODE"] = delay_mode
     if delay_dump_path is not None:
         env["CUTRACER_DELAY_DUMP_PATH"] = delay_dump_path
     if delay_load_path is not None:
@@ -224,7 +230,21 @@ _CUTRACER_OPTIONS = [
         "--delay-ns",
         type=int,
         default=None,
-        help="Delay in nanoseconds for random_delay instrumentation",
+        help="Max delay in nanoseconds for random_delay instrumentation",
+    ),
+    click.option(
+        "--delay-min-ns",
+        type=int,
+        default=None,
+        help="Min delay in nanoseconds (floor for random mode, default: 0). "
+        "Setting min > 0 ensures every thread gets at least this much delay.",
+    ),
+    click.option(
+        "--delay-mode",
+        type=click.Choice(["random", "fixed"]),
+        default=None,
+        help="Delay mode: 'random' (per-thread random delay, default) or "
+        "'fixed' (same delay for all threads, often masks races)",
     ),
     click.option(
         "--delay-dump-path",
@@ -291,6 +311,8 @@ def trace_command(
     cutracer_so: Optional[str],
     zstd_level: Optional[int],
     delay_ns: Optional[int],
+    delay_min_ns: Optional[int],
+    delay_mode: Optional[str],
     delay_dump_path: Optional[str],
     delay_load_path: Optional[str],
     cpu_callstack: Optional[int],
@@ -340,6 +362,8 @@ def trace_command(
         verbose=verbose,
         zstd_level=zstd_level,
         delay_ns=delay_ns,
+        delay_min_ns=delay_min_ns,
+        delay_mode=delay_mode,
         delay_dump_path=delay_dump_path,
         delay_load_path=delay_load_path,
         cpu_callstack=cpu_callstack,

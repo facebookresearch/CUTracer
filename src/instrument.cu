@@ -208,6 +208,18 @@ void instrument_delay_injection(Instr* instr, uint32_t delay_ns) {
   nvbit_add_call_arg_const_val32(instr, delay_ns);
 }
 
+void instrument_random_delay_injection(Instr* instr, uint32_t min_delay_ns, uint32_t max_delay_ns) {
+  /* insert call to the per-thread random delay function */
+  nvbit_insert_call(instr, "instrument_delay_random",
+                    get_ipoint_from_config(InstrumentType::RANDOM_DELAY, IPOINT_BEFORE));
+  /* guard predicate value */
+  nvbit_add_call_arg_guard_pred_val(instr);
+  /* min delay in nanoseconds */
+  nvbit_add_call_arg_const_val32(instr, min_delay_ns);
+  /* max delay in nanoseconds */
+  nvbit_add_call_arg_const_val32(instr, max_delay_ns);
+}
+
 /**
  * @brief Instruments a memory instruction to trace memory access with values.
  *

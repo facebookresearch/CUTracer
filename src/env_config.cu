@@ -49,8 +49,14 @@ int trace_format_ndjson;
 // Zstd compression level
 int zstd_compression_level;
 
-// Delay value in nanoseconds for synchronization instrumentation
+// Delay value in nanoseconds for synchronization instrumentation (max)
 uint32_t g_delay_ns;
+
+// Minimum delay value in nanoseconds (floor for random mode)
+uint32_t g_delay_min_ns;
+
+// Delay mode: 0 = fixed (same delay for all threads), 1 = random (per-thread random)
+int g_delay_mode;
 
 // Delay config dump output path (optional)
 std::string delay_dump_path;
@@ -287,6 +293,41 @@ void parse_delay_config() {
   }
 
   g_delay_ns = (uint32_t)delay_val;
+
+  // Parse minimum delay (optional, default 0)
+  uint64_t delay_min_val = 0;
+  get_var_uint64(delay_min_val, "CUTRACER_DELAY_MIN_NS", 0,
+                 "Minimum delay in nanoseconds (floor for random mode, default: 0)");
+  if (delay_min_val > UINT32_MAX) {
+    fprintf(stderr, "FATAL: Min delay value %lu exceeds maximum value of %u.\n", delay_min_val, UINT32_MAX);
+    exit(1);
+  }
+  if (delay_min_val > delay_val) {
+    fprintf(stderr,
+            "FATAL: CUTRACER_DELAY_MIN_NS (%lu) > CUTRACER_DELAY_NS (%lu).\n"
+            "Min delay must be <= max delay.\n",
+            delay_min_val, delay_val);
+    exit(1);
+  }
+  g_delay_min_ns = (uint32_t)delay_min_val;
+
+  // Parse delay mode: "random" (1, default) or "fixed" (0)
+  // random: each thread gets a random delay in [min_delay_ns, delay_ns] for asymmetric timing (recommended)
+  // fixed: all threads get the same delay (preserves relative timing, often masks races)
+  std::string delay_mode_str;
+  get_var_str(delay_mode_str, "CUTRACER_DELAY_MODE", "random",
+              "Delay mode: 'random' (per-thread random delay, default) or 'fixed' (same delay for all threads)");
+  if (delay_mode_str == "random") {
+    g_delay_mode = 1;
+  } else if (delay_mode_str == "fixed") {
+    g_delay_mode = 0;
+  } else {
+    fprintf(stderr,
+            "FATAL: Invalid CUTRACER_DELAY_MODE '%s'.\n"
+            "Valid values: 'random' (default) or 'fixed'.\n",
+            delay_mode_str.c_str());
+    exit(1);
+  }
 
   // Get delay config dump output path
   get_var_str(delay_dump_path, "CUTRACER_DELAY_DUMP_PATH", "", "Output path to dump delay config JSON for replay");
