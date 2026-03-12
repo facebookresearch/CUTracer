@@ -95,6 +95,9 @@ CUDA_INJECTION64_PATH=~/CUTracer/lib/cutracer.so \
 - `CUTRACER_OUTPUT_DIR`: Output directory for all CUTracer files (trace files and log files). Defaults to the current directory. The directory must exist and be writable
 - `CUTRACER_CPU_CALLSTACK`: Enable/disable CPU call stack capture at each kernel launch (default: 1 = enabled)
     - When enabled, the `kernel_metadata` trace event includes a `cpu_callstack` array with demangled C++ frame names
+- `CUTRACER_KERNEL_TIMEOUT_S`: Kernel execution time limit in seconds (default: 0 = disabled)
+    - Terminates the process with SIGTERM when a kernel runs longer than this value
+    - Acts as a general safety valve, independent of deadlock detection (does not require `-a deadlock_detection`)
 - `CUTRACER_TRACE_SIZE_LIMIT_MB`: Maximum trace file size in MB (default: 0 = disabled)
     - When any trace file exceeds this limit, tracing is stopped for that kernel; kernel execution continues normally
     - Useful for preventing runaway trace files from filling disk (e.g., during deadlocked kernels)

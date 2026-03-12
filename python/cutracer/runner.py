@@ -82,6 +82,7 @@ def _build_cutracer_env(
     channel_records: Optional[int],
     dump_cubin: bool = False,
     trace_size_limit_mb: int = 0,
+    kernel_timeout_s: int = 0,
 ) -> dict:
     """Build environment dict with CUTracer variables."""
     env = os.environ.copy()
@@ -117,6 +118,7 @@ def _build_cutracer_env(
     if dump_cubin:
         env["CUTRACER_DUMP_CUBIN"] = "1"
     env["CUTRACER_TRACE_SIZE_LIMIT_MB"] = str(trace_size_limit_mb)
+    env["CUTRACER_KERNEL_TIMEOUT_S"] = str(kernel_timeout_s)
 
     # Add bundled CUDA tools (nvdisasm, cuobjdump) to PATH so NVBit can find them.
     # These are bundled as buck resources from fbsource's third-party CUDA,
@@ -154,6 +156,7 @@ def _print_config_summary(env: dict) -> None:
         "CUTRACER_CPU_CALLSTACK",
         "CUTRACER_CHANNEL_RECORDS",
         "CUTRACER_TRACE_SIZE_LIMIT_MB",
+        "CUTRACER_KERNEL_TIMEOUT_S",
     ]
     click.echo("=" * 60)
     click.echo("CUTracer Configuration:")
@@ -264,6 +267,15 @@ _CUTRACER_OPTIONS = [
         "Stops tracing when any file exceeds this limit; "
         "kernel execution continues normally.",
     ),
+    click.option(
+        "--kernel-timeout-s",
+        type=int,
+        default=0,
+        show_default=True,
+        help="Kernel execution timeout in seconds (0 = disabled, default: 0). "
+        "Auto-terminates any kernel running longer than this value. "
+        "Independent of deadlock detection.",
+    ),
 ]
 
 
@@ -297,6 +309,7 @@ def trace_command(
     channel_records: Optional[int],
     dump_cubin: Optional[bool],
     trace_size_limit_mb: int,
+    kernel_timeout_s: int,
     cmd: tuple,
 ) -> None:
     """Trace a CUDA application with CUTracer instrumentation.
@@ -346,6 +359,7 @@ def trace_command(
         channel_records=channel_records,
         dump_cubin=dump_cubin,
         trace_size_limit_mb=trace_size_limit_mb,
+        kernel_timeout_s=kernel_timeout_s,
     )
 
     _print_config_summary(run_env)

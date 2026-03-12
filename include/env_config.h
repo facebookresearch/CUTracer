@@ -136,6 +136,13 @@ extern int channel_buffer_size;
 // If set, only instructions in the specified categories are instrumented
 extern std::unordered_set<InstrCategory> enabled_instr_categories;
 
+// Kernel execution time limit in seconds (0 = disabled)
+// When set, any kernel running longer than this value is automatically
+// terminated with SIGTERM. Acts as a general safety valve independent of
+// deadlock detection (does not require -a deadlock_detection).
+// Set via CUTRACER_KERNEL_TIMEOUT_S environment variable
+extern uint32_t kernel_timeout_s;
+
 // Trace file size limit in MB (0 = disabled)
 // When the trace file exceeds this limit, the process is automatically terminated.
 // Set via CUTRACER_TRACE_SIZE_LIMIT_MB environment variable

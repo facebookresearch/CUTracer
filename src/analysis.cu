@@ -623,6 +623,7 @@ static void clear_deadlock_state(CTXstate* ctx_state, uint64_t kernel_launch_id 
   ctx_state->last_seen_time_by_warp.clear();
   ctx_state->exit_candidate_since_by_warp.clear();
   ctx_state->last_is_defer_blocking_by_warp.clear();
+  ctx_state->kernel_start_time = 0;
 
   // Clear kernel warp tracking for the specified kernel
   if (kernel_launch_id != 0) {
@@ -967,6 +968,7 @@ static void check_kernel_hang(CTXstate* ctx_state, uint64_t current_kernel_launc
     candidate_hang = true;
   }
 
+  // Layer 1: Heuristic — fast kill for known patterns (all warps stuck)
   if (candidate_hang) {
     time_t hang_time = 0;
     if (!ctx_state->loop_states.empty()) {
@@ -979,8 +981,8 @@ static void check_kernel_hang(CTXstate* ctx_state, uint64_t current_kernel_launc
     if (!ctx_state->deadlock_termination_initiated) {
       ctx_state->deadlock_consecutive_hits++;
       if (ctx_state->deadlock_consecutive_hits >= 3) {
-        ctx_state->deadlock_termination_initiated = true;
         loprintf("Deadlock sustained for %d checks; sending SIGTERM.\n", ctx_state->deadlock_consecutive_hits);
+        ctx_state->deadlock_termination_initiated = true;
         fflush(stdout);
         fflush(stderr);
         raise(SIGTERM);
@@ -991,6 +993,39 @@ static void check_kernel_hang(CTXstate* ctx_state, uint64_t current_kernel_launc
     }
   } else {
     ctx_state->deadlock_consecutive_hits = 0;
+  }
+}
+
+/**
+ * @brief Check if the current kernel has exceeded the configured wall-clock timeout.
+ *
+ * Independent of deadlock detection — this is a general safety valve that
+ * terminates any kernel running longer than CUTRACER_KERNEL_TIMEOUT_S seconds.
+ * Does not require AnalysisType::DEADLOCK_DETECTION to be enabled.
+ *
+ * @param ctx_state Pointer to the state for the current CUDA context.
+ * @param current_kernel_launch_id The current kernel launch ID.
+ */
+static void check_kernel_timeout(CTXstate* ctx_state, uint64_t current_kernel_launch_id) {
+  if (kernel_timeout_s == 0) return;
+  if (ctx_state->deadlock_termination_initiated) return;
+  if (ctx_state->kernel_start_time == 0) return;
+
+  time_t now = time(nullptr);
+  time_t kernel_running_time = now - ctx_state->kernel_start_time;
+  if (kernel_running_time >= static_cast<time_t>(kernel_timeout_s)) {
+    loprintf("Kernel timeout: running for %ld seconds (limit: %u seconds); sending SIGTERM.\n", kernel_running_time,
+             kernel_timeout_s);
+    if (is_analysis_type_enabled(AnalysisType::DEADLOCK_DETECTION)) {
+      print_warp_status_summary(ctx_state, current_kernel_launch_id);
+    }
+    ctx_state->deadlock_termination_initiated = true;
+    fflush(stdout);
+    fflush(stderr);
+    raise(SIGTERM);
+    sleep(2);
+    loprintf("Process still alive after SIGTERM; sending SIGKILL.\n");
+    raise(SIGKILL);
   }
 }
 
@@ -1126,6 +1161,11 @@ void* recv_thread_fun(void* args) {
             }
           }
           last_seen_kernel_launch_id = current_launch_id;
+
+          // Track kernel start time for wall-clock timeout (independent of DEADLOCK_DETECTION)
+          if (is_new_kernel) {
+            ctx_state->kernel_start_time = time(nullptr);
+          }
 
           // Initialize kernel warp tracking for the new kernel
           if (is_analysis_type_enabled(AnalysisType::DEADLOCK_DETECTION)) {
@@ -1353,11 +1393,15 @@ void* recv_thread_fun(void* args) {
       }
     }
 
+    // Deadlock detection (requires -a deadlock_detection)
     if (is_analysis_type_enabled(AnalysisType::DEADLOCK_DETECTION) && last_seen_kernel_launch_id != UINT64_MAX) {
       check_kernel_hang(ctx_state, last_seen_kernel_launch_id);
     }
 
-    // Trace file size protection (independent, always active when configured)
+    // Resource protection (independent, always active when configured)
+    if (kernel_timeout_s > 0 && last_seen_kernel_launch_id != UINT64_MAX) {
+      check_kernel_timeout(ctx_state, last_seen_kernel_launch_id);
+    }
     if (trace_size_limit_mb > 0 && ++size_check_counter % SIZE_CHECK_INTERVAL == 0) {
       check_trace_size_limit(ctx_state);
     }

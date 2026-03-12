@@ -68,6 +68,9 @@ bool cpu_callstack_enabled;
 // Default: 4MB (1 << 22)
 int channel_buffer_size;
 
+// Kernel execution time limit in seconds (0 = disabled)
+uint32_t kernel_timeout_s;
+
 // Trace file size limit in MB (0 = disabled)
 uint32_t trace_size_limit_mb;
 
@@ -779,6 +782,10 @@ void init_config_from_env() {
 
   // Parse IPOINT configuration (optional) - after instrumentation is initialized
   init_instrument_ipoint();
+
+  // Kernel execution time limit (seconds, 0 = disabled)
+  get_var_uint32(kernel_timeout_s, "CUTRACER_KERNEL_TIMEOUT_S", 0,
+                 "Kernel execution time limit in seconds (0 = disabled). Auto-terminate when exceeded");
 
   // Trace file size limit (MB, 0 = disabled)
   get_var_uint32(trace_size_limit_mb, "CUTRACER_TRACE_SIZE_LIMIT_MB", 0,
