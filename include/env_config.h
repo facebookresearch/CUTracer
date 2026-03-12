@@ -143,6 +143,15 @@ extern std::unordered_set<InstrCategory> enabled_instr_categories;
 // Set via CUTRACER_KERNEL_TIMEOUT_S environment variable
 extern uint32_t kernel_timeout_s;
 
+// No-data hang detection timeout in seconds (default: 15)
+// Independent of deadlock detection (does not require -a deadlock_detection).
+// When no trace data arrives for this duration, the kernel is considered hung.
+// Catches "silent" hangs where all warps are blocked on synchronization
+// primitives with zero trace output — whether the kernel went silent after
+// producing some data, or never produced any data at all. Set to 0 to disable.
+// Set via CUTRACER_NO_DATA_TIMEOUT_S environment variable
+extern uint32_t no_data_timeout_s;
+
 // Trace file size limit in MB (0 = disabled)
 // When the trace file exceeds this limit, the process is automatically terminated.
 // Set via CUTRACER_TRACE_SIZE_LIMIT_MB environment variable

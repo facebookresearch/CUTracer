@@ -98,6 +98,13 @@ CUDA_INJECTION64_PATH=~/CUTracer/lib/cutracer.so \
 - `CUTRACER_KERNEL_TIMEOUT_S`: Kernel execution time limit in seconds (default: 0 = disabled)
     - Terminates the process with SIGTERM when a kernel runs longer than this value
     - Acts as a general safety valve, independent of deadlock detection (does not require `-a deadlock_detection`)
+- `CUTRACER_NO_DATA_TIMEOUT_S`: No-data hang detection timeout in seconds (default: 15)
+    - Terminates the process with SIGTERM when no trace data arrives for this duration
+    - Acts as a general safety valve, independent of deadlock detection (does not require `-a deadlock_detection`)
+    - Catches "silent" hangs where all warps are blocked on synchronization primitives with zero trace output
+    - Works whether the kernel went silent after producing some data, or never produced any data at all
+    - When `-a deadlock_detection` is also active, prints detailed warp status summary before termination
+    - Set to 0 to disable
 - `CUTRACER_TRACE_SIZE_LIMIT_MB`: Maximum trace file size in MB (default: 0 = disabled)
     - When any trace file exceeds this limit, tracing is stopped for that kernel; kernel execution continues normally
     - Useful for preventing runaway trace files from filling disk (e.g., during deadlocked kernels)

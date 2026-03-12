@@ -83,6 +83,7 @@ def _build_cutracer_env(
     dump_cubin: bool = False,
     trace_size_limit_mb: int = 0,
     kernel_timeout_s: int = 0,
+    no_data_timeout_s: int = 15,
 ) -> dict:
     """Build environment dict with CUTracer variables."""
     env = os.environ.copy()
@@ -119,6 +120,7 @@ def _build_cutracer_env(
         env["CUTRACER_DUMP_CUBIN"] = "1"
     env["CUTRACER_TRACE_SIZE_LIMIT_MB"] = str(trace_size_limit_mb)
     env["CUTRACER_KERNEL_TIMEOUT_S"] = str(kernel_timeout_s)
+    env["CUTRACER_NO_DATA_TIMEOUT_S"] = str(no_data_timeout_s)
 
     # Add bundled CUDA tools (nvdisasm, cuobjdump) to PATH so NVBit can find them.
     # These are bundled as buck resources from fbsource's third-party CUDA,
@@ -157,6 +159,7 @@ def _print_config_summary(env: dict) -> None:
         "CUTRACER_CHANNEL_RECORDS",
         "CUTRACER_TRACE_SIZE_LIMIT_MB",
         "CUTRACER_KERNEL_TIMEOUT_S",
+        "CUTRACER_NO_DATA_TIMEOUT_S",
     ]
     click.echo("=" * 60)
     click.echo("CUTracer Configuration:")
@@ -276,6 +279,16 @@ _CUTRACER_OPTIONS = [
         "Auto-terminates any kernel running longer than this value. "
         "Independent of deadlock detection.",
     ),
+    click.option(
+        "--no-data-timeout-s",
+        type=int,
+        default=15,
+        show_default=True,
+        help="No-data timeout in seconds for silent hang detection (default: 15). "
+        "Terminates the process when no trace data arrives for this duration. "
+        "Independent of deadlock detection (does not require -a deadlock_detection). "
+        "Set to 0 to disable.",
+    ),
 ]
 
 
@@ -310,6 +323,7 @@ def trace_command(
     dump_cubin: Optional[bool],
     trace_size_limit_mb: int,
     kernel_timeout_s: int,
+    no_data_timeout_s: int,
     cmd: tuple,
 ) -> None:
     """Trace a CUDA application with CUTracer instrumentation.
@@ -360,6 +374,7 @@ def trace_command(
         dump_cubin=dump_cubin,
         trace_size_limit_mb=trace_size_limit_mb,
         kernel_timeout_s=kernel_timeout_s,
+        no_data_timeout_s=no_data_timeout_s,
     )
 
     _print_config_summary(run_env)

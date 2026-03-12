@@ -624,6 +624,7 @@ static void clear_deadlock_state(CTXstate* ctx_state, uint64_t kernel_launch_id 
   ctx_state->exit_candidate_since_by_warp.clear();
   ctx_state->last_is_defer_blocking_by_warp.clear();
   ctx_state->kernel_start_time = 0;
+  ctx_state->last_data_received_time = 0;
 
   // Clear kernel warp tracking for the specified kernel
   if (kernel_launch_id != 0) {
@@ -1030,6 +1031,63 @@ static void check_kernel_timeout(CTXstate* ctx_state, uint64_t current_kernel_la
 }
 
 /**
+ * @brief Check if the kernel has gone silent (no trace data for too long).
+ *
+ * Independent of deadlock detection — this is a safety valve that detects
+ * "silent hangs" where the kernel produces zero trace output (e.g., all warps
+ * blocked on BAR.SYNC). Does not require AnalysisType::DEADLOCK_DETECTION.
+ *
+ * Handles two scenarios:
+ * - Delayed silence: kernel produced some data then went silent.
+ *   Uses last_data_received_time as the reference.
+ * - Immediate silence: kernel never produced any trace data since launch
+ *   (e.g., all warps blocked from the first instruction).
+ *   Falls back to kernel_start_time (set at launch) as the reference.
+ *
+ * @param ctx_state Pointer to the state for the current CUDA context.
+ * @param current_kernel_launch_id The current kernel launch ID (may be UINT64_MAX
+ *        if no data has been received yet).
+ */
+static void check_no_data_timeout(CTXstate* ctx_state, uint64_t current_kernel_launch_id) {
+  if (no_data_timeout_s == 0) return;
+  if (ctx_state->deadlock_termination_initiated) return;
+
+  // Use last_data_received_time if available (data arrived then silence).
+  // Fall back to kernel_start_time (no data ever arrived since launch).
+  time_t reference_time = ctx_state->last_data_received_time;
+  if (reference_time == 0) {
+    reference_time = ctx_state->kernel_start_time;
+  }
+  if (reference_time == 0) return;
+
+  time_t now = time(nullptr);
+  time_t silence_duration = now - reference_time;
+  if (silence_duration >= static_cast<time_t>(no_data_timeout_s)) {
+    if (ctx_state->last_data_received_time == 0) {
+      loprintf(
+          "No-data hang detected: kernel launched %ld seconds ago but never "
+          "produced any trace data (limit: %u seconds); sending SIGTERM.\n",
+          silence_duration, no_data_timeout_s);
+    } else {
+      loprintf(
+          "No-data hang detected: no trace data received for %ld seconds "
+          "(limit: %u seconds); sending SIGTERM.\n",
+          silence_duration, no_data_timeout_s);
+    }
+    if (is_analysis_type_enabled(AnalysisType::DEADLOCK_DETECTION)) {
+      print_warp_status_summary(ctx_state, current_kernel_launch_id);
+    }
+    ctx_state->deadlock_termination_initiated = true;
+    fflush(stdout);
+    fflush(stderr);
+    raise(SIGTERM);
+    sleep(2);
+    loprintf("Process still alive after SIGTERM; sending SIGKILL.\n");
+    raise(SIGKILL);
+  }
+}
+
+/**
  * @brief Check if any trace file exceeds the configured size limit.
  *
  * When CUTRACER_TRACE_SIZE_LIMIT_MB is set to a non-zero value, this function
@@ -1118,6 +1176,9 @@ void* recv_thread_fun(void* args) {
     uint32_t num_recv_bytes = ch_host->recv(recv_buffer, channel_buffer_size);
 
     if (num_recv_bytes > 0) {
+      // Update last data received time for no-data hang detection
+      ctx_state->last_data_received_time = time(nullptr);
+
       // Process data packets in this chunk
 
       uint32_t num_processed_bytes = 0;
@@ -1162,9 +1223,10 @@ void* recv_thread_fun(void* args) {
           }
           last_seen_kernel_launch_id = current_launch_id;
 
-          // Track kernel start time for wall-clock timeout (independent of DEADLOCK_DETECTION)
+          // Track kernel timing (independent of DEADLOCK_DETECTION)
           if (is_new_kernel) {
             ctx_state->kernel_start_time = time(nullptr);
+            ctx_state->last_data_received_time = time(nullptr);
           }
 
           // Initialize kernel warp tracking for the new kernel
@@ -1401,6 +1463,12 @@ void* recv_thread_fun(void* args) {
     // Resource protection (independent, always active when configured)
     if (kernel_timeout_s > 0 && last_seen_kernel_launch_id != UINT64_MAX) {
       check_kernel_timeout(ctx_state, last_seen_kernel_launch_id);
+    }
+    // No-data timeout: does NOT require last_seen_kernel_launch_id because
+    // immediate-silence hangs never produce any data (launch_id stays UINT64_MAX).
+    // The function uses kernel_start_time (set at launch) as fallback.
+    if (no_data_timeout_s > 0) {
+      check_no_data_timeout(ctx_state, last_seen_kernel_launch_id);
     }
     if (trace_size_limit_mb > 0 && ++size_check_counter % SIZE_CHECK_INTERVAL == 0) {
       check_trace_size_limit(ctx_state);

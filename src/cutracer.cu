@@ -721,6 +721,12 @@ static bool enter_kernel_launch(CUcontext ctx, CUfunction func, uint64_t& kernel
   }
 
   if (should_instrument) {
+    // Record kernel start time at launch (before any GPU data arrives).
+    // This enables no-data timeout detection even for immediate-silence hangs
+    // where the kernel deadlocks from the very first instruction and the
+    // recv thread never receives any trace data.
+    ctx_state->kernel_start_time = time(nullptr);
+
     // Create TraceWriter for each kernel launch (per-launch trace files)
     std::string base_filename = generate_kernel_log_basename(ctx, func, kernel_iter_map[func]++, meta.kernel_checksum);
     uint64_t current_launch_id = kernel_launch_id - 1;  // kernel_launch_id was already incremented

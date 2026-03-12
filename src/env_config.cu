@@ -71,6 +71,9 @@ int channel_buffer_size;
 // Kernel execution time limit in seconds (0 = disabled)
 uint32_t kernel_timeout_s;
 
+// No-data hang detection timeout in seconds (default: 15)
+uint32_t no_data_timeout_s;
+
 // Trace file size limit in MB (0 = disabled)
 uint32_t trace_size_limit_mb;
 
@@ -786,6 +789,12 @@ void init_config_from_env() {
   // Kernel execution time limit (seconds, 0 = disabled)
   get_var_uint32(kernel_timeout_s, "CUTRACER_KERNEL_TIMEOUT_S", 0,
                  "Kernel execution time limit in seconds (0 = disabled). Auto-terminate when exceeded");
+
+  // No-data hang detection timeout (seconds, default: 15)
+  // Independent of deadlock detection. Detects silent kernel hangs
+  get_var_uint32(no_data_timeout_s, "CUTRACER_NO_DATA_TIMEOUT_S", 15,
+                 "No-data hang timeout in seconds (default: 15). Detect silent kernel hangs. "
+                 "Independent of deadlock detection (0 = disabled)");
 
   // Trace file size limit (MB, 0 = disabled)
   get_var_uint32(trace_size_limit_mb, "CUTRACER_TRACE_SIZE_LIMIT_MB", 0,

@@ -264,6 +264,7 @@ struct CTXstate {
 
   // Deadlock handling
   time_t kernel_start_time = 0;
+  time_t last_data_received_time = 0;
   int deadlock_consecutive_hits = 0;
   bool deadlock_termination_initiated = false;
 
