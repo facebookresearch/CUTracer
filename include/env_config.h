@@ -104,8 +104,20 @@ extern int trace_format_ndjson;
 // Default: 9 (good compression with reasonable speed)
 extern int zstd_compression_level;
 
-// Delay value in nanoseconds for random delay instrumentation
+// Delay value in nanoseconds for random delay instrumentation (max delay)
 extern uint32_t g_delay_ns;
+
+// Minimum delay value in nanoseconds (floor for random mode, default: 0)
+// Setting min > 0 ensures every thread gets at least this much delay,
+// which can help narrow the search space for race detection.
+extern uint32_t g_delay_min_ns;
+
+// Delay mode: controls how delays are applied per-thread (default: random)
+// 0 = fixed: all threads get the same delay (preserves relative timing, often masks races)
+// 1 = random (default): each thread gets a random delay in [min_delay_ns, delay_ns] using
+//     thread-local entropy (threadIdx, blockIdx, clock) to create
+//     asymmetric timing that better exposes data races
+extern int g_delay_mode;
 
 // Delay dump output path (optional)
 // If set, instrumentation points will be written to this JSON file for later replay

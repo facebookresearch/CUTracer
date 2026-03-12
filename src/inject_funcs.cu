@@ -306,3 +306,51 @@ extern "C" __device__ __noinline__ void instrument_delay(int pred, uint32_t dela
   }
 #endif
 }
+
+/**
+ * @brief Device function to inject a per-thread random delay.
+ *
+ * Each thread gets a random delay in [0, max_delay_ns] using thread-local
+ * entropy from threadIdx, blockIdx, and clock64(). This creates asymmetric
+ * timing between threads/warps, which is critical for exposing data races.
+ *
+ * The key insight: fixed delays preserve relative thread timing (all threads
+ * slow down equally), while random per-thread delays create differential
+ * timing skew that forces race conditions to manifest.
+ *
+ * Uses xorshift32 PRNG seeded with thread-specific entropy for fast,
+ * lightweight random number generation on the GPU.
+ *
+ * @param pred Guard predicate value (from nvbit_add_call_arg_guard_pred_val)
+ * @param min_delay_ns Minimum delay in nanoseconds (floor)
+ * @param max_delay_ns Maximum delay in nanoseconds (ceiling)
+ */
+extern "C" __device__ __noinline__ void instrument_delay_random(int pred, uint32_t min_delay_ns,
+                                                                uint32_t max_delay_ns) {
+  if (!pred) {
+    return;
+  }
+
+  // Generate per-thread entropy using threadIdx, blockIdx, and clock
+  uint32_t seed = (uint32_t)clock() ^ (threadIdx.x * 2654435761u) ^ (threadIdx.y * 2246822519u) ^
+                  (threadIdx.z * 3266489917u) ^ (blockIdx.x * 668265263u) ^ (blockIdx.y * 374761393u) ^
+                  (blockIdx.z * 1103515245u);
+
+  // xorshift32 for fast PRNG
+  seed ^= seed << 13;
+  seed ^= seed >> 17;
+  seed ^= seed << 5;
+
+  // Map to [min_delay_ns, max_delay_ns]
+  uint32_t range = max_delay_ns - min_delay_ns;
+  uint32_t delay = min_delay_ns + (range > 0 ? seed % (range + 1) : 0);
+
+#if defined(__CUDA_ARCH__) && (__CUDA_ARCH__ >= 700)
+  __nanosleep(delay);
+#else
+  uint64_t delay_cycles = delay * 2;
+  uint64_t start = clock64();
+  while ((clock64() - start) < delay_cycles) {
+  }
+#endif
+}

@@ -536,12 +536,18 @@ bool instrument_function_if_needed(CUcontext ctx, CUfunction func) {
         }
 
         if (found && enabled) {
-          instrument_delay_injection(instr, delay_ns);
+          if (g_delay_mode == 1) {
+            // Random mode: per-thread random delay in [min_delay_ns, delay_ns]
+            instrument_random_delay_injection(instr, g_delay_min_ns, delay_ns);
+          } else {
+            // Fixed mode: same delay for all threads (original behavior)
+            instrument_delay_injection(instr, delay_ns);
+          }
         }
         if (found) {
-          loprintf_v("Delay injection: kernel=%s pc=0x%lx sass='%s' enabled=%s delay=%u%s\n", unmangled_name,
-                     instr->getOffset(), instr->getSass(), enabled ? "true" : "false", enabled ? delay_ns : 0,
-                     is_delay_replay_mode() ? " [REPLAY]" : "");
+          loprintf("Delay injection: kernel=%s pc=0x%lx sass='%s' enabled=%s delay=%u%s\n", unmangled_name,
+                   instr->getOffset(), instr->getSass(), enabled ? "true" : "false", enabled ? delay_ns : 0,
+                   is_delay_replay_mode() ? " [REPLAY]" : "");
         }
       }
     }

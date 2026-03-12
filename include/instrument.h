@@ -98,6 +98,20 @@ void instrument_memory_value_trace(Instr* instr, int opcode_id, CTXstate* ctx_st
 void instrument_delay_injection(Instr* instr, uint32_t delay_ns);
 
 /**
+ * @brief Instruments an instruction to inject a per-thread random delay.
+ *
+ * Inserts a call to the `instrument_delay_random` device function before the
+ * instruction. Each thread gets a random delay in [min_delay_ns, max_delay_ns]
+ * using thread-local entropy (threadIdx, blockIdx, clock) to create asymmetric
+ * timing skew that better exposes data races.
+ *
+ * @param instr The instruction to instrument
+ * @param min_delay_ns Minimum delay in nanoseconds (0 = no minimum)
+ * @param max_delay_ns Maximum delay in nanoseconds
+ */
+void instrument_random_delay_injection(Instr* instr, uint32_t min_delay_ns, uint32_t max_delay_ns);
+
+/**
  * @brief SASS instruction patterns for delay injection.
  */
 static const std::vector<const char*> DELAY_INJECTION_PATTERNS = {
