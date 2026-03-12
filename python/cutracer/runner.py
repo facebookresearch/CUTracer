@@ -81,6 +81,7 @@ def _build_cutracer_env(
     cpu_callstack: Optional[int],
     channel_records: Optional[int],
     dump_cubin: bool = False,
+    trace_size_limit_mb: int = 0,
 ) -> dict:
     """Build environment dict with CUTracer variables."""
     env = os.environ.copy()
@@ -115,6 +116,7 @@ def _build_cutracer_env(
         env["CUTRACER_CHANNEL_RECORDS"] = str(channel_records)
     if dump_cubin:
         env["CUTRACER_DUMP_CUBIN"] = "1"
+    env["CUTRACER_TRACE_SIZE_LIMIT_MB"] = str(trace_size_limit_mb)
 
     # Add bundled CUDA tools (nvdisasm, cuobjdump) to PATH so NVBit can find them.
     # These are bundled as buck resources from fbsource's third-party CUDA,
@@ -151,6 +153,7 @@ def _print_config_summary(env: dict) -> None:
         "CUTRACER_DELAY_LOAD_PATH",
         "CUTRACER_CPU_CALLSTACK",
         "CUTRACER_CHANNEL_RECORDS",
+        "CUTRACER_TRACE_SIZE_LIMIT_MB",
     ]
     click.echo("=" * 60)
     click.echo("CUTracer Configuration:")
@@ -252,6 +255,15 @@ _CUTRACER_OPTIONS = [
         help="Dump cubin files for instrumented kernels (for SASS disassembly via nvdisasm). "
         "Auto-enabled when --instrument is set; use --no-dump-cubin to override.",
     ),
+    click.option(
+        "--trace-size-limit-mb",
+        type=int,
+        default=0,
+        show_default=True,
+        help="Maximum trace file size in MB (0 = disabled, default: 0). "
+        "Stops tracing when any file exceeds this limit; "
+        "kernel execution continues normally.",
+    ),
 ]
 
 
@@ -284,6 +296,7 @@ def trace_command(
     cpu_callstack: Optional[int],
     channel_records: Optional[int],
     dump_cubin: Optional[bool],
+    trace_size_limit_mb: int,
     cmd: tuple,
 ) -> None:
     """Trace a CUDA application with CUTracer instrumentation.
@@ -332,6 +345,7 @@ def trace_command(
         cpu_callstack=cpu_callstack,
         channel_records=channel_records,
         dump_cubin=dump_cubin,
+        trace_size_limit_mb=trace_size_limit_mb,
     )
 
     _print_config_summary(run_env)

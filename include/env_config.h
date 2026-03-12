@@ -136,6 +136,11 @@ extern int channel_buffer_size;
 // If set, only instructions in the specified categories are instrumented
 extern std::unordered_set<InstrCategory> enabled_instr_categories;
 
+// Trace file size limit in MB (0 = disabled)
+// When the trace file exceeds this limit, the process is automatically terminated.
+// Set via CUTRACER_TRACE_SIZE_LIMIT_MB environment variable
+extern uint32_t trace_size_limit_mb;
+
 // Initialize instruction category filtering from environment variable
 void init_instr_categories(const std::string& categories_str);
 

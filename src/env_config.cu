@@ -68,6 +68,9 @@ bool cpu_callstack_enabled;
 // Default: 4MB (1 << 22)
 int channel_buffer_size;
 
+// Trace file size limit in MB (0 = disabled)
+uint32_t trace_size_limit_mb;
+
 /**
  * @brief Compute the largest record size among all currently enabled instrument types.
  *
@@ -777,6 +780,9 @@ void init_config_from_env() {
   // Parse IPOINT configuration (optional) - after instrumentation is initialized
   init_instrument_ipoint();
 
+  // Trace file size limit (MB, 0 = disabled)
+  get_var_uint32(trace_size_limit_mb, "CUTRACER_TRACE_SIZE_LIMIT_MB", 0,
+                 "Max trace file size in MB (0 = disabled). Auto-terminate when exceeded");
   std::string pad(100, '-');
   loprintf("%s\n", pad.c_str());
 }

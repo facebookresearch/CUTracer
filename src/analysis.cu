@@ -35,6 +35,8 @@
 #define HANG_CHECK_THROTTLE_SECS 1
 // Throttle interval for periodic TraceWriter/log flush (seconds)
 #define PERIODIC_FLUSH_SECS 1
+// Throttle interval for trace size limit checks (recv loop iterations)
+#define SIZE_CHECK_INTERVAL 10000
 
 extern pthread_mutex_t mutex;
 extern std::unordered_map<CUcontext, CTXstate*> ctx_state_map;
@@ -993,6 +995,38 @@ static void check_kernel_hang(CTXstate* ctx_state, uint64_t current_kernel_launc
 }
 
 /**
+ * @brief Check if any trace file exceeds the configured size limit.
+ *
+ * When CUTRACER_TRACE_SIZE_LIMIT_MB is set to a non-zero value, this function
+ * checks all active TraceWriter instances for the given context. If any file
+ * exceeds the limit, that writer is flushed and disabled (truncated) so future
+ * writes become no-ops. The process continues running, allowing subsequent
+ * kernel launches to create fresh trace files.
+ *
+ * @param ctx_state Pointer to the state for the current CUDA context.
+ */
+static void check_trace_size_limit(CTXstate* ctx_state) {
+  if (trace_size_limit_mb == 0) return;
+
+  size_t limit_bytes = static_cast<size_t>(trace_size_limit_mb) * 1024 * 1024;
+
+  std::shared_lock<std::shared_mutex> lock(ctx_state->writers_mutex);
+  for (const auto& pair : ctx_state->trace_writers) {
+    if (pair.second && pair.second->is_enabled()) {
+      size_t file_size = pair.second->get_file_size_bytes();
+      if (file_size > limit_bytes) {
+        loprintf(
+            "Trace size limit exceeded for launch_id %lu: %zu bytes "
+            "(limit: %u MB). Stopping tracing for this kernel; "
+            "kernel execution continues.\n",
+            pair.first, file_size, trace_size_limit_mb);
+        pair.second->disable();
+      }
+    }
+  }
+}
+
+/**
  * @brief The main thread function for receiving and processing data from the
  * GPU.
  *
@@ -1043,6 +1077,8 @@ void* recv_thread_fun(void* args) {
   // even when json_buffer_ hasn't hit the 1MB threshold, e.g. during kernel hang).
   time_t last_periodic_flush_time = 0;
 
+  // Throttle counter for trace size limit checks (every SIZE_CHECK_INTERVAL iterations)
+  uint64_t size_check_counter = 0;
   while (ctx_state->recv_thread_done == RecvThreadState::WORKING) {
     uint32_t num_recv_bytes = ch_host->recv(recv_buffer, channel_buffer_size);
 
@@ -1319,6 +1355,11 @@ void* recv_thread_fun(void* args) {
 
     if (is_analysis_type_enabled(AnalysisType::DEADLOCK_DETECTION) && last_seen_kernel_launch_id != UINT64_MAX) {
       check_kernel_hang(ctx_state, last_seen_kernel_launch_id);
+    }
+
+    // Trace file size protection (independent, always active when configured)
+    if (trace_size_limit_mb > 0 && ++size_check_counter % SIZE_CHECK_INTERVAL == 0) {
+      check_trace_size_limit(ctx_state);
     }
   }
 

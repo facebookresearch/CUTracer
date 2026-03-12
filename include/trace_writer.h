@@ -265,6 +265,27 @@ class TraceWriter {
     return enabled_;
   }
 
+  /**
+   * @brief Flush remaining data and disable further writes.
+   *
+   * Used by trace size limit to truncate a single kernel's trace without
+   * killing the process. After calling disable(), all subsequent write_trace()
+   * and write_metadata() calls become no-ops (return immediately).
+   * Future kernel launches will create fresh TraceWriter instances unaffected
+   * by this call.
+   */
+  void disable();
+
+  /**
+   * @brief Get the current file size in bytes.
+   *
+   * Uses fstat()/ftell() to query the current on-disk size of the trace file.
+   * This includes data already flushed to disk but not buffered data.
+   *
+   * @return Current file size in bytes, or 0 if the file is not open.
+   */
+  size_t get_file_size_bytes() const;
+
  private:
   // ========== Output methods ==========
 
