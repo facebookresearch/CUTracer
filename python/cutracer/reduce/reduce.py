@@ -3,8 +3,9 @@
 """
 Core reduction algorithm for finding minimal race-triggering delay configurations.
 
-Implements delta debugging to find the minimal set of delay injection points
-that trigger a data race.
+Implements two strategies:
+- Linear: tests each point one by one (O(N) test runs)
+- Bisect: ddmin-style bisection (O(N log N) worst case, often much faster)
 """
 
 import os
@@ -12,7 +13,10 @@ import subprocess
 from dataclasses import dataclass
 from typing import Callable, Optional
 
+from cutracer.cutracer_logger import get_logger
 from cutracer.reduce.config_mutator import DelayConfigMutator, DelayPoint
+
+logger = get_logger("reduce")
 
 
 @dataclass
@@ -22,6 +26,7 @@ class ReduceResult:
     total_points: int
     essential_points: list[DelayPoint]
     iterations: int
+    strategy: str = "linear"
     minimal_config_path: Optional[str] = None
 
     @property
@@ -85,12 +90,10 @@ def run_test(
         )
         return result.returncode == 0  # 0 = bad (race), non-zero = good
     except subprocess.TimeoutExpired:
-        if verbose:
-            print("  Test timed out (treating as no race)")
+        logger.debug("Test timed out (treating as no race)")
         return False
     except Exception as e:
-        if verbose:
-            print(f"  Test error: {e}")
+        logger.debug(f"Test error: {e}")
         return False
 
 
@@ -156,8 +159,7 @@ def _validate_initial_config(
     if not enabled_points:
         raise ValueError("No enabled delay points in config")
 
-    if config.verbose:
-        print(f"Loaded {len(enabled_points)} enabled delay points")
+    logger.debug(f"Loaded {len(enabled_points)} enabled delay points")
 
     initial_config_path = mutator.save()
     if not run_test(config.test_script, initial_config_path, config.verbose):
@@ -166,8 +168,7 @@ def _validate_initial_config(
             "Test script must return 0 (race) with the original config."
         )
 
-    if config.verbose:
-        print("✓ Initial config triggers the race")
+    logger.debug("Initial config triggers the race")
 
     return initial_config_path
 
@@ -203,20 +204,17 @@ def reduce_delay_points(
     for point in points_to_test:
         iteration += 1
 
-        if config.verbose:
-            print(f"\n[{iteration}/{len(points_to_test)}] Testing: {point.sass}")
+        logger.debug(f"[{iteration}/{len(points_to_test)}] Testing: {point.sass}")
 
         is_essential, test_config_path = _test_point_essentiality(
             point, mutator, config.test_script, config.verbose
         )
 
         if is_essential:
-            if config.verbose:
-                print("   → Race disappears (point IS essential)")
+            logger.debug("   -> Race disappears (point IS essential)")
             essential_points.append(point)
         else:
-            if config.verbose:
-                print("   → Race still occurs (point NOT essential)")
+            logger.debug("   -> Race still occurs (point NOT essential)")
             # Update mutator to keep this point disabled
             original_point = _find_point_in_mutator(
                 mutator, point.kernel_key, point.pc_offset
@@ -233,8 +231,7 @@ def reduce_delay_points(
     minimal_config_path = None
     if config.output_path:
         minimal_config_path = mutator.save(config.output_path)
-        if config.verbose:
-            print(f"\nMinimal config saved to: {minimal_config_path}")
+        logger.debug(f"Minimal config saved to: {minimal_config_path}")
 
     _cleanup_temp_file(initial_config_path)
 
@@ -242,5 +239,238 @@ def reduce_delay_points(
         total_points=len(points_to_test),
         essential_points=essential_points,
         iterations=iteration,
+        strategy="linear",
+        minimal_config_path=minimal_config_path,
+    )
+
+
+def _run_test_with_confidence(
+    test_script: str,
+    config_path: str,
+    confidence_runs: int,
+    verbose: bool = False,
+) -> bool:
+    """
+    Run test multiple times and use majority voting for probabilistic races.
+
+    Args:
+        test_script: Path to the test script.
+        config_path: Path to the delay config JSON file.
+        confidence_runs: Number of times to run the test (must be odd).
+        verbose: Whether to print test output.
+
+    Returns:
+        True if data race occurred in majority of runs.
+    """
+    if confidence_runs <= 1:
+        return run_test(test_script, config_path, verbose)
+
+    race_count = 0
+    threshold = confidence_runs // 2 + 1
+
+    for i in range(confidence_runs):
+        if run_test(test_script, config_path, verbose):
+            race_count += 1
+            if race_count >= threshold:
+                return True
+        else:
+            no_race_count = (i + 1) - race_count
+            if no_race_count >= threshold:
+                return False
+
+    return race_count >= threshold
+
+
+def _make_config_with_points(
+    base_mutator: DelayConfigMutator,
+    points_to_enable: list[DelayPoint],
+) -> DelayConfigMutator:
+    """
+    Create a config with only the specified points enabled.
+
+    Args:
+        base_mutator: The base mutator to clone from.
+        points_to_enable: The points that should be enabled.
+
+    Returns:
+        A new mutator with only the specified points enabled.
+    """
+    mutator = base_mutator.clone()
+    mutator.set_all_enabled(False)
+
+    enable_set = {(p.kernel_key, p.pc_offset) for p in points_to_enable}
+
+    for point in mutator.delay_points:
+        if (point.kernel_key, point.pc_offset) in enable_set:
+            mutator.set_point_enabled(point, True)
+
+    return mutator
+
+
+def _test_subset(
+    base_mutator: DelayConfigMutator,
+    points: list[DelayPoint],
+    test_script: str,
+    confidence_runs: int,
+    verbose: bool,
+) -> bool:
+    """
+    Test if a subset of points triggers the race.
+
+    Returns:
+        True if the race occurs with only these points enabled.
+    """
+    mutator = _make_config_with_points(base_mutator, points)
+    config_path = mutator.save()
+    try:
+        return _run_test_with_confidence(
+            test_script, config_path, confidence_runs, verbose
+        )
+    finally:
+        _cleanup_temp_file(config_path)
+
+
+def reduce_bisect(
+    config: ReduceConfig,
+    confidence_runs: int = 1,
+    progress_callback: Optional[Callable[[str, int, int], None]] = None,
+) -> ReduceResult:
+    """
+    Find minimal set of delay points using bisection (ddmin algorithm).
+
+    Much faster than linear reduction for large configs. Instead of testing
+    each point one by one (O(N) tests), this splits points in half and
+    recursively narrows down (typically O(N log N) worst case, often faster).
+
+    The algorithm (adapted from Zeller's ddmin):
+    1. Split current points into n chunks
+    2. Test each chunk alone - if it triggers, recurse on that chunk
+    3. Test complement of each chunk - if it triggers, the chunk is not needed
+    4. If neither works, increase granularity (more chunks) and retry
+    5. Stop when granularity equals number of points (fully reduced)
+
+    For probabilistic races (e.g., random delay mode), use confidence_runs > 1
+    to run each test multiple times with majority voting.
+
+    Args:
+        config: Reduction configuration.
+        confidence_runs: Number of test runs for majority voting (default: 1).
+            Use odd numbers (3, 5) for probabilistic races.
+        progress_callback: Optional callback for progress updates.
+            Called with (message, current_size, original_size).
+
+    Returns:
+        ReduceResult with the minimal set of points.
+    """
+    base_mutator = DelayConfigMutator(
+        config.config_path, validate=config.validate_schema
+    )
+
+    initial_config_path = _validate_initial_config(base_mutator, config)
+    _cleanup_temp_file(initial_config_path)
+
+    points = list(base_mutator.enabled_points)
+    total_points = len(points)
+    iteration = 0
+
+    def _ddmin(current_points: list[DelayPoint], n: int) -> list[DelayPoint]:
+        nonlocal iteration
+
+        size = len(current_points)
+
+        if size <= 1:
+            return current_points
+
+        if n > size:
+            n = size
+
+        chunk_size = max(1, size // n)
+        chunks = []
+        for i in range(0, size, chunk_size):
+            chunk = current_points[i : i + chunk_size]
+            if chunk:
+                chunks.append(chunk)
+
+        logger.debug(
+            f"Bisecting {size} points into {len(chunks)} chunks "
+            f"(chunk_size ~{chunk_size})"
+        )
+
+        # Phase 1: Test each chunk alone
+        for i, chunk in enumerate(chunks):
+            iteration += 1
+            logger.debug(
+                f"[{iteration}] Testing chunk {i + 1}/{len(chunks)} "
+                f"({len(chunk)} points alone)..."
+            )
+
+            if _test_subset(
+                base_mutator, chunk, config.test_script, confidence_runs, config.verbose
+            ):
+                logger.debug(
+                    f"-> Chunk {i + 1} alone triggers race! "
+                    f"Recursing on {len(chunk)} points"
+                )
+                if progress_callback:
+                    progress_callback(
+                        f"Chunk {i + 1} triggers alone", len(chunk), total_points
+                    )
+                return _ddmin(chunk, 2)
+
+        # Phase 2: Test complement of each chunk
+        for i, _chunk in enumerate(chunks):
+            iteration += 1
+            complement = []
+            for j, other_chunk in enumerate(chunks):
+                if j != i:
+                    complement.extend(other_chunk)
+
+            logger.debug(
+                f"[{iteration}] Testing complement of chunk {i + 1} "
+                f"({len(complement)} points without chunk)..."
+            )
+
+            if _test_subset(
+                base_mutator,
+                complement,
+                config.test_script,
+                confidence_runs,
+                config.verbose,
+            ):
+                logger.debug(
+                    f"-> Complement triggers race! "
+                    f"Chunk {i + 1} not needed, recursing on {len(complement)}"
+                )
+                if progress_callback:
+                    progress_callback(
+                        f"Chunk {i + 1} not needed", len(complement), total_points
+                    )
+                return _ddmin(complement, max(n - 1, 2))
+
+        # Phase 3: Neither worked, increase granularity
+        if n < size:
+            new_n = min(2 * n, size)
+            logger.debug(f"-> No reduction at granularity {n}, increasing to {new_n}")
+            return _ddmin(current_points, new_n)
+
+        logger.debug(f"-> Fully reduced to {size} points (cannot split further)")
+        return current_points
+
+    logger.debug(f"Starting bisection reduction on {total_points} enabled points")
+    logger.debug(f"Confidence runs per test: {confidence_runs}")
+
+    minimal_points = _ddmin(points, 2)
+
+    minimal_config_path = None
+    if config.output_path:
+        mutator = _make_config_with_points(base_mutator, minimal_points)
+        minimal_config_path = mutator.save(config.output_path)
+        logger.debug(f"Minimal config saved to: {minimal_config_path}")
+
+    return ReduceResult(
+        total_points=total_points,
+        essential_points=minimal_points,
+        iterations=iteration,
+        strategy="bisect",
         minimal_config_path=minimal_config_path,
     )

@@ -89,7 +89,8 @@ CUDA_INJECTION64_PATH=~/CUTracer/lib/cutracer.so \
     -   Lower values (1-3): Faster compression, slightly larger output
     -   Higher values (19-22): Maximum compression, slower but smallest output
     -   Default of 22 provides maximum compression for smallest output
-- `CUTRACER_DELAY_NS`: Fixed delay value in nanoseconds for race detection (required for `random_delay` analysis)
+- `CUTRACER_DELAY_NS`: Max delay value in nanoseconds for race detection (required for `random_delay` analysis)
+- `CUTRACER_DELAY_MODE`: Delay mode — `random` (default, per-thread random delay for better race detection) or `fixed` (same delay for all threads, often masks races)
 - `CUTRACER_DELAY_DUMP_PATH`: Output path for delay config JSON file (for recording instrumentation patterns)
 - `CUTRACER_DELAY_LOAD_PATH`: Input path for delay config JSON file (for replay mode - deterministic reproduction)
 - `CUTRACER_OUTPUT_DIR`: Output directory for all CUTracer files (trace files and log files). Defaults to the current directory. The directory must exist and be writable
@@ -157,13 +158,16 @@ python ./test_hang.py
 ### Data Race Detection (random_delay)
 
 -   Data races depend on timing and often pass by luck. This analysis uses random delay injection to detect races by injecting delays before synchronization instructions, disrupting the timing and forcing hidden races to show up
--   Each instrumentation point is randomly enabled/disabled (50% probability) with a fixed delay value
+-   Each instrumentation point is randomly enabled/disabled (50% probability)
+-   Two delay modes:
+    -   **`random` (default):** Each thread gets a random delay in `[0, CUTRACER_DELAY_NS]` using GPU-side xorshift32 PRNG seeded with `threadIdx/blockIdx/clock`. Creates per-thread timing skew that amplifies data races. **Recommended.**
+    -   **`fixed`:** All threads get the same delay. Preserves relative timing between threads and often *masks* races rather than exposing them. Not recommended for race detection.
 -   Requires `CUTRACER_DELAY_NS` to be set
 
 Example:
 
 ```bash
-CUTRACER_DELAY_NS=10000 \
+CUTRACER_DELAY_NS=100000 \
 CUTRACER_ANALYSIS=random_delay \
 CUDA_INJECTION64_PATH=~/CUTracer/lib/cutracer.so \
 python3 your_kernel.py
@@ -182,6 +186,23 @@ CUTracer supports dumping delay configurations to JSON for deterministic reprodu
 1. Run with `CUTRACER_DELAY_DUMP_PATH=/tmp/config.json` to record the delay pattern
 2. When a failure occurs, save the config file
 3. Replay with `CUTRACER_DELAY_LOAD_PATH=/tmp/config.json` to reproduce deterministically
+4. Reduce with `cutracer reduce` to find the minimal set of delay points (see below)
+
+#### Reduce (Delta Debugging)
+
+The `reduce` subcommand finds the minimal set of delay injection points that trigger a data race. Two strategies:
+
+-   **`linear`**: Tests each point one by one. O(N) test runs. Simple but slow.
+-   **`bisect`**: ddmin-style bisection. Splits points in half and recursively narrows down. Typically O(log N) iterations. **Recommended for large configs.**
+
+Use `--confidence-runs N` (odd number) for majority voting when the race is probabilistic.
+
+```bash
+# Bisection reduction (fast)
+cutracer reduce -c config.json -t ./test_race.sh --strategy bisect --confidence-runs 3
+```
+
+The test script convention follows `llvm-reduce`: exit 0 = interesting (race occurred), exit 1+ = not interesting (no race).
 
 ## Examples
 
