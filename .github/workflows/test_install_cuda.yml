@@ -24,7 +24,7 @@ jobs:
 
         steps:
             - name: Checkout code
-              uses: actions/checkout@v4
+              uses: actions/checkout@v6
 
             - name: Prepare environment
               run: |
@@ -63,7 +63,7 @@ jobs:
 
             - name: Upload debug log
               if: always()
-              uses: actions/upload-artifact@v4
+              uses: actions/upload-artifact@v7
               with:
                   name: cuda-install-debug-${{ matrix.cuda_version }}
                   path: /tmp/runner/cuda_install_debug.txt
