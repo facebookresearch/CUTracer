@@ -6,28 +6,45 @@ CLI for CUTracer reduce command.
 Provides command-line interface for reducing delay injection configurations.
 """
 
+import logging
 import sys
 from typing import NoReturn
 
 import click
+from cutracer.cutracer_logger import get_logger
 from cutracer.reduce.config_mutator import DelayPoint
-from cutracer.reduce.reduce import reduce_delay_points, ReduceConfig, ReduceResult
+
+logger = get_logger("reduce")
+from cutracer.reduce.reduce import (
+    reduce_bisect,
+    reduce_delay_points,
+    ReduceConfig,
+    ReduceResult,
+)
 from cutracer.reduce.report import generate_report, save_report
 
 
-def progress_callback(
+def progress_callback_linear(
     current: int, total: int, point: DelayPoint, is_essential: bool
 ) -> None:
-    """Print progress during reduction."""
-    status = "✓ ESSENTIAL" if is_essential else "  not essential"
+    """Print progress during linear reduction."""
+    status = "ESSENTIAL" if is_essential else "  not essential"
     click.echo(f"[{current}/{total}] {point.sass[:50]:<50} {status}")
+
+
+def progress_callback_bisect(
+    message: str, current_size: int, original_size: int
+) -> None:
+    """Print progress during bisection reduction."""
+    click.echo(f"  [{current_size}/{original_size} points] {message}")
 
 
 def _exit_with_error(
     message: str, verbose: bool = False, exception: Exception | None = None
 ) -> NoReturn:
     """Print error message and exit."""
-    click.echo(f"\n❌ Error: {message}", err=True)
+    logger.error(message)
+    click.echo(f"Error: {message}", err=True)
     if verbose and exception:
         import traceback
 
@@ -35,13 +52,25 @@ def _exit_with_error(
     sys.exit(1)
 
 
-def _run_reduction(reduce_config: ReduceConfig, verbose: bool) -> ReduceResult:
+def _run_reduction(
+    reduce_config: ReduceConfig,
+    strategy: str,
+    confidence_runs: int,
+    verbose: bool,
+) -> ReduceResult:
     """Run the reduction algorithm and handle errors."""
     try:
-        return reduce_delay_points(
-            config=reduce_config,
-            progress_callback=progress_callback if not verbose else None,
-        )
+        if strategy == "bisect":
+            return reduce_bisect(
+                config=reduce_config,
+                confidence_runs=confidence_runs,
+                progress_callback=progress_callback_bisect if not verbose else None,
+            )
+        else:
+            return reduce_delay_points(
+                config=reduce_config,
+                progress_callback=progress_callback_linear if not verbose else None,
+            )
     except ValueError as e:
         _exit_with_error(str(e))
     except Exception as e:
@@ -78,6 +107,22 @@ def _run_reduction(reduce_config: ReduceConfig, verbose: bool) -> ReduceResult:
     help="Output path for the minimal config.",
 )
 @click.option(
+    "--strategy",
+    "-s",
+    type=click.Choice(["linear", "bisect"]),
+    default="linear",
+    help="Reduction strategy: 'linear' tests each point one by one (O(N)), "
+    "'bisect' uses ddmin bisection (much faster, O(N log N) worst case).",
+)
+@click.option(
+    "--confidence-runs",
+    type=int,
+    default=1,
+    help="Number of test runs for majority voting (bisect strategy only). "
+    "Use odd numbers (3, 5) for probabilistic races (e.g., random delay mode). "
+    "Default: 1 (single run, for deterministic races).",
+)
+@click.option(
     "--verbose",
     "-v",
     is_flag=True,
@@ -93,6 +138,8 @@ def reduce_command(
     test: str,
     output: str,
     minimal_config: str,
+    strategy: str,
+    confidence_runs: int,
     verbose: bool,
     no_validate_schema: bool,
 ) -> None:
@@ -102,22 +149,35 @@ def reduce_command(
     Uses delta debugging to find the minimal set of delay points
     that trigger a data race.
 
+    Strategies:
+      - linear: Tests each point one by one. Simple but O(N) test runs.
+      - bisect: ddmin-style bisection. Much faster, splits points in half
+        and recursively narrows down. Use --confidence-runs for probabilistic races.
+
     Test script convention (same as llvm-reduce):
 
     \b
       - Exit 0: Interesting (race occurred)
       - Exit 1+: Not interesting (no race)
 
-    Example:
+    Examples:
 
     \b
-      cutraceross reduce --config repro.json --test ./test_race.sh
+      cutracer reduce -c repro.json -t ./test_race.sh
+      cutracer reduce -c repro.json -t ./test_race.sh --strategy bisect
+      cutracer reduce -c repro.json -t ./test_race.sh -s bisect --confidence-runs 3
     """
+    if verbose:
+        get_logger().setLevel(logging.DEBUG)
+
     click.echo("=" * 60)
     click.echo(" CUTRACER REDUCE")
     click.echo("=" * 60)
     click.echo(f"Config: {config}")
     click.echo(f"Test script: {test}")
+    click.echo(f"Strategy: {strategy}")
+    if strategy == "bisect" and confidence_runs > 1:
+        click.echo(f"Confidence runs: {confidence_runs}")
     click.echo("")
 
     # Create reduce config
@@ -130,8 +190,8 @@ def reduce_command(
     )
 
     # Run reduction
-    click.echo("\n🔍 Starting reduction...\n")
-    result = _run_reduction(reduce_config, verbose)
+    click.echo(f"\nStarting {strategy} reduction...\n")
+    result = _run_reduction(reduce_config, strategy, confidence_runs, verbose)
 
     # Generate report
     click.echo("\n" + "=" * 60)
@@ -139,14 +199,14 @@ def reduce_command(
     click.echo("=" * 60)
 
     if result.essential_points:
-        click.echo(f"\n✅ Found {len(result.essential_points)} essential point(s):\n")
+        click.echo(f"\nFound {len(result.essential_points)} essential point(s):\n")
         for i, point in enumerate(result.essential_points, 1):
             click.echo(f"  {i}. {point.sass}")
             click.echo(f"     PC: {point.pc_offset}")
             click.echo(f"     Kernel: {point.kernel_name}")
             click.echo("")
     else:
-        click.echo("\n⚠️  No essential points found.")
+        click.echo("\nNo essential points found.")
         click.echo("    This may indicate the race is not deterministically triggered")
         click.echo("    by the delay injection points in this config.")
 
@@ -157,15 +217,16 @@ def reduce_command(
         test_script=test,
     )
     save_report(report, output)
-    click.echo(f"\n📊 Report saved to: {output}")
+    click.echo(f"\nReport saved to: {output}")
 
     if result.minimal_config_path:
-        click.echo(f"📋 Minimal config saved to: {result.minimal_config_path}")
+        click.echo(f"Minimal config saved to: {result.minimal_config_path}")
 
     # Print summary stats
-    click.echo("\n📈 Stats:")
+    click.echo("\nStats:")
+    click.echo(f"   Strategy: {result.strategy}")
     click.echo(f"   Total points: {result.total_points}")
-    click.echo(f"   Essential: {len(result.essential_points)}")
+    click.echo(f"   Minimal set: {len(result.essential_points)}")
     click.echo(f"   Iterations: {result.iterations}")
 
     click.echo("")

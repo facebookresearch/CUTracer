@@ -224,7 +224,7 @@ class ReduceCliTest(unittest.TestCase):
         self.assertEqual(result.exit_code, 0, f"Failed with output: {result.output}")
         self.assertIn("Stats:", result.output)
         self.assertIn("Total points:", result.output)
-        self.assertIn("Essential:", result.output)
+        self.assertIn("Minimal set:", result.output)
         self.assertIn("Iterations:", result.output)
 
 
