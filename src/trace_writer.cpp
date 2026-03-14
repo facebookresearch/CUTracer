@@ -518,8 +518,11 @@ void TraceWriter::write_text_format(const TraceRecord& record) {
     }
 
     case MSG_TYPE_OPCODE_ONLY: {
-      // Opcode_only typically doesn't output to trace files (only for histogram)
-      // But we can add support if needed
+      const opcode_only_t* oi = record.data.opcode_only;
+
+      fprintf(file_handle_, "CTX %p - kernel_launch_id %ld - CTA %d,%d,%d - warp %d - PC %ld - %s\n\n", record.context,
+              oi->kernel_launch_id, oi->cta_id_x, oi->cta_id_y, oi->cta_id_z, oi->warp_id, oi->pc,
+              record.sass_instruction.c_str());
       break;
     }
 

@@ -1320,11 +1320,36 @@ void* recv_thread_fun(void* args) {
           num_processed_bytes += sizeof(reg_info_t);
 
         } else if (header->type == MSG_TYPE_OPCODE_ONLY) {
-          if (is_analysis_type_enabled(AnalysisType::PROTON_INSTR_HISTOGRAM)) {
-            opcode_only_t* oi = (opcode_only_t*)&recv_buffer[num_processed_bytes];
+          opcode_only_t* oi = (opcode_only_t*)&recv_buffer[num_processed_bytes];
 
+          if (is_analysis_type_enabled(AnalysisType::PROTON_INSTR_HISTOGRAM)) {
             process_instruction_histogram(oi, ctx_state, warp_states, local_completed_histograms);
           }
+
+          // Get SASS string for trace output
+          std::string sass_str_cpp;
+          std::map<uint64_t, std::pair<CUcontext, CUfunction>>::iterator func_iter =
+              kernel_launch_to_func_map.find(oi->kernel_launch_id);
+          if (func_iter != kernel_launch_to_func_map.end()) {
+            std::pair<CUcontext, CUfunction> kernel_info = func_iter->second;
+            CUfunction f_func = kernel_info.second;
+            if (ctx_state->id_to_sass_map.count(f_func) && ctx_state->id_to_sass_map[f_func].count(oi->opcode_id)) {
+              sass_str_cpp = ctx_state->id_to_sass_map[f_func][oi->opcode_id];
+            }
+          }
+
+          // Unified TraceWriter output (per-launch files)
+          {
+            std::shared_lock<std::shared_mutex> lock(ctx_state->writers_mutex);
+            auto it = ctx_state->trace_writers.find(oi->kernel_launch_id);
+            if (it != ctx_state->trace_writers.end() && it->second) {
+              uint64_t trace_idx = ctx_state->trace_index_by_kernel[oi->kernel_launch_id]++;
+              uint64_t timestamp = get_timestamp_ns();
+              auto record = TraceRecord::create_opcode_trace(ctx, sass_str_cpp, trace_idx, timestamp, oi);
+              it->second->write_trace(record);
+            }
+          }
+
           num_processed_bytes += sizeof(opcode_only_t);
 
         } else if (header->type == MSG_TYPE_MEM_ADDR_ACCESS) {
