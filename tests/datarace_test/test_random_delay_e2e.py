@@ -79,10 +79,6 @@ class TestRandomDelayDataRace(unittest.TestCase):
             output_dir=self.trace_dir,
             verbose=None,
             zstd_level=None,
-            delay_dump_path=None,
-            delay_load_path=None,
-            cpu_callstack=None,
-            channel_records=None,
         )
 
         # Run the data race test as a subprocess (same as cutracer trace does)
