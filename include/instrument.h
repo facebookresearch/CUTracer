@@ -117,8 +117,22 @@ void instrument_random_delay_injection(Instr* instr, uint32_t min_delay_ns, uint
 static const std::vector<const char*> DELAY_INJECTION_PATTERNS = {
     "SYNCS.PHASECHK.TRANS64.TRYWAIT",  // mbarrier try_wait
     "SYNCS.ARRIVE.TRANS64.RED.A1T0",   // mbarrier arrive
-    "UTMALDG.2D",                      // TMA load
+    "UTMASTG",                         // TMA store
+    "UTMALDG",                         // TMA load
+    "UTMAREDG",                        // TMA store with reduction
     "WARPGROUP.DEPBAR.LE",             // MMA wait
+    "UTCQMMA",
+    "UTCHMMA",
+    "UTCIMMA",
+    "UTCOMMA",
+    "UTCBAR",  // mbarrier arrive
+    // Tensor memory instructions
+    "LDTM",
+    "LDT",
+    "STT",
+    "STTM",
+    "LD",
+    "ST",
 };
 
 /**
