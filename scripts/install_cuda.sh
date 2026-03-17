@@ -23,7 +23,7 @@ CUDA_INSTALL_PREFIX=${CUDA_INSTALL_PREFIX%/}
 CUDA_VERSION=${CUDA_VERSION:-12.8}
 NVSHMEM_VERSION=${NVSHMEM_VERSION:-3.4.5}
 INSTALL_NCCL=${INSTALL_NCCL:-1}
-NCCL_VERSION=${NCCL_VERSION:-v2.28.9-1}
+NCCL_VERSION=${NCCL_VERSION:-v2.29.3-1}
 
 # Minimum required disk space in GB (can be overridden)
 REQUIRED_DISK_SPACE_GB=${REQUIRED_DISK_SPACE_GB:-15}
@@ -39,7 +39,7 @@ declare -A CUDA_FULL_VERSION=(
   ["12.8"]="12.8.1"
   ["12.9"]="12.9.1"
   ["13.0"]="13.0.2"
-  ["13.1"]="13.1.1"
+  ["13.2"]="13.2.0"
 )
 
 declare -A CUDA_RUNFILE=(
@@ -47,15 +47,15 @@ declare -A CUDA_RUNFILE=(
   ["12.8"]="cuda_12.8.1_570.124.06_linux"
   ["12.9"]="cuda_12.9.1_575.57.08_linux"
   ["13.0"]="cuda_13.0.2_580.95.05_linux"
-  ["13.1"]="cuda_13.1.1_590.48.01_linux"
+  ["13.2"]="cuda_13.2.0_595.45.04_linux"
 )
 
 declare -A CUDNN_VERSIONS=(
   ["12.6"]="9.10.2.21"
-  ["12.8"]="9.17.1.4"
+  ["12.8"]="9.19.0.56"
   ["12.9"]="9.17.1.4"
-  ["13.0"]="9.17.1.4"
-  ["13.1"]="9.17.1.4"
+  ["13.0"]="9.19.0.56"
+  ["13.2"]="9.19.0.56"
 )
 
 declare -A CUDA_MAJOR=(
@@ -63,7 +63,7 @@ declare -A CUDA_MAJOR=(
   ["12.8"]="12"
   ["12.9"]="12"
   ["13.0"]="13"
-  ["13.1"]="13"
+  ["13.2"]="13"
 )
 
 # Create temporary directory
