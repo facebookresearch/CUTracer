@@ -740,9 +740,6 @@ void init_config_from_env() {
   loprintf("CUTRACER_OUTPUT_DIR = %s\n", output_dir.empty() ? "(not set)" : output_dir.c_str());
   // Get other configuration variables
   get_var_int(verbose, "TOOL_VERBOSE", 0, "Enable verbosity inside the tool");
-  int dump_cubin_int = 0;
-  get_var_int(dump_cubin_int, "CUTRACER_DUMP_CUBIN", 0, "Dump cubin files for instrumented kernels");
-  dump_cubin = (dump_cubin_int != 0);
   // If INSTRS is not set, fall back to the old INSTR_BEGIN/INSTR_END behavior
   get_var_uint32(instr_begin_interval, "INSTR_BEGIN", 0,
                  "Beginning of the instruction interval where to apply instrumentation");
@@ -770,6 +767,16 @@ void init_config_from_env() {
 
   // Initialize analysis - may add additional instruments (always use defaults for IPOINT)
   init_analysis(analysis_str);
+
+  // Cubin dump configuration (after instrumentation/analysis init so we can auto-detect)
+  // Auto-enable when instrumentation is active; user can override with CUTRACER_DUMP_CUBIN=0/1
+  const char* dump_cubin_env = getenv("CUTRACER_DUMP_CUBIN");
+  if (dump_cubin_env) {
+    dump_cubin = (atoi(dump_cubin_env) != 0);
+  } else {
+    dump_cubin = has_any_instrumentation_enabled();
+  }
+  loprintf("CUTRACER_DUMP_CUBIN = %s%s\n", dump_cubin ? "enabled" : "disabled", dump_cubin_env ? "" : " (auto)");
 
   // Trace format configuration
   get_var_int(trace_format_ndjson, "TRACE_FORMAT_NDJSON", 1,
