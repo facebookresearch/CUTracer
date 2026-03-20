@@ -739,7 +739,7 @@ static bool enter_kernel_launch(CUcontext ctx, CUfunction func, uint64_t& kernel
 
     {
       std::unique_lock<std::shared_mutex> lock(ctx_state->writers_mutex);
-      ctx_state->trace_writers[current_launch_id] = new TraceWriter(base_filename, trace_format_ndjson);
+      ctx_state->trace_writers[current_launch_id] = new TraceWriter(base_filename, trace_format);
     }
 
     // Initialize trace_index for this kernel
@@ -754,7 +754,7 @@ static bool enter_kernel_launch(CUcontext ctx, CUfunction func, uint64_t& kernel
       ctx_state->trace_writers[current_launch_id]->write_metadata(metadata);
     }
 
-    loprintf_v("Created TraceWriter for launch_id %lu, mode %d, file: %s\n", current_launch_id, trace_format_ndjson,
+    loprintf_v("Created TraceWriter for launch_id %lu, mode %d, file: %s\n", current_launch_id, trace_format,
                base_filename.c_str());
   }
 
@@ -1029,7 +1029,7 @@ void nvbit_at_graph_node_launch(CUcontext ctx, CUfunction func, CUstream stream,
     std::string base_filename = generate_kernel_log_basename(ctx, func, kernel_iter_map[func]++, meta.kernel_checksum);
     {
       std::unique_lock<std::shared_mutex> lock(ctx_state->writers_mutex);
-      ctx_state->trace_writers[global_kernel_launch_id] = new TraceWriter(base_filename, trace_format_ndjson);
+      ctx_state->trace_writers[global_kernel_launch_id] = new TraceWriter(base_filename, trace_format);
     }
     ctx_state->trace_index_by_kernel[global_kernel_launch_id] = 0;
 

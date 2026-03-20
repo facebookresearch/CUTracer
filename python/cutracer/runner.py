@@ -101,7 +101,7 @@ def _build_cutracer_env(
     if instr_categories is not None:
         env["CUTRACER_INSTR_CATEGORIES"] = instr_categories
     if trace_format is not None:
-        env["TRACE_FORMAT_NDJSON"] = str(trace_format)
+        env["CUTRACER_TRACE_FORMAT"] = str(trace_format)
     if output_dir is not None:
         env["CUTRACER_OUTPUT_DIR"] = output_dir
     if verbose is not None:
@@ -153,7 +153,7 @@ def _print_config_summary(env: dict) -> None:
         "CUTRACER_ANALYSIS",
         "KERNEL_FILTERS",
         "CUTRACER_INSTR_CATEGORIES",
-        "TRACE_FORMAT_NDJSON",
+        "CUTRACER_TRACE_FORMAT",
         "CUTRACER_OUTPUT_DIR",
         "CUTRACER_DUMP_CUBIN",
         "TOOL_VERBOSE",
@@ -206,7 +206,7 @@ _CUTRACER_OPTIONS = [
         "--trace-format",
         type=int,
         default=None,
-        help="Trace format: 0=text, 1=ndjson+zstd (default), 2=ndjson-only",
+        help="Trace format: 0=text, 1=ndjson+zstd, 2=ndjson (default)",
     ),
     click.option(
         "--output-dir",

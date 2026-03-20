@@ -95,13 +95,14 @@ void init_instrumentation(const std::string& instrument_str);
 void init_analysis(const std::string& analysis_str);
 
 // Trace format configuration
-// 0 = text format (default)
+// 0 = text format
 // 1 = NDJSON+Zstd (compressed JSON)
-// 2 = NDJSON only (uncompressed JSON, good for debugging)
-extern int trace_format_ndjson;
+// 2 = NDJSON only (uncompressed JSON, default)
+// 3 = CLP Archive
+extern int trace_format;
 
 // Zstd compression level (1-22, higher = better compression but slower)
-// Default: 9 (good compression with reasonable speed)
+// Default: 9 (balanced compression speed and ratio)
 extern int zstd_compression_level;
 
 // Delay value in nanoseconds for random delay instrumentation (max delay)
