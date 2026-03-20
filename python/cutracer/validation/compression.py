@@ -9,7 +9,7 @@ supporting Zstd compression (Mode 1) used by CUTracer.
 CUTracer's Zstd format:
 - Multiple independent Zstd frames appended together
 - Each frame contains ~1MB of uncompressed NDJSON
-- Compression level: 22 (maximum)
+- Compression level: configurable via CUTRACER_ZSTD_LEVEL (1-22, default 9)
 """
 
 import io

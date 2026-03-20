@@ -1,7 +1,7 @@
 [2025-06-15 14:32:01.102] [CUTracer] Initializing CUTracer v0.3.0
 [2025-06-15 14:32:01.103] [CUTracer] Environment: CUTRACER_ANALYSIS=proton_instr_histogram
 [2025-06-15 14:32:01.103] [CUTracer] Environment: KERNEL_FILTERS=add_kernel
-[2025-06-15 14:32:01.103] [CUTracer] Environment: TRACE_FORMAT_NDJSON=0
+[2025-06-15 14:32:01.103] [CUTracer] Environment: CUTRACER_TRACE_FORMAT=0
 [2025-06-15 14:32:01.104] [CUTracer] Proton instruction histogram analysis enabled (auto-enabling opcode_only)
 [2025-06-15 14:32:01.104] [CUTracer] CUDA_MANAGED_FORCE_DEVICE_ALLOC=1 set for channel memory
 [2025-06-15 14:32:03.218] [CUTracer] CTX 0x563a1b200000 - Kernel name: _ZN2at6native13vectorized...memcpy_kernel - SKIPPED (no filter match)
