@@ -779,7 +779,7 @@ void init_config_from_env() {
   loprintf("CUTRACER_DUMP_CUBIN = %s%s\n", dump_cubin ? "enabled" : "disabled", dump_cubin_env ? "" : " (auto)");
 
   // Trace format configuration (CUTRACER_TRACE_FORMAT with TRACE_FORMAT_NDJSON as legacy fallback)
-  // Try new name first, fall back to legacy name for backward compatibility
+  // Accepts string names (text, zstd, ndjson, clp) or numeric values (0, 1, 2, 3)
   const char* tf_env = getenv("CUTRACER_TRACE_FORMAT");
   if (!tf_env) {
     tf_env = getenv("TRACE_FORMAT_NDJSON");
@@ -788,18 +788,44 @@ void init_config_from_env() {
     }
   }
   if (tf_env) {
-    trace_format = atoi(tf_env);
+    std::string tf_str(tf_env);
+    for (char& c : tf_str) c = std::tolower(c);
+
+    if (tf_str == "text") {
+      trace_format = 0;
+    } else if (tf_str == "zstd") {
+      trace_format = 1;
+    } else if (tf_str == "ndjson") {
+      trace_format = 2;
+    } else if (tf_str == "clp") {
+      trace_format = 3;
+    } else {
+      char* end;
+      long val = strtol(tf_env, &end, 10);
+      if (*end != '\0') {
+        fprintf(stderr,
+                "FATAL: Unrecognized CUTRACER_TRACE_FORMAT='%s'.\n"
+                "Valid values: text (0), zstd (1), ndjson (2), clp (3)\n",
+                tf_env);
+        exit(1);
+      }
+      trace_format = static_cast<int>(val);
+    }
   } else {
     trace_format = 2;
   }
-  loprintf("CUTRACER_TRACE_FORMAT = %d (Trace format: 0=text, 1=NDJSON+Zstd, 2=NDJSON only, 3=CLP Archive)\n",
-           trace_format);
 
   // Validate trace format range
   if (trace_format < 0 || trace_format > 3) {
-    printf("WARNING: Invalid CUTRACER_TRACE_FORMAT=%d. Using default=2 (NDJSON only).\n", trace_format);
-    trace_format = 2;
+    fprintf(stderr,
+            "FATAL: Invalid CUTRACER_TRACE_FORMAT='%s'.\n"
+            "Valid values: text (0), zstd (1), ndjson (2), clp (3)\n",
+            tf_env ? tf_env : "");
+    exit(1);
   }
+
+  static const char* trace_format_names[] = {"text", "zstd", "ndjson", "clp"};
+  loprintf("CUTRACER_TRACE_FORMAT = %s (%d)\n", trace_format_names[trace_format], trace_format);
   // Zstd compression level (only used when trace_format == 1)
   get_var_int(zstd_compression_level, "CUTRACER_ZSTD_LEVEL", 9, "Zstd compression level (1-22, default 9)");
 
