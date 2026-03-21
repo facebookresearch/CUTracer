@@ -1,6 +1,6 @@
 # CUTracer
 
-CUTracer is an [NVBit-based](https://github.com/NVlabs/NVBit) CUDA binary instrumentation tool. It cleanly separates lightweight data collection (instrumentation) from host-side processing (analysis). Typical workflows include per-warp instruction histograms (delimited by GPU clock reads) and kernel hang detection.
+CUTracer is a CUDA binary instrumentation tool built on [NVBit](https://github.com/NVlabs/NVBit). It cleanly separates lightweight data collection (instrumentation) from host-side processing (analysis). Typical workflows include per-warp instruction histograms (delimited by GPU clock reads) and kernel hang detection.
 
 ## Features
 
@@ -25,9 +25,12 @@ Unique requirements:
 1. Clone the repository:
 
 ```bash
+cd ~
 git clone git@github.com:facebookresearch/CUTracer.git
 cd CUTracer
 ```
+
+> **Note for Meta internal users**: CUTracer is also available at `fbcode/triton/tools/CUTracer/` within fbsource. You can build via `buck2 build fbcode//triton/tools/CUTracer:cutracer.so` instead of the Makefile workflow.
 
 2. Install system dependencies (libzstd static library for self-contained builds):
 
@@ -64,7 +67,7 @@ make -j$(nproc)
 
 ## Quickstart
 
-Run your CUDA app with CUTracer (example: No instrumentation):
+Run your CUDA app with CUTracer (example: no instrumentation):
 
 ```bash
 CUDA_INJECTION64_PATH=~/CUTracer/lib/cutracer.so \
@@ -77,23 +80,25 @@ CUDA_INJECTION64_PATH=~/CUTracer/lib/cutracer.so \
 -   `CUTRACER_ANALYSIS`: comma-separated analyses: `proton_instr_histogram`, `deadlock_detection`, `random_delay`
     -   Enabling `proton_instr_histogram` auto-enables `opcode_only`
     -   Enabling `deadlock_detection` auto-enables `reg_trace`
-    -   Enabling `random_delay` requires `CUTRACER_DELAY_NS` to be set
+    -   Enabling `random_delay` auto-enables `random_delay` instrumentation; also requires `CUTRACER_DELAY_NS` to be set
 -   `KERNEL_FILTERS`: comma-separated substrings matching unmangled or mangled kernel names
 -   `INSTR_BEGIN`, `INSTR_END`: static instruction index gate during instrumentation
 -   `TOOL_VERBOSE`: 0/1/2
--   `TRACE_FORMAT_NDJSON`: trace output format
-    -   **1** (default): NDJSON+Zstd compressed (`.ndjson.zst`, ~12x compression, 92% space savings)
-    -   0: Plain text (`.log`, legacy format, verbose)
-    -   2: NDJSON uncompressed (`.ndjson`, for debugging)
--   `CUTRACER_ZSTD_LEVEL`: Zstd compression level (1-22, default 22)
+-   `CUTRACER_TRACE_FORMAT`: trace output format. Accepts string names or numeric values (replaces the legacy `TRACE_FORMAT_NDJSON` env var, which is still accepted for backward compatibility)
+    -   **ndjson** or 2 (default): NDJSON uncompressed (`.ndjson`)
+    -   text (or 0): Plain text (`.log`, legacy format, verbose)
+    -   zstd (or 1): NDJSON+Zstd compressed (`.ndjson.zst`, ~12x compression, 92% space savings)
+    -   clp (or 3): CLP Archive (`.clp`)
+-   `CUTRACER_ZSTD_LEVEL`: Zstd compression level (1-22, default 9)
     -   Lower values (1-3): Faster compression, slightly larger output
     -   Higher values (19-22): Maximum compression, slower but smallest output
-    -   Default of 22 provides maximum compression for smallest output
-- `CUTRACER_DELAY_NS`: Max delay value in nanoseconds for race detection (required for `random_delay` analysis)
-- `CUTRACER_DELAY_MODE`: Delay mode — `random` (default, per-thread random delay for better race detection) or `fixed` (same delay for all threads, often masks races)
+    -   Default of 9 provides balanced compression speed and ratio
+- `CUTRACER_DELAY_NS`: Max delay value in nanoseconds for `random_delay` analysis (required when `random_delay` is enabled)
+- `CUTRACER_DELAY_MIN_NS`: Minimum delay in nanoseconds — floor for random mode (default: 0). Must be ≤ `CUTRACER_DELAY_NS`
+- `CUTRACER_DELAY_MODE`: Delay mode: `random` (per-thread random delay in `[min, max]`, default) or `fixed` (same delay for all threads, often masks races)
 - `CUTRACER_DELAY_DUMP_PATH`: Output path for delay config JSON file (for recording instrumentation patterns)
 - `CUTRACER_DELAY_LOAD_PATH`: Input path for delay config JSON file (for replay mode - deterministic reproduction)
-- `CUTRACER_OUTPUT_DIR`: Output directory for all CUTracer files (trace files and log files). Defaults to the current directory. The directory must exist and be writable
+- `CUTRACER_OUTPUT_DIR`: Output directory for all CUTracer files (trace files and log files). Defaults to the current directory. The directory must exist and be writable.
 - `CUTRACER_CPU_CALLSTACK`: Enable/disable CPU call stack capture at each kernel launch (default: 1 = enabled)
     - When enabled, the `kernel_metadata` trace event includes a `cpu_callstack` array with demangled C++ frame names
 - `CUTRACER_KERNEL_TIMEOUT_S`: Kernel execution time limit in seconds (default: 0 = disabled)
@@ -110,7 +115,9 @@ CUDA_INJECTION64_PATH=~/CUTracer/lib/cutracer.so \
     - When any trace file exceeds this limit, tracing is stopped for that kernel; kernel execution continues normally
     - Useful for preventing runaway trace files from filling disk (e.g., during deadlocked kernels)
 
-Note: The tool sets `CUDA_MANAGED_FORCE_DEVICE_ALLOC=1` to simplify channel memory handling.
+**Notes:**
+- The tool sets `CUDA_MANAGED_FORCE_DEVICE_ALLOC=1` to simplify channel memory handling.
+- Multiple analyses can be combined (e.g., `CUTRACER_ANALYSIS=proton_instr_histogram,deadlock_detection`). Each analysis auto-enables its required instrumentation mode.
 
 ## Analyses
 
@@ -157,12 +164,13 @@ python ./test_hang.py
 
 ### Data Race Detection (random_delay)
 
--   Data races depend on timing and often pass by luck. This analysis uses random delay injection to detect races by injecting delays before synchronization instructions, disrupting the timing and forcing hidden races to show up
+-   Data races depend on thread scheduling and timing — buggy code may appear correct by luck.
+    This analysis exposes hidden races by injecting random delays before **synchronization-related SASS instructions** (e.g., `BAR`, `MEMBAR`, `ATOM`, `RED`), disrupting the normal timing and forcing latent races to manifest as observable failures.
 -   Each instrumentation point is randomly enabled/disabled (50% probability)
 -   Two delay modes:
     -   **`random` (default):** Each thread gets a random delay in `[0, CUTRACER_DELAY_NS]` using GPU-side xorshift32 PRNG seeded with `threadIdx/blockIdx/clock`. Creates per-thread timing skew that amplifies data races. **Recommended.**
     -   **`fixed`:** All threads get the same delay. Preserves relative timing between threads and often *masks* races rather than exposing them. Not recommended for race detection.
--   Requires `CUTRACER_DELAY_NS` to be set
+-   Requires `CUTRACER_DELAY_NS` to be set. The `random_delay` instrumentation mode is auto-enabled.
 
 Example:
 
