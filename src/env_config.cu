@@ -43,8 +43,8 @@ IPointType uniform_ipoint = IPointType::DEFAULT;
 // Per-instrument IPOINT overrides (CUTRACER_INSTRUMENT_IPOINT)
 std::vector<IPointType> ipoint_overrides;
 
-// Trace format configuration variable
-int trace_format_ndjson;
+// Trace format configuration variable (CUTRACER_TRACE_FORMAT / legacy TRACE_FORMAT_NDJSON)
+int trace_format;
 
 // Zstd compression level
 int zstd_compression_level;
@@ -778,23 +778,35 @@ void init_config_from_env() {
   }
   loprintf("CUTRACER_DUMP_CUBIN = %s%s\n", dump_cubin ? "enabled" : "disabled", dump_cubin_env ? "" : " (auto)");
 
-  // Trace format configuration
-  get_var_int(trace_format_ndjson, "TRACE_FORMAT_NDJSON", 1,
-              "Trace format: 0=text, 1=NDJSON+Zstd, 2=NDJSON only, 3=CLP Archive");
+  // Trace format configuration (CUTRACER_TRACE_FORMAT with TRACE_FORMAT_NDJSON as legacy fallback)
+  // Try new name first, fall back to legacy name for backward compatibility
+  const char* tf_env = getenv("CUTRACER_TRACE_FORMAT");
+  if (!tf_env) {
+    tf_env = getenv("TRACE_FORMAT_NDJSON");
+    if (tf_env) {
+      loprintf("NOTE: TRACE_FORMAT_NDJSON is deprecated. Please use CUTRACER_TRACE_FORMAT instead.\n");
+    }
+  }
+  if (tf_env) {
+    trace_format = atoi(tf_env);
+  } else {
+    trace_format = 2;
+  }
+  loprintf("CUTRACER_TRACE_FORMAT = %d (Trace format: 0=text, 1=NDJSON+Zstd, 2=NDJSON only, 3=CLP Archive)\n",
+           trace_format);
 
   // Validate trace format range
-  if (trace_format_ndjson < 0 || trace_format_ndjson > 3) {
-    printf("WARNING: Invalid TRACE_FORMAT_NDJSON=%d. Using default=1 (NDJSON+Zstd).\n", trace_format_ndjson);
-    trace_format_ndjson = 1;
+  if (trace_format < 0 || trace_format > 3) {
+    printf("WARNING: Invalid CUTRACER_TRACE_FORMAT=%d. Using default=2 (NDJSON only).\n", trace_format);
+    trace_format = 2;
   }
-
-  // Zstd compression level (only used when trace_format_ndjson == 1)
-  get_var_int(zstd_compression_level, "CUTRACER_ZSTD_LEVEL", 22, "Zstd compression level (1-22, default 22)");
+  // Zstd compression level (only used when trace_format == 1)
+  get_var_int(zstd_compression_level, "CUTRACER_ZSTD_LEVEL", 9, "Zstd compression level (1-22, default 9)");
 
   // Validate compression level range
   if (zstd_compression_level < 1 || zstd_compression_level > 22) {
-    printf("WARNING: Invalid CUTRACER_ZSTD_LEVEL=%d. Using default=22.\n", zstd_compression_level);
-    zstd_compression_level = 22;
+    printf("WARNING: Invalid CUTRACER_ZSTD_LEVEL=%d. Using default=9.\n", zstd_compression_level);
+    zstd_compression_level = 9;
   }
 
   // Parse and validate delay configuration (includes config paths)

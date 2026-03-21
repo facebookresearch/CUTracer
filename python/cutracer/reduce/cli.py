@@ -13,8 +13,6 @@ from typing import NoReturn
 import click
 from cutracer.cutracer_logger import get_logger
 from cutracer.reduce.config_mutator import DelayPoint
-
-logger = get_logger("reduce")
 from cutracer.reduce.reduce import (
     reduce_bisect,
     reduce_delay_points,
@@ -22,6 +20,8 @@ from cutracer.reduce.reduce import (
     ReduceResult,
 )
 from cutracer.reduce.report import generate_report, save_report
+
+logger = get_logger("reduce")
 
 
 def progress_callback_linear(

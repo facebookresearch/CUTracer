@@ -20,7 +20,7 @@ test_trace_formats_clp() {
   # Clean old clp files
   rm -rf kernel_*triton_poi_fused*.clp
 
-  if ! TRACE_FORMAT_NDJSON=3 \
+  if ! CUTRACER_TRACE_FORMAT=3 \
        CUDA_INJECTION64_PATH="$PROJECT_ROOT/lib/cutracer.so" \
        CUTRACER_INSTRUMENT=reg_trace,mem_trace \
        KERNEL_FILTERS=triton_poi_fused \
