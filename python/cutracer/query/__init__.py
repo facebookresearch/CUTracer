@@ -10,6 +10,7 @@ Provides data query utilities for trace files:
 - StreamingGrouper: Memory-efficient grouped queries
 - Formatters: Output formatting for table/json/csv
 - WarpSummary: Warp execution status summary
+- SASS: Extract SASS assembly from cubin files
 """
 
 from .formatters import (
@@ -27,6 +28,7 @@ from .reader import (
     select_records,
     TraceReader,
 )
+from .sass import dump_sass, dump_sass_to_file, SassOutput
 from .warp_summary import (
     compute_warp_summary,
     format_ranges,
@@ -59,4 +61,8 @@ __all__ = [
     "compute_warp_summary",
     "format_warp_summary_text",
     "warp_summary_to_dict",
+    # SASS
+    "SassOutput",
+    "dump_sass",
+    "dump_sass_to_file",
 ]

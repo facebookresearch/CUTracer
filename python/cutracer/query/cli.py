@@ -3,7 +3,8 @@
 """
 CLI implementation for the query subcommand.
 
-Provides command-line interface for querying and viewing CUTracer trace files.
+Provides command-line interface for querying and viewing CUTracer trace files,
+and extracting SASS assembly from cubin files.
 """
 
 import csv
@@ -406,3 +407,86 @@ def query_command(
             )
 
     _write_output(output, output_file, compress, record_count=len(selected))
+
+
+@click.command(name="sass")
+@click.argument("cubin", type=click.Path(exists=True, path_type=Path))
+@click.option(
+    "--output",
+    "-o",
+    type=click.Path(path_type=Path),
+    default=None,
+    help="Output .sass file path (default: <cubin>.sass).",
+)
+@click.option(
+    "--no-source-info",
+    "-G",
+    is_flag=True,
+    help="Omit source-level debug info (-g flag to nvdisasm).",
+)
+@click.option(
+    "--no-line-info",
+    "-C",
+    is_flag=True,
+    help="Omit //## source line comments (-c flag to nvdisasm).",
+)
+@click.option(
+    "--timeout",
+    type=int,
+    default=60,
+    show_default=True,
+    help="nvdisasm timeout in seconds.",
+)
+@click.option(
+    "--stdout",
+    is_flag=True,
+    help="Print SASS to stdout instead of writing to file.",
+)
+def sass_command(
+    cubin: Path,
+    output: Optional[Path],
+    no_source_info: bool,
+    no_line_info: bool,
+    timeout: int,
+    stdout: bool,
+) -> None:
+    """
+    Dump SASS assembly from a cubin file.
+
+    Disassembles the given cubin file using nvdisasm and saves the SASS
+    assembly output. By default, includes source-level debug info (-g)
+    and source line comments (-c) for mapping back to source code.
+
+    \b
+    Examples:
+      cutracer query sass kernel.cubin
+      cutracer query sass kernel.cubin -o kernel.sass
+      cutracer query sass kernel.cubin --stdout
+      cutracer query sass kernel.cubin --no-source-info
+      cutracer query sass kernel.cubin -G -C  # minimal output
+    """
+    from cutracer.query.sass import dump_sass, dump_sass_to_file
+
+    if stdout:
+        # Print to stdout, don't write file
+        sass_output = dump_sass(
+            cubin,
+            include_source_info=not no_source_info,
+            include_line_info=not no_line_info,
+            timeout=timeout,
+        )
+        if sass_output is None:
+            raise click.ClickException("Failed to dump SASS (see warnings above)")
+        click.echo(sass_output.raw_text)
+    else:
+        # Write to file
+        output_path = dump_sass_to_file(
+            cubin,
+            output_path=output,
+            include_source_info=not no_source_info,
+            include_line_info=not no_line_info,
+            timeout=timeout,
+        )
+        if output_path is None:
+            raise click.ClickException("Failed to dump SASS (see warnings above)")
+        click.echo(f"SASS written to {output_path}", err=True)
