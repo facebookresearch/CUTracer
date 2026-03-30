@@ -11,6 +11,7 @@ Usage:
     cutracer trace --instrument=tma_trace --instr-categories=tma -- python -m pytest test.py
 """
 
+import importlib.resources as resources
 import os
 from pathlib import Path
 from typing import Optional
@@ -23,8 +24,11 @@ def resolve_cutracer_so(explicit_path: Optional[str] = None) -> str:
 
     Resolution order:
     1. Explicit --cutracer-so path
-    2. CUDA_INJECTION64_PATH env var → error (must unset or use --cutracer-so)
-    3. Buck resource (bundled with python_library via resources = {})
+    2. Buck resource (bundled with python_library via resources = {})
+    3. CWD auto-discovery: ./lib/cutracer.so
+
+    If CUDA_INJECTION64_PATH is already set, raises ClickException
+    (it conflicts with cutracer trace's automatic configuration).
 
     If all fail, raises ClickException with clear instructions.
     """
@@ -34,33 +38,47 @@ def resolve_cutracer_so(explicit_path: Optional[str] = None) -> str:
             raise click.ClickException(f"cutracer.so not found at: {explicit_path}")
         return str(p.resolve())
 
-    env_path = os.environ.get("CUDA_INJECTION64_PATH")
-    if env_path:
+    # Fail if CUDA_INJECTION64_PATH is already set — cutracer trace sets
+    # this variable itself, and a conflicting value indicates a misconfiguration.
+    env_injection = os.environ.get("CUDA_INJECTION64_PATH")
+    if env_injection:
         raise click.ClickException(
             f"CUDA_INJECTION64_PATH is set in your environment:\n"
-            f"  Path: {env_path}\n\n"
+            f"  Path: {env_injection}\n\n"
             f"This conflicts with CUTracer's bundled cutracer.so and may cause\n"
             f"stale or mismatched behavior. Please either:\n"
             f"  1. Unset it:  unset CUDA_INJECTION64_PATH\n"
             f"  2. Use --cutracer-so to explicitly specify a path:\n"
-            f"     cutracer trace --cutracer-so {env_path} -i tma_trace -- ./app"
+            f"     cutracer trace --cutracer-so {env_injection} -i tma_trace -- ./app"
         )
 
-    # Default: use cutracer.so bundled as a buck resource.
+    # Buck resource (internal): cutracer.so bundled via python_library resources.
+    # Use as_file() to get a proper filesystem Path from the Traversable.
+    # For on-disk resources (Buck, pip), the path persists after context exit.
+    # For zip-packaged resources, the temp file is cleaned up and isfile() fails.
     try:
-        import pkg_resources
-
-        so_path = pkg_resources.resource_filename("cutracer", "cutracer.so")
-        if os.path.isfile(so_path):
-            click.echo(f"Using bundled cutracer.so: {so_path}")
-            return so_path
+        so_ref = resources.files("cutracer").joinpath("cutracer.so")
+        with resources.as_file(so_ref) as so_path:
+            so_path_str = str(so_path)
+        if os.path.isfile(so_path_str):
+            click.echo(f"Using bundled cutracer.so: {so_path_str}")
+            return so_path_str
     except Exception:
         pass
+
+    # CWD auto-discovery: supports running from the CUTracer project root
+    # after `make`, which produces lib/cutracer.so.
+    cwd_candidate = Path.cwd() / "lib" / "cutracer.so"
+    if cwd_candidate.is_file():
+        click.echo(f"Using cutracer.so found at: {cwd_candidate}")
+        return str(cwd_candidate)
 
     raise click.ClickException(
         "Could not find cutracer.so. Options:\n"
         "  1. Use --cutracer-so /path/to/cutracer.so\n"
-        "  2. Build via buck2 run (cutracer.so is bundled automatically):\n"
+        "  2. Run from the CUTracer project root after 'make':\n"
+        "     cd CUTracer && cutracer trace ...\n"
+        "  3. (Internal) Use buck2 run (cutracer.so is bundled automatically):\n"
         "     buck2 run fbcode//triton/tools/CUTracer:cutracer -- trace ..."
     )
 
@@ -132,11 +150,9 @@ def _build_cutracer_env(
     # These are bundled as buck resources from fbsource's third-party CUDA,
     # matching the CUDA version specified via -c fbcode.platform010_cuda_version.
     try:
-        import pkg_resources
-
-        bin_dir = os.path.dirname(
-            pkg_resources.resource_filename("cutracer", "bin/nvdisasm")
-        )
+        bin_ref = resources.files("cutracer").joinpath("bin/nvdisasm")
+        with resources.as_file(bin_ref) as bin_path:
+            bin_dir = str(bin_path.parent)
         if os.path.isdir(bin_dir):
             env["PATH"] = bin_dir + ":" + env.get("PATH", "")
     except Exception:
