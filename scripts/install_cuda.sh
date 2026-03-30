@@ -35,7 +35,7 @@ CUDA_INSTALL_PREFIX=${CUDA_INSTALL_PREFIX%/}
 CUDA_VERSION=${CUDA_VERSION:-12.8}
 NVSHMEM_VERSION=${NVSHMEM_VERSION:-3.4.5}
 INSTALL_NCCL=${INSTALL_NCCL:-1}
-NCCL_VERSION=${NCCL_VERSION:-v2.29.3-1}
+NCCL_VERSION=${NCCL_VERSION:-v2.29.7-1}
 
 # Minimum required disk space in GB (can be overridden)
 REQUIRED_DISK_SPACE_GB=${REQUIRED_DISK_SPACE_GB:-15}
@@ -64,10 +64,10 @@ declare -A CUDA_RUNFILE=(
 
 declare -A CUDNN_VERSIONS=(
   ["12.6"]="9.10.2.21"
-  ["12.8"]="9.19.0.56"
-  ["12.9"]="9.17.1.4"
-  ["13.0"]="9.19.0.56"
-  ["13.2"]="9.19.0.56"
+  ["12.8"]="9.20.0.48"
+  ["12.9"]="9.20.0.48"
+  ["13.0"]="9.20.0.48"
+  ["13.2"]="9.20.0.48"
 )
 
 declare -A CUDA_MAJOR=(
@@ -430,18 +430,24 @@ function install_cusparselt {
 
   local cusparselt_version
   local arch_path=${ARCH_PATH}
+  local cuda_major_version=${CUDA_VERSION%%.*}
 
-  local CUSPARSELT_NAME
-  if [[ ${CUDA_VERSION:0:2} == "13" ]]; then
-    cusparselt_version="0.8.0.4"
-    CUSPARSELT_NAME="libcusparse_lt-linux-${arch_path}-${cusparselt_version}_cuda13-archive"
-  elif [[ ${CUDA_VERSION} =~ ^12\.([5-9]|[1-9][0-9]+)$ ]]; then
+  # Determine cuSparseLt version based on CUDA version
+  # Synced with PyTorch .ci/docker/common/install_cusparselt.sh
+  if [[ ${CUDA_VERSION} == "12.6" ]] || [[ ${CUDA_VERSION} == "12.8" ]]; then
     cusparselt_version="0.7.1.0"
-    CUSPARSELT_NAME="libcusparse_lt-linux-${arch_path}-${cusparselt_version}-archive"
   else
-    popd
-    rm -rf tmp_cusparselt
-    error_exit "Unsupported CUDA version: ${CUDA_VERSION}"
+    cusparselt_version="0.8.1.1"
+  fi
+
+  # Starting from 0.8.0, NVIDIA ships separate archives per CUDA major version
+  local CUSPARSELT_NAME
+  local cusparselt_minor
+  cusparselt_minor=$(echo "${cusparselt_version}" | cut -d. -f2)
+  if [[ "${cusparselt_minor}" -ge 8 ]]; then
+    CUSPARSELT_NAME="libcusparse_lt-linux-${arch_path}-${cusparselt_version}_cuda${cuda_major_version}-archive"
+  else
+    CUSPARSELT_NAME="libcusparse_lt-linux-${arch_path}-${cusparselt_version}-archive"
   fi
 
   echo "${cusparselt_version}" >"${USER_TMPDIR}/cusparselt_version.txt"
