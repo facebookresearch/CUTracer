@@ -43,6 +43,26 @@ pip install .
 
 ## Usage
 
+### CLI
+
+After installation, the `cutracer` command provides a unified interface for
+tracing, querying, and analyzing CUDA traces:
+
+```bash
+# Trace a CUDA application (requires cutracer.so — see main README for build)
+export CUTRACER_LIB_PATH=/path/to/CUTracer/lib
+cutracer trace -i tma_trace -- python test.py
+
+# Validate trace files
+cutracer validate kernel_trace.ndjson
+
+# Query and filter trace data
+cutracer query trace.ndjson --filter "warp=24"
+
+# Analyze traces
+cutracer analyze warp-summary trace.ndjson
+```
+
 ### Python API
 
 ```python

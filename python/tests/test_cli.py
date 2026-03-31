@@ -10,6 +10,7 @@ from pathlib import Path
 from click.testing import CliRunner
 from cutracer.cli import main
 from cutracer.validation.cli import _detect_format, _format_size
+from tests.test_base import EXAMPLE_INPUTS_DIR
 
 
 class DetectFormatTest(unittest.TestCase):
@@ -47,7 +48,7 @@ class ValidateCommandTest(unittest.TestCase):
     """Tests for validate subcommand."""
 
     def setUp(self):
-        self.test_dir = Path(__file__).parent / "example_inputs"
+        self.test_dir = EXAMPLE_INPUTS_DIR
         self.runner = CliRunner()
 
     def test_validate_valid_json(self):
@@ -166,7 +167,7 @@ class MainEntryPointTest(unittest.TestCase):
         """Test --version flag."""
         result = self.runner.invoke(main, ["--version"])
         self.assertEqual(result.exit_code, 0)
-        self.assertIn("cutraceross", result.output)
+        self.assertIn("cutracer", result.output)
 
     def test_help_flag(self):
         """Test --help flag."""
@@ -174,11 +175,37 @@ class MainEntryPointTest(unittest.TestCase):
         self.assertEqual(result.exit_code, 0)
         self.assertIn("validate", result.output)
 
+    def test_help_shows_trace_subcommand(self):
+        """Test that trace subcommand appears in help output."""
+        result = self.runner.invoke(main, ["--help"])
+        self.assertEqual(result.exit_code, 0)
+        self.assertIn("trace", result.output)
+
     def test_no_command(self):
         """Test error when no command is provided."""
         result = self.runner.invoke(main, [])
         # Click group with required subcommand returns exit code 2 when no command provided
         self.assertEqual(result.exit_code, 2)
+
+
+class TraceCommandTest(unittest.TestCase):
+    """Tests for trace subcommand."""
+
+    def setUp(self):
+        self.runner = CliRunner()
+
+    def test_trace_help(self):
+        """Test trace --help shows expected options."""
+        result = self.runner.invoke(main, ["trace", "--help"])
+        self.assertEqual(result.exit_code, 0)
+        self.assertIn("--instrument", result.output)
+        self.assertIn("--cutracer-so", result.output)
+        self.assertIn("--kernel-filters", result.output)
+
+    def test_trace_no_command_shows_error(self):
+        """Test trace without a command shows usage error."""
+        result = self.runner.invoke(main, ["trace"])
+        self.assertNotEqual(result.exit_code, 0)
 
 
 class ModuleEntryPointTest(unittest.TestCase):
@@ -193,7 +220,7 @@ class ModuleEntryPointTest(unittest.TestCase):
             cwd=Path(__file__).parent.parent,
         )
         self.assertEqual(result.returncode, 0)
-        self.assertIn("cutraceross", result.stdout)
+        self.assertIn("cutracer", result.stdout)
         self.assertIn("validate", result.stdout)
 
 
