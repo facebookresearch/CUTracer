@@ -324,10 +324,11 @@ test_vectoradd() {
   # Clean up old logs to ensure a fresh run
   rm -f *.log
 
-  if ! CUTRACER_TRACE_FORMAT=0 \
-       CUDA_INJECTION64_PATH="$PROJECT_ROOT/lib/cutracer.so" \
-       CUTRACER_INSTRUMENT=reg_trace \
-       ./vectoradd >cutracer_output.log 2>&1; then
+  if ! cutracer trace \
+       --cutracer-so "$PROJECT_ROOT/lib/cutracer.so" \
+       -i reg_trace \
+       --trace-format 0 \
+       -- ./vectoradd >cutracer_output.log 2>&1; then
     exit_code=$?
     echo "❌ CUTracer test failed with exit code: $exit_code"
     echo "     === CUTracer Output ==="
@@ -409,11 +410,12 @@ test_trace_formats() {
   echo ""
   echo "  📝 Testing Mode 0 (Text Format)..."
 
-  if ! CUTRACER_TRACE_FORMAT=0 \
-       CUDA_INJECTION64_PATH="$PROJECT_ROOT/lib/cutracer.so" \
-       CUTRACER_INSTRUMENT=reg_trace,mem_trace \
-       KERNEL_FILTERS=triton_poi_fused \
-       python ./test_add.py >mode0_run.log 2>&1; then
+  if ! cutracer trace \
+       --cutracer-so "$PROJECT_ROOT/lib/cutracer.so" \
+       -i reg_trace,mem_trace \
+       -k triton_poi_fused \
+       --trace-format 0 \
+       -- python ./test_add.py >mode0_run.log 2>&1; then
     echo "    ❌ Mode 0 execution failed"
     mode0_status="failed"
   else
@@ -742,11 +744,12 @@ test_py_add_with_kernel_filters() {
   rm -f *.log
 
   # Run the test with KERNEL_FILTERS enabled
-  if ! CUTRACER_TRACE_FORMAT=0 \
-       CUDA_INJECTION64_PATH=$PROJECT_ROOT/lib/cutracer.so \
-       CUTRACER_INSTRUMENT=reg_trace \
-       KERNEL_FILTERS=triton_poi_fused \
-       python ./test_add.py >py_add_output.log 2>&1; then
+  if ! cutracer trace \
+       --cutracer-so "$PROJECT_ROOT/lib/cutracer.so" \
+       -i reg_trace \
+       -k triton_poi_fused \
+       --trace-format 0 \
+       -- python ./test_add.py >py_add_output.log 2>&1; then
     echo "❌ Python script test_add.py failed to execute."
     echo "     === Python script output ==="
     cat py_add_output.log
@@ -971,6 +974,53 @@ test_hang_test() {
   return 0
 }
 
+# Function to test cutracer CLI library resolution and basic execution
+test_cutracer_cli() {
+  echo "🧪 Testing cutracer CLI..."
+
+  # Test 1: CWD auto-discovery (run from project root where ./lib/cutracer.so exists)
+  echo "  -> Test 1: CWD auto-discovery..."
+  cd "$PROJECT_ROOT"
+  if ! cutracer trace -- echo "cutracer-cli-test" >cli_test_cwd.log 2>&1; then
+    echo "❌ CWD auto-discovery failed"
+    cat cli_test_cwd.log
+    return 1
+  fi
+  echo "  ✅ CWD auto-discovery works"
+
+  # Test 2: --cutracer-so explicit path
+  echo "  -> Test 2: --cutracer-so explicit path..."
+  cd /tmp
+  if ! cutracer trace --cutracer-so "$PROJECT_ROOT/lib/cutracer.so" -- echo "cutracer-cli-test" >cli_test_explicit.log 2>&1; then
+    echo "❌ --cutracer-so explicit path failed"
+    cat cli_test_explicit.log
+    cd "$PROJECT_ROOT"
+    return 1
+  fi
+  echo "  ✅ --cutracer-so explicit path works"
+
+  # Test 3: all-fail (no cutracer.so available)
+  echo "  -> Test 4: all-fail error message..."
+  cd /tmp
+  if cutracer trace -- echo "should-fail" >cli_test_fail.log 2>&1; then
+    echo "❌ Expected failure but command succeeded"
+    cd "$PROJECT_ROOT"
+    return 1
+  fi
+  if grep -q "Could not find cutracer.so" cli_test_fail.log; then
+    echo "  ✅ all-fail error message is correct"
+  else
+    echo "❌ Expected 'Could not find cutracer.so' in error output"
+    cat cli_test_fail.log
+    cd "$PROJECT_ROOT"
+    return 1
+  fi
+
+  echo "✅ All cutracer CLI tests passed!"
+  cd "$PROJECT_ROOT"
+  return 0
+}
+
 # Function to run Python module unit tests
 test_python_module() {
   echo "🧪 Running Python module unit tests..."
@@ -1056,6 +1106,12 @@ run_all_tests() {
     return 1
   fi
 
+  # Test cutracer CLI (no GPU required, but needs cutracer.so)
+  if ! test_cutracer_cli; then
+    echo "❌ cutracer CLI tests failed"
+    return 1
+  fi
+
   # Test phase
   build_vectoradd
   if ! test_vectoradd; then
@@ -1137,6 +1193,9 @@ case "$TEST_TYPE" in
   ;;
 "python-module")
   test_python_module
+  ;;
+"cutracer-cli")
+  test_cutracer_cli
   ;;
 "all" | *)
   run_all_tests
