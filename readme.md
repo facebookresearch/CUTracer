@@ -67,12 +67,44 @@ make -j$(nproc)
 
 ## Quickstart
 
-Run your CUDA app with CUTracer (example: no instrumentation):
+### 1. Install the Python CLI
 
 ```bash
-CUDA_INJECTION64_PATH=~/CUTracer/lib/cutracer.so \
-./your_app
+cd ~/CUTracer/python
+pip install .
 ```
+
+### 2. Run your CUDA app with CUTracer
+
+```bash
+# Option A: Set CUTRACER_LIB_PATH once (recommended)
+export CUTRACER_LIB_PATH=~/CUTracer/lib
+cutracer trace -i tma_trace -- ./your_app
+
+# Option B: Specify cutracer.so explicitly
+cutracer trace -i tma_trace --cutracer-so ~/CUTracer/lib/cutracer.so -- ./your_app
+
+# Option C: Run from the CUTracer project root (auto-discovers ./lib/cutracer.so)
+cd ~/CUTracer
+cutracer trace -i tma_trace -- ./your_app
+
+# Option D: Kernel launch logger only (no instrumentation, no trace files)
+cutracer trace -- ./your_app
+```
+
+### 3. Analyze the output
+
+```bash
+cutracer analyze warp-summary output.ndjson
+cutracer query output.ndjson --filter "warp=24"
+cutracer validate output.ndjson
+```
+
+> **Note**: You can also use CUTracer without the Python CLI by setting the
+> `CUDA_INJECTION64_PATH` environment variable directly:
+> ```bash
+> CUDA_INJECTION64_PATH=~/CUTracer/lib/cutracer.so ./your_app
+> ```
 
 ## Configuration (env vars)
 

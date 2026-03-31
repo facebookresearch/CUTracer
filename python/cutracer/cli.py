@@ -27,19 +27,22 @@ def _get_package_version() -> str:
 
 EXAMPLES = """
 Examples:
-  cutraceross validate kernel_trace.ndjson
-  cutraceross validate kernel_trace.ndjson.zst --verbose
-  cutraceross validate trace.log --format text
-  cutraceross query trace.ndjson --filter "warp=24"
-  cutraceross query trace.ndjson -f "pc=0x43d0;warp=24"
-  cutraceross query trace.ndjson --group-by warp --count
-  cutraceross analyze warp-summary trace.ndjson
+  cutracer trace -i tma_trace -- ./vectoradd
+  cutracer trace -i tma_trace --instr-categories=tma -- python my_test.py
+  cutracer validate kernel_trace.ndjson
+  cutracer validate kernel_trace.ndjson.zst --verbose
+  cutracer validate trace.log --format text
+  cutracer query trace.ndjson --filter "warp=24"
+  cutracer query trace.ndjson -f "pc=0x43d0;warp=24"
+  cutracer query trace.ndjson --group-by warp --count
+  cutracer analyze warp-summary trace.ndjson
 """
 
 
-@click.group(epilog=EXAMPLES)
-@click.version_option(version=_get_package_version(), prog_name="cutraceross")
-def main() -> None:
+@click.group(epilog=EXAMPLES, invoke_without_command=True)
+@click.version_option(version=_get_package_version(), prog_name="cutracer")
+@click.pass_context
+def main(ctx: click.Context) -> None:
     """CUTracer: CUDA trace validation, query, and analysis tools."""
     from cutracer.shared_vars import is_fbcode
 
@@ -47,6 +50,9 @@ def main() -> None:
         from cutracer.fb.usage import usage_report_logger
 
         usage_report_logger()
+
+    if ctx.invoked_subcommand is None:
+        raise click.UsageError("Missing command. Run 'cutracer --help' for usage.")
 
 
 # Register subcommands

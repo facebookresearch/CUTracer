@@ -38,7 +38,7 @@ dev = [
 "Bug Tracker" = "https://github.com/facebookresearch/CUTracer/issues"
 
 [project.scripts]
-cutraceross = "cutracer.cli:main"
+cutracer = "cutracer.cli:main"
 
 [tool.setuptools.packages.find]
 include = ["cutracer*"]
