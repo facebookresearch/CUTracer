@@ -38,6 +38,9 @@
 /* analysis functionality */
 #include "analysis.h"
 
+/* precompiled flush_channel fatbin (bin2c byte array) */
+#include "tool_func/flush_channel.c"
+
 /* instrumentation functionality */
 #include "instrument.h"
 
@@ -582,11 +585,6 @@ bool instrument_function_if_needed(CUcontext ctx, CUfunction func) {
 }
 
 // Reference code from NVIDIA nvbit mem_trace tool
-/* flush channel */
-__global__ void flush_channel(ChannelDev* ch_dev) {
-  ch_dev->flush();
-}
-
 // Reference code from NVIDIA nvbit mem_trace tool
 void init_context_state(CUcontext ctx) {
   assert(ctx_state_map.find(ctx) != ctx_state_map.end());
@@ -758,11 +756,12 @@ static bool enter_kernel_launch(CUcontext ctx, CUfunction func, uint64_t& kernel
 }
 
 // the function is only called for non cuda graph launch cases.
-static void leave_kernel_launch(CTXstate* ctx_state, uint64_t& grid_launch_id) {
+static void leave_kernel_launch(CUcontext ctx, CTXstate* ctx_state, uint64_t& grid_launch_id) {
   // make sure user kernel finishes to avoid deadlock
   cudaDeviceSynchronize();
-  /* push a flush channel kernel */
-  flush_channel<<<1, 1>>>(ctx_state->channel_dev);
+  /* push a flush channel kernel using preloaded function */
+  void* flush_args[] = {&ctx_state->channel_dev};
+  nvbit_launch_kernel(ctx, ctx_state->flush_channel_func, 1, 1, 1, 1, 1, 1, 0, nullptr, flush_args, nullptr);
 
   /* Make sure GPU is idle */
   cudaDeviceSynchronize();
@@ -803,9 +802,10 @@ void nvbit_at_cuda_event(CUcontext ctx, int is_exit, nvbit_api_cuda_t cbid, cons
       cuLaunch_params* p = (cuLaunch_params*)params;
       CUfunction func = p->f;
       if (!is_exit) {
+        ctx_state->need_sync = true;
         enter_kernel_launch(ctx, func, global_kernel_launch_id, cbid, params);
       } else {
-        leave_kernel_launch(ctx_state, global_kernel_launch_id);
+        leave_kernel_launch(ctx, ctx_state, global_kernel_launch_id);
       }
     } break;
     // To support kernel launched by cuda graph (in addition to existing kernel
@@ -870,11 +870,14 @@ void nvbit_at_cuda_event(CUcontext ctx, int is_exit, nvbit_api_cuda_t cbid, cons
       CUDA_SAFECALL(cudaStreamIsCapturing(hStream, &streamStatus));
       if (!is_exit) {
         bool stream_capture = (streamStatus == cudaStreamCaptureStatusActive);
+        if (!stream_capture) {
+          ctx_state->need_sync = true;
+        }
         enter_kernel_launch(ctx, func, global_kernel_launch_id, cbid, params, stream_capture);
       } else {
         if (streamStatus != cudaStreamCaptureStatusActive) {
           loprintf_vl(1, "kernel %s not captured by cuda graph\n", nvbit_get_func_name(ctx, func));
-          leave_kernel_launch(ctx_state, global_kernel_launch_id);
+          leave_kernel_launch(ctx, ctx_state, global_kernel_launch_id);
         } else {
           loprintf_vl(1, "kernel %s captured by cuda graph\n", nvbit_get_func_name(ctx, func));
         }
@@ -899,8 +902,9 @@ void nvbit_at_cuda_event(CUcontext ctx, int is_exit, nvbit_api_cuda_t cbid, cons
 
         CUDA_SAFECALL(cudaStreamSynchronize(p->hStream));
         CUDA_CHECK_LAST_ERROR();
-        /* push a flush channel kernel */
-        flush_channel<<<1, 1, 0, p->hStream>>>(ctx_state->channel_dev);
+        /* push a flush channel kernel using preloaded function */
+        void* flush_args[] = {&ctx_state->channel_dev};
+        nvbit_launch_kernel(ctx, ctx_state->flush_channel_func, 1, 1, 1, 1, 1, 1, 0, p->hStream, flush_args, nullptr);
         CUDA_SAFECALL(cudaStreamSynchronize(p->hStream));
         CUDA_CHECK_LAST_ERROR();
       }
@@ -926,11 +930,17 @@ void nvbit_tool_init(CUcontext ctx) {
 void nvbit_at_ctx_init(CUcontext ctx) {
   pthread_mutex_lock(&mutex);
   if (verbose) {
-    printf("MEMTRACE: STARTING CONTEXT %p\n", ctx);
+    printf("CUTracer: STARTING CONTEXT %p\n", ctx);
   }
   assert(ctx_state_map.find(ctx) == ctx_state_map.end());
   CTXstate* ctx_state = new CTXstate;
   ctx_state_map[ctx] = ctx_state;
+
+  nvbit_load_tool_module(ctx, (const void*)flush_channel_bin, &ctx_state->tool_module);
+  assert(ctx_state->tool_module != nullptr);
+  nvbit_find_function_by_name(ctx, ctx_state->tool_module, "flush_channel", &ctx_state->flush_channel_func);
+  assert(ctx_state->flush_channel_func != nullptr);
+
   pthread_mutex_unlock(&mutex);
 }
 
@@ -943,10 +953,20 @@ void nvbit_at_ctx_term(CUcontext ctx) {
   assert(ctx_state_map.find(ctx) != ctx_state_map.end());
   CTXstate* ctx_state = ctx_state_map[ctx];
 
+  /* Final flush: ensure last kernel's data is not lost */
+  if (ctx_state->need_sync) {
+    void* flush_args[] = {&ctx_state->channel_dev};
+    nvbit_launch_kernel(ctx, ctx_state->flush_channel_func, 1, 1, 1, 1, 1, 1, 0, nullptr, flush_args, nullptr);
+    cudaDeviceSynchronize();
+    CUDA_CHECK_LAST_ERROR();
+  }
+
   /* Notify receiver thread and wait for receiver thread to
    * notify back */
-  ctx_state->recv_thread_done = RecvThreadState::STOP;
-  while (ctx_state->recv_thread_done != RecvThreadState::FINISHED);
+  if (ctx_state->recv_thread_done != RecvThreadState::INIT) {
+    ctx_state->recv_thread_done = RecvThreadState::STOP;
+    while (ctx_state->recv_thread_done != RecvThreadState::FINISHED);
+  }
 
   // Cleanup all TraceWriters (fallback - most should be closed by recv_thread)
   {
@@ -966,9 +986,12 @@ void nvbit_at_ctx_term(CUcontext ctx) {
   kernel_launch_to_func_map.clear();
   kernel_launch_to_iter_map.clear();
 
-  ctx_state->channel_host.destroy(false);
-  cudaFree(ctx_state->channel_dev);
+  if (ctx_state->channel_dev != nullptr) {
+    ctx_state->channel_host.destroy(false);
+    cudaFree(ctx_state->channel_dev);
+  }
   skip_callback_flag = false;
+  ctx_state_map.erase(ctx);
   delete ctx_state;
   pthread_mutex_unlock(&mutex);
   // Cleanup log handle system

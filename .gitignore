@@ -76,6 +76,9 @@ obj/
 *.cubin
 *.fatbin
 
+# Generated build artifacts (bin2c output from fatbin compilation)
+src/tool_func/*.c
+
 # Editor files
 .vscode/
 .idea/
