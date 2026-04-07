@@ -726,7 +726,7 @@ static bool enter_kernel_launch(CUcontext ctx, CUfunction func, uint64_t& kernel
     kernel_launch_id++;
   }
 
-  if (should_instrument) {
+  if (should_instrument && !stream_capture && !build_graph) {
     // Record kernel start time at launch (before any GPU data arrives).
     // This enables no-data timeout detection even for immediate-silence hangs
     // where the kernel deadlocks from the very first instruction and the
@@ -743,16 +743,11 @@ static bool enter_kernel_launch(CUcontext ctx, CUfunction func, uint64_t& kernel
     }
 
     // Initialize trace_index for this kernel
-    if (!stream_capture && !build_graph) {
-      ctx_state->trace_index_by_kernel[current_launch_id] = 0;
-    }
+    ctx_state->trace_index_by_kernel[current_launch_id] = 0;
 
     // Write kernel_metadata as the first JSON line in the trace file.
-    // Only for normal launches (stream_capture/build_graph get metadata at graph node launch time).
-    if (!stream_capture && !build_graph) {
-      auto metadata = build_kernel_metadata_json(meta, dims, dynamic_shmem, cpu_callstack);
-      ctx_state->trace_writers[current_launch_id]->write_metadata(metadata);
-    }
+    auto metadata = build_kernel_metadata_json(meta, dims, dynamic_shmem, cpu_callstack);
+    ctx_state->trace_writers[current_launch_id]->write_metadata(metadata);
 
     loprintf_v("Created TraceWriter for launch_id %lu, mode %d, file: %s\n", current_launch_id, trace_format,
                base_filename.c_str());
