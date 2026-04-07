@@ -8,6 +8,7 @@ PROJECT := cutracer
 CXX ?=
 NVCC=nvcc -ccbin=$(CXX) -D_FORCE_INLINES
 PTXAS=ptxas
+BIN2C=bin2c
 
 # Version checks
 NVCC_VER_REQ=10.1
@@ -117,6 +118,12 @@ CPP_OBJS := $(patsubst $(SRC_DIR)/%.cpp,$(OBJ_DIR)/%.o,$(CPP_SRCS))
 # All objects (regular + inject_funcs + cpp + fb)
 OBJS := $(REGULAR_OBJS) $(INJECT_FUNCS_OBJ) $(CPP_OBJS) $(FB_OBJS)
 
+# Tool function sources (precompiled fatbin for flush_channel)
+TOOL_FUNC_DIR := $(SRC_DIR)/tool_func
+TOOL_FUNC_SOURCES := $(wildcard $(TOOL_FUNC_DIR)/*.cu)
+TOOL_FUNC_FATBINS := $(TOOL_FUNC_SOURCES:.cu=.fatbin)
+TOOL_FUNC_BIN2CS := $(TOOL_FUNC_FATBINS:.fatbin=.c)
+
 # Architecture
 ARCH?=all
 
@@ -141,8 +148,17 @@ $(LIB_DIR):
 $(NVBIT_TOOL): $(OBJS) $(NVBIT_PATH)/libnvbit.a
 	$(NVCC) -arch=$(ARCH) $(DEBUG_FLAGS) $(OBJS) $(LIBS) $(NVCC_PATH) -Wno-deprecated-gpu-targets -lcuda -lcudart_static -shared -Xcompiler -rdynamic -o $@
 
+# Compile tool_func/*.cu → *.fatbin
+$(TOOL_FUNC_DIR)/%.fatbin: $(TOOL_FUNC_DIR)/%.cu
+	$(NVCC) -arch=$(ARCH) $(INCLUDES) $(DEBUG_FLAGS) -Wno-deprecated-gpu-targets -fatbin $< -o $@
+
+# Convert *.fatbin → *.c (embedded as C byte array via bin2c)
+$(TOOL_FUNC_DIR)/%.c: $(TOOL_FUNC_DIR)/%.fatbin
+	$(BIN2C) -c --name $(basename $(notdir $<))_bin $< > $@
+
 # Compilation rule for regular CUDA files (excluding inject_funcs.cu)
-$(REGULAR_OBJS): $(OBJ_DIR)/%.o: $(SRC_DIR)/%.cu
+# Depends on bin2c outputs so #include "tool_func/flush_channel.c" is available
+$(REGULAR_OBJS): $(OBJ_DIR)/%.o: $(SRC_DIR)/%.cu $(TOOL_FUNC_BIN2CS)
 	$(NVCC) -dc -c -std=c++17 $(INCLUDES) -Xptxas -cloning=no -Wno-deprecated-gpu-targets -Xcompiler -Wall -arch=$(ARCH) $(DEBUG_FLAGS) -Xcompiler -fPIC $< -o $@
 
 # Special rule for inject_funcs.cu
@@ -162,6 +178,6 @@ $(OBJ_DIR)/fb_inject_funcs_fb.o: $(FB_INJECT_FUNCS_SRC)
 	$(NVCC) $(INCLUDES) $(MAXRREGCOUNT_FLAG) -Wno-deprecated-gpu-targets -Xptxas -astoolspatch --keep-device-functions -arch=$(ARCH) -Xcompiler -Wall -Xcompiler -fPIC -c $< -o $@
 
 clean:
-	rm -rf $(OBJ_DIR) $(LIB_DIR)
+	rm -rf $(OBJ_DIR) $(LIB_DIR) $(TOOL_FUNC_DIR)/*.fatbin $(TOOL_FUNC_DIR)/*.c
 
 .PHONY: all clean dirs

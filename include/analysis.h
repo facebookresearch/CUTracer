@@ -32,6 +32,7 @@ class TraceWriter;
 
 /* Thread state enum */
 enum class RecvThreadState {
+  INIT,
   WORKING,
   STOP,
   FINISHED,
@@ -230,14 +231,25 @@ struct CTXstate {
   int id;
 
   /* Channel used to communicate from GPU to CPU receiving thread */
-  ChannelDev* channel_dev;
+  ChannelDev* channel_dev = nullptr;
   ChannelHost channel_host;
 
+  /* Preloaded tool module for flush_channel (avoids <<<>>> module load deadlock) */
+  CUmodule tool_module = nullptr;
+  CUfunction flush_channel_func = nullptr;
+
+  // Start with INIT, so that if no kernel is launched in the ctx, there is
+  // no need to wait on the thread at the context termination.
   // After initialization, set it to WORKING to make recv thread get data,
   // parent thread sets it to STOP to make recv thread stop working.
   // recv thread sets it to FINISHED when it cleans up.
   // parent thread should wait until the state becomes FINISHED to clean up.
-  volatile RecvThreadState recv_thread_done = RecvThreadState::STOP;
+  volatile RecvThreadState recv_thread_done = RecvThreadState::INIT;
+
+  // Whether the context and the channel need a synchronization at termination.
+  // Set to true when a kernel is actually launched (not during stream capture
+  // or graph build). Used by nvbit_at_ctx_term to decide whether to flush.
+  bool need_sync = false;
 
   // Per-function SASS mappings for instruction histogram feature
   std::unordered_map<CUfunction, std::map<int, std::string>> id_to_sass_map;
