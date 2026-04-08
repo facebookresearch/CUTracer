@@ -45,7 +45,7 @@ TraceWriter::TraceWriter(const std::string& filename, int trace_mode, size_t buf
   if (trace_mode_ == TraceMode::TEXT) {
     // Mode 0: Text format - use FILE* for fprintf compatibility
     actual_filename = filename + ".log";
-    file_handle_ = fopen(actual_filename.c_str(), "a");
+    file_handle_ = fopen(actual_filename.c_str(), "w");
 
     if (!file_handle_) {
       fprintf(stderr, "TraceWriter: Failed to open %s\n", actual_filename.c_str());
@@ -57,8 +57,8 @@ TraceWriter::TraceWriter(const std::string& filename, int trace_mode, size_t buf
     // Mode 1: NDJSON + Zstd compression - use POSIX write() for reliability
     actual_filename = filename + ".ndjson.zst";
 
-    // Open with O_CREAT | O_WRONLY | O_APPEND
-    fd_ = open(actual_filename.c_str(), O_CREAT | O_WRONLY | O_APPEND, 0644);
+    // Open with O_CREAT | O_WRONLY | O_TRUNC to overwrite across runs
+    fd_ = open(actual_filename.c_str(), O_CREAT | O_WRONLY | O_TRUNC, 0644);
     if (fd_ < 0) {
       fprintf(stderr, "TraceWriter: Failed to open %s (errno=%d)\n", actual_filename.c_str(), errno);
       enabled_ = false;
@@ -83,8 +83,8 @@ TraceWriter::TraceWriter(const std::string& filename, int trace_mode, size_t buf
     // Mode 2/3: NDJSON uncompressed - use POSIX write() for reliability
     actual_filename = filename + ".ndjson";
 
-    // Open with O_CREAT | O_WRONLY | O_APPEND
-    fd_ = open(actual_filename.c_str(), O_CREAT | O_WRONLY | O_APPEND, 0644);
+    // Open with O_CREAT | O_WRONLY | O_TRUNC to overwrite across runs
+    fd_ = open(actual_filename.c_str(), O_CREAT | O_WRONLY | O_TRUNC, 0644);
     if (fd_ < 0) {
       fprintf(stderr, "TraceWriter: Failed to open %s (errno=%d)\n", actual_filename.c_str(), errno);
       enabled_ = false;
