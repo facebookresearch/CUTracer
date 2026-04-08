@@ -76,9 +76,8 @@ obj/
 *.cubin
 *.fatbin
 
-# Generated build artifacts (bin2c output from fatbin compilation)
-src/tool_func/*.c
-
+# Generated build artifacts (bin2c output, NVCC host stubs for __global__ kernels)
+src/tool_func/
 # Editor files
 .vscode/
 .idea/

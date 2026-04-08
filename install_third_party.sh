@@ -16,7 +16,7 @@
 # Configuration: Set default values if not provided
 # ============================================================
 NVBIT_VERSION="${NVBIT_VERSION:-1.8}"
-JSON_VERSION="${JSON_VERSION:-3.11.3}"
+JSON_VERSION="${JSON_VERSION:-3.12.0}"
 
 # ============================================================
 # Install NVBit
