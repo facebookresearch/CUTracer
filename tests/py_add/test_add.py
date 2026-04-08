@@ -28,8 +28,13 @@ def test_compiled_add():
     print("Testing PT2 compiled kernel (simple_add)")
     print(f"  Input shape: {a.shape}")
     print(f"  Input dtype: {a.dtype}")
-    compiled_function = torch.compile(simple_add)
-    result = compiled_function(a, b)
+
+    # First call: triggers compilation + execution
+    result = simple_add(a, b)
+    torch.cuda.synchronize()
+
+    # Second call: re-executes the cached compiled kernel (no recompilation)
+    result = simple_add(a, b)
     torch.cuda.synchronize()
 
     print(f"  Result shape: {result.shape}")
