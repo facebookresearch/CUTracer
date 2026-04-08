@@ -704,11 +704,14 @@ void init_output_dir() {
     fs::path dir_path(output_dir);
 
     if (!fs::exists(dir_path)) {
-      fprintf(stderr,
-              "FATAL: CUTRACER_OUTPUT_DIR '%s' does not exist.\n"
-              "Please create the directory first or specify a valid directory.\n",
-              output_dir.c_str());
-      exit(1);
+      std::error_code ec;
+      fs::create_directories(dir_path, ec);
+      if (ec) {
+        fprintf(stderr, "FATAL: Failed to create CUTRACER_OUTPUT_DIR '%s': %s\n", output_dir.c_str(),
+                ec.message().c_str());
+        exit(1);
+      }
+      fprintf(stderr, "INFO: Created output directory '%s'\n", output_dir.c_str());
     }
     if (!fs::is_directory(dir_path)) {
       fprintf(stderr,
