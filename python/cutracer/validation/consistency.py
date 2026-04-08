@@ -13,10 +13,11 @@ aggregation (record counts, unique CTA/warp/SASS sets) to verify that
 both code paths serialize the same logical data correctly.
 """
 
-import json
 import re
 from pathlib import Path
 from typing import Any, Dict, Set, Tuple, Union
+
+from tritonparse._json_compat import JSONDecodeError, loads
 
 from .compression import detect_compression, open_trace_file
 from .text_validator import MEM_ACCESS_HEADER_PATTERN, REG_INFO_HEADER_PATTERN
@@ -82,7 +83,7 @@ def _extract_json_stats(
             line = line.strip()
             if not line:
                 continue
-            record = json.loads(line)
+            record = loads(line)
 
             msg_type = record.get("type", "unknown")
             if msg_type == "kernel_metadata":
@@ -408,7 +409,7 @@ def get_trace_statistics(filepath: Union[str, Path]) -> Dict[str, Any]:
                 if not line:
                     continue
                 try:
-                    record = json.loads(line)
+                    record = loads(line)
                     stats["record_count"] += 1
 
                     msg_type = record.get("type", "unknown")
@@ -421,7 +422,7 @@ def get_trace_statistics(filepath: Union[str, Path]) -> Dict[str, Any]:
                     if "warp" in record:
                         stats["unique_warps"].add(record["warp"])
 
-                except json.JSONDecodeError:
+                except JSONDecodeError:
                     pass
 
     elif filepath.suffix == ".log":

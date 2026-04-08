@@ -13,10 +13,11 @@ Schema files are located in the 'schemas/' subdirectory:
 - opcode_only.schema.json: Schema for opcode-only trace records
 """
 
-import json
 import sys
 from pathlib import Path
 from typing import Any, Dict
+
+from tritonparse._json_compat import load, loads
 
 if sys.version_info >= (3, 11):
     import importlib.resources as resources
@@ -43,7 +44,7 @@ def _load_schema(schema_name: str) -> Dict[str, Any]:
         schema_files = resources.files("cutracer.validation.schemas")
         schema_path = schema_files.joinpath(f"{schema_name}.schema.json")
         schema_text = schema_path.read_text(encoding="utf-8")
-        return json.loads(schema_text)
+        return loads(schema_text)
     except (ModuleNotFoundError, FileNotFoundError, TypeError):
         # Fall back to file system loading (for development)
         pass
@@ -56,7 +57,7 @@ def _load_schema(schema_name: str) -> Dict[str, Any]:
         raise FileNotFoundError(f"Schema file not found: {schema_file}")
 
     with open(schema_file, "r", encoding="utf-8") as f:
-        return json.load(f)
+        return load(f)
 
 
 # Load schemas from JSON files

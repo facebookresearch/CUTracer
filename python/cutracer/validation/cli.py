@@ -7,12 +7,12 @@ This module provides command-line interface for validating CUTracer trace files
 and comparing trace formats for cross-format consistency.
 """
 
-import json
 import sys
 from pathlib import Path
 from typing import Any
 
 import click
+from tritonparse._json_compat import dumps
 
 from .consistency import compare_trace_formats
 from .json_validator import validate_json_trace
@@ -141,7 +141,7 @@ def validate_command(
     if json_output:
         # Convert Path objects to strings for JSON serialization
         output = {k: str(v) if isinstance(v, Path) else v for k, v in result.items()}
-        click.echo(json.dumps(output, indent=2))
+        click.echo(dumps(output, indent=True))
         sys.exit(0 if result["valid"] else 1)
 
     # Human-readable output
@@ -186,7 +186,7 @@ def compare_command(
 
     if json_output:
         output = {k: str(v) if isinstance(v, Path) else v for k, v in result.items()}
-        click.echo(json.dumps(output, indent=2))
+        click.echo(dumps(output, indent=True))
         sys.exit(0 if result["consistent"] else 1)
 
     # Human-readable output

@@ -8,7 +8,6 @@ Uses the JSON schema from cutracer.validation for config validation.
 """
 
 import copy
-import json
 import tempfile
 from dataclasses import dataclass
 from pathlib import Path
@@ -16,6 +15,7 @@ from typing import Optional
 
 import jsonschema
 from cutracer.validation import DELAY_CONFIG_SCHEMA
+from tritonparse._json_compat import dump, load
 
 
 @dataclass
@@ -59,7 +59,7 @@ class DelayConfigMutator:
         """
         self.config_path = Path(config_path)
         with open(self.config_path) as f:
-            self.config = json.load(f)
+            self.config = load(f)
 
         # Validate against schema
         if validate:
@@ -133,10 +133,10 @@ class DelayConfigMutator:
         if path is None:
             fd, path = tempfile.mkstemp(suffix=".json", prefix="cutracer_bisect_")
             with open(fd, "w") as f:
-                json.dump(self.config, f, indent=2)
+                dump(self.config, f, indent=True)
         else:
             with open(path, "w") as f:
-                json.dump(self.config, f, indent=2)
+                dump(self.config, f, indent=True)
         return path
 
     def clone(self) -> "DelayConfigMutator":

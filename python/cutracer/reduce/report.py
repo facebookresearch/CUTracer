@@ -6,11 +6,11 @@ Report generator for reduction results.
 Generates human-readable and JSON reports from reduction results.
 """
 
-import json
 from datetime import datetime
 from typing import Any, Optional
 
 from cutracer.reduce.reduce import ReduceResult
+from tritonparse._json_compat import dump
 
 
 def generate_report(
@@ -68,7 +68,7 @@ def save_report(report: dict[str, Any], output_path: str) -> None:
         output_path: Path to save the report.
     """
     with open(output_path, "w") as f:
-        json.dump(report, f, indent=2)
+        dump(report, f, indent=True)
 
 
 def format_report_text(report: dict[str, Any]) -> str:

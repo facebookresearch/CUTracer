@@ -8,11 +8,11 @@ CUTracer for syntax correctness and schema compliance. Supports both
 uncompressed (.ndjson) and Zstd-compressed (.ndjson.zst) files.
 """
 
-import json
 from pathlib import Path
 from typing import Any, Dict, List, Tuple, Union
 
 import jsonschema
+from tritonparse._json_compat import JSONDecodeError, loads
 
 from .compression import detect_compression, open_trace_file
 from .schema_loader import SCHEMAS_BY_TYPE
@@ -58,9 +58,9 @@ def validate_json_syntax(
                     continue
 
                 try:
-                    json.loads(line)
+                    loads(line)
                     valid_count += 1
-                except json.JSONDecodeError as e:
+                except JSONDecodeError as e:
                     errors.append(f"Line {line_num}: JSON decode error - {e.msg}")
 
     except Exception as e:
@@ -124,8 +124,8 @@ def validate_json_schema(
                     continue
 
                 try:
-                    record = json.loads(line)
-                except json.JSONDecodeError as e:
+                    record = loads(line)
+                except JSONDecodeError as e:
                     errors.append(f"Line {line_num}: JSON syntax error - {e.msg}")
                     if len(errors) >= max_errors:
                         break
@@ -248,7 +248,7 @@ def validate_json_trace(filepath: Union[str, Path]) -> Dict[str, Any]:
                 line = line.strip()
                 if not line:
                     continue
-                record = json.loads(line)
+                record = loads(line)
                 message_type = record.get("type")
                 if message_type == "kernel_metadata":
                     metadata_count += 1

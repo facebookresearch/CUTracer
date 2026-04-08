@@ -9,10 +9,10 @@ All functions are pure (no side effects) and return strings.
 
 import csv
 import io
-import json
 from typing import Optional
 
 from cutracer.types import TraceRecord
+from tritonparse._json_compat import dumps
 
 # Default fields to display when --fields is not specified
 DEFAULT_FIELDS = ["warp", "pc", "sass"]
@@ -42,7 +42,7 @@ def format_value(value) -> str:
     if isinstance(value, list):
         return "[" + ",".join(str(v) for v in value) + "]"
     if isinstance(value, dict):
-        return json.dumps(value)
+        return dumps(value)
     return str(value)
 
 
@@ -155,7 +155,7 @@ def format_records_json(records: list[TraceRecord], fields: list[str]) -> str:
         filtered_record = {f: record.get(f) for f in fields if f in record}
         filtered_records.append(filtered_record)
 
-    return json.dumps(filtered_records, indent=2)
+    return dumps(filtered_records, indent=True)
 
 
 def format_records_csv(
@@ -213,8 +213,8 @@ def format_records_ndjson(
     for record in records:
         if fields:
             filtered_record = {f: record.get(f) for f in fields if f in record}
-            lines.append(json.dumps(filtered_record))
+            lines.append(dumps(filtered_record))
         else:
-            lines.append(json.dumps(record))
+            lines.append(dumps(record))
 
     return "\n".join(lines)

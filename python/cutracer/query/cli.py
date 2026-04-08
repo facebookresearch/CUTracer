@@ -9,7 +9,6 @@ and extracting SASS assembly from cubin files.
 
 import csv
 import io
-import json
 from pathlib import Path
 from typing import Any, Optional
 
@@ -30,6 +29,7 @@ from cutracer.query.warp_summary import (
 )
 from cutracer.types import TraceRecord
 from tabulate import tabulate
+from tritonparse._json_compat import dumps
 
 
 def _write_output(
@@ -88,7 +88,7 @@ def _format_counts(
 
     if output_format == "json":
         output_data = {str(k): v for k, v in sorted_counts}
-        return json.dumps(output_data, indent=2)
+        return dumps(output_data, indent=True)
     elif output_format == "csv":
         output = io.StringIO(newline="")
         writer = csv.writer(output)
@@ -98,7 +98,7 @@ def _format_counts(
             writer.writerow([key, cnt])
         return output.getvalue().rstrip("\n").replace("\r", "")
     elif output_format == "ndjson":
-        lines = [json.dumps({group_field: k, "count": v}) for k, v in sorted_counts]
+        lines = [dumps({group_field: k, "count": v}) for k, v in sorted_counts]
         return "\n".join(lines)
     else:  # table
         table_data = [[key, cnt] for key, cnt in sorted_counts]
@@ -144,7 +144,7 @@ def _format_groups(
         else:
             output_data = groups_data
 
-        return json.dumps(output_data, indent=2)
+        return dumps(output_data, indent=True)
 
     elif output_format == "ndjson":
         # NDJSON output: each record on a line, with group field added
@@ -162,7 +162,7 @@ def _format_groups(
                         f: record.get(f) for f in display_fields if f in record
                     }
                 out_record["_group"] = group_key
-                output_parts.append(json.dumps(out_record))
+                output_parts.append(dumps(out_record))
         return "\n".join(output_parts)
 
     else:

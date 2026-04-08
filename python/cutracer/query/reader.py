@@ -7,7 +7,6 @@ This module provides the TraceReader class for reading and iterating
 over trace records from NDJSON files (plain or Zstd-compressed).
 """
 
-import json
 from abc import ABC, abstractmethod
 from collections import deque
 from itertools import islice
@@ -16,6 +15,7 @@ from typing import Any, Callable, Iterator, Optional, Union
 
 from cutracer.types import TraceRecord
 from cutracer.validation.compression import detect_compression, open_trace_file
+from tritonparse._json_compat import JSONDecodeError, loads
 
 
 def _parse_single_filter(expr: str) -> Callable[[TraceRecord], bool]:
@@ -57,10 +57,10 @@ def _parse_single_filter(expr: str) -> Callable[[TraceRecord], bool]:
 
     # Try JSON parsing for complex types (list/dict), e.g. cta=[0,0,0]
     try:
-        json_value = json.loads(value)
+        json_value = loads(value)
         if isinstance(json_value, (list, dict)):
             return lambda record: record.get(field) == json_value
-    except (json.JSONDecodeError, ValueError):
+    except (JSONDecodeError, ValueError):
         pass
 
     return lambda record: record.get(field) == value
@@ -251,4 +251,4 @@ class TraceReader(TraceReaderBase):
                 line = line.strip()
                 if not line:
                     continue
-                yield json.loads(line)
+                yield loads(line)

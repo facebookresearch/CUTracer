@@ -6,7 +6,6 @@ CLI implementation for the analyze command group.
 Provides command-line interface for trace analysis commands.
 """
 
-import json
 from pathlib import Path
 from typing import Optional
 
@@ -19,6 +18,7 @@ from cutracer.query.warp_summary import (
     warp_summary_to_dict,
 )
 from cutracer.shared_vars import is_fbcode
+from tritonparse._json_compat import dumps
 
 
 @click.group(name="analyze")
@@ -88,7 +88,7 @@ def warp_summary_command(
         )
 
     if output_format == "json":
-        output = json.dumps(warp_summary_to_dict(summary), indent=2)
+        output = dumps(warp_summary_to_dict(summary), indent=True)
     else:
         output = format_warp_summary_text(summary)
 
