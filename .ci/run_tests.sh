@@ -1094,52 +1094,97 @@ test_unit() {
 run_all_tests() {
   echo "🚀 Running all CUTracer tests..."
 
+  # Disable set -e so we can continue after individual test failures
+  set +e
+
+  local failed_suites=()
+  local passed_suites=()
+
   # Run unit tests first (no GPU required)
-  if ! test_unit; then
-    echo "❌ Unit tests failed"
-    return 1
+  if test_unit; then
+    passed_suites+=("unit")
+  else
+    failed_suites+=("unit")
   fi
 
-  # Run Python module tests first (no build required)
-  if ! test_python_module; then
-    echo "❌ Python module tests failed"
-    return 1
+  # Run Python module tests (no build required)
+  if test_python_module; then
+    passed_suites+=("python-module")
+  else
+    failed_suites+=("python-module")
   fi
 
   # Test cutracer CLI (no GPU required, but needs cutracer.so)
-  if ! test_cutracer_cli; then
-    echo "❌ cutracer CLI tests failed"
+  if test_cutracer_cli; then
+    passed_suites+=("cutracer-cli")
+  else
+    failed_suites+=("cutracer-cli")
+  fi
+
+  # Build vectoradd (required for subsequent GPU tests)
+  if ! build_vectoradd; then
+    echo "❌ Failed to build vectoradd, skipping dependent tests"
+    failed_suites+=("vectoradd-build")
+  else
+    if test_vectoradd; then
+      passed_suites+=("vectoradd")
+    else
+      failed_suites+=("vectoradd")
+    fi
+
+    if test_py_add_with_kernel_filters; then
+      passed_suites+=("py-add-kernel-filters")
+    else
+      failed_suites+=("py-add-kernel-filters")
+    fi
+  fi
+
+  if test_hang_test; then
+    passed_suites+=("hang-test")
+  else
+    failed_suites+=("hang-test")
+  fi
+
+  if test_trace_formats; then
+    passed_suites+=("trace-formats")
+  else
+    failed_suites+=("trace-formats")
+  fi
+
+  if test_mem_value_trace; then
+    passed_suites+=("mem-value-trace")
+  else
+    failed_suites+=("mem-value-trace")
+  fi
+
+  # Re-enable set -e
+  set -e
+
+  # Final summary
+  local total=$((${#passed_suites[@]} + ${#failed_suites[@]}))
+  echo ""
+  echo "═══════════════════════════════════════════════"
+  echo "📋 Test Summary: ${#passed_suites[@]}/$total passed"
+  echo "═══════════════════════════════════════════════"
+
+  if [ ${#passed_suites[@]} -gt 0 ]; then
+    echo "  ✅ Passed:"
+    for suite in "${passed_suites[@]}"; do
+      echo "     - $suite"
+    done
+  fi
+
+  if [ ${#failed_suites[@]} -gt 0 ]; then
+    echo "  ❌ Failed:"
+    for suite in "${failed_suites[@]}"; do
+      echo "     - $suite"
+    done
+    echo "═══════════════════════════════════════════════"
+    echo "❌ ${#failed_suites[@]} test suite(s) failed"
     return 1
   fi
 
-  # Test phase
-  build_vectoradd
-  if ! test_vectoradd; then
-    echo "❌ vectoradd test failed"
-    return 1
-  fi
-
-  if ! test_py_add_with_kernel_filters; then
-    echo "❌ Python script test_add.py failed to execute."
-    return 1
-  fi
-
-  if ! test_hang_test; then
-    echo "❌ hang test failed"
-    return 1
-  fi
-
-  if ! test_trace_formats; then
-    echo "❌ trace format tests failed"
-    return 1
-  fi
-
-  build_vectoradd_smem
-  if ! test_mem_value_trace; then
-    echo "❌ mem_value_trace test failed"
-    return 1
-  fi
-
+  echo "═══════════════════════════════════════════════"
   echo "🎉 All tests passed successfully!"
   return 0
 }
