@@ -86,7 +86,12 @@
       "items": {
         "type": "string"
       },
-      "description": "CPU call stack frames captured at kernel launch (when CUTRACER_CPU_CALLSTACK=1)"
+      "description": "CPU call stack frames captured at kernel launch"
+    },
+    "cpu_callstack_source": {
+      "type": "string",
+      "enum": ["pytorch", "backtrace"],
+      "description": "Source of CPU call stack: pytorch (Python frames) or backtrace (C++ frames)"
     }
   },
   "additionalProperties": false

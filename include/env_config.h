@@ -133,9 +133,16 @@ extern std::string delay_load_path;
 // Set via CUTRACER_OUTPUT_DIR environment variable
 extern std::string output_dir;
 
-// CPU call stack capture at kernel launch (default: enabled)
-// Set CUTRACER_CPU_CALLSTACK=0 to disable
-extern bool cpu_callstack_enabled;
+// CPU call stack capture mode at kernel launch
+// Set via CUTRACER_CPU_CALLSTACK environment variable
+// Values: auto (default), pytorch, backtrace, 0 (disabled), 1 (=auto, backward compat)
+enum class CpuCallstackMode {
+  AUTO,       // Prefer PyTorch CapturedTraceback, fallback to backtrace()
+  PYTORCH,    // Force PyTorch only (empty if unavailable)
+  BACKTRACE,  // Force backtrace() only (original behavior)
+  DISABLED    // No call stack capture
+};
+extern CpuCallstackMode cpu_callstack_mode;
 
 // GPU channel buffer size for GPU→CPU communication (in bytes)
 // Computed from CUTRACER_CHANNEL_RECORDS (number of records the buffer can hold)

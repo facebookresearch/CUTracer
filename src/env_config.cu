@@ -67,8 +67,8 @@ std::string delay_load_path;
 // Output directory for all CUTracer files (traces and logs)
 std::string output_dir;
 
-// CPU call stack capture at kernel launch (default: enabled)
-bool cpu_callstack_enabled;
+// CPU call stack capture mode at kernel launch (default: AUTO)
+CpuCallstackMode cpu_callstack_mode;
 
 // GPU channel buffer size (in bytes), computed from CUTRACER_CHANNEL_RECORDS
 // Default: 4MB (1 << 22)
@@ -847,10 +847,22 @@ void init_config_from_env() {
               "Instruction categories to instrument (mma,tma,sync). Empty = all instructions");
   init_instr_categories(instr_categories_str);
 
-  // CPU call stack capture (default: enabled)
-  int cpu_callstack_int;
-  get_var_int(cpu_callstack_int, "CUTRACER_CPU_CALLSTACK", 1, "CPU call stack capture (1=enabled, 0=disabled)");
-  cpu_callstack_enabled = (cpu_callstack_int != 0);
+  // CPU call stack capture mode (default: auto)
+  // Supports: auto, pytorch, backtrace, 0 (disabled), 1 (=auto, backward compat)
+  std::string cpu_callstack_str;
+  get_var_str(cpu_callstack_str, "CUTRACER_CPU_CALLSTACK", "auto", "CPU call stack mode (auto|pytorch|backtrace|0|1)");
+  if (cpu_callstack_str == "auto" || cpu_callstack_str == "1") {
+    cpu_callstack_mode = CpuCallstackMode::AUTO;
+  } else if (cpu_callstack_str == "pytorch") {
+    cpu_callstack_mode = CpuCallstackMode::PYTORCH;
+  } else if (cpu_callstack_str == "backtrace") {
+    cpu_callstack_mode = CpuCallstackMode::BACKTRACE;
+  } else if (cpu_callstack_str == "0") {
+    cpu_callstack_mode = CpuCallstackMode::DISABLED;
+  } else {
+    printf("WARNING: Invalid CUTRACER_CPU_CALLSTACK='%s'. Using 'auto'.\n", cpu_callstack_str.c_str());
+    cpu_callstack_mode = CpuCallstackMode::AUTO;
+  }
 
   // Channel buffer size configuration
   // Users specify the number of records the buffer can hold.
