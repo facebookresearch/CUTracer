@@ -51,7 +51,7 @@ class TestFormatValue(unittest.TestCase):
     def test_format_value_dict(self):
         """Test dict returns JSON string."""
         result = format_value({"a": 1})
-        self.assertEqual(result, '{"a": 1}')
+        self.assertEqual(result, '{"a":1}')
 
 
 class TestGetDisplayFields(unittest.TestCase):
