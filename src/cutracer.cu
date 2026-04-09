@@ -46,6 +46,7 @@
 
 /* env config */
 #include "env_config.h"
+#include "python_callstack.h"
 #include "trace_writer.h"
 
 /* logging functionality */
@@ -167,9 +168,13 @@ __attribute__((noinline)) static std::vector<std::string> capture_cpu_callstack_
 /**
  * @brief Entry point for CPU call stack capture.
  *
- * Currently delegates to backtrace-based implementation.
- * Future diffs will add PyTorch CapturedTraceback as a preferred path
- * with automatic fallback to backtrace.
+ * Selects the call stack capture method based on cpu_callstack_mode:
+ * - AUTO: Try PyTorch CapturedTraceback first, fallback to backtrace()
+ * - PYTORCH: Use PyTorch only (empty if unavailable)
+ * - BACKTRACE: Use backtrace() only (original behavior)
+ * - DISABLED: No capture
+ *
+ * Returns {frames, source} where source identifies the capture method used.
  *
  * Uses skip=3 to account for the extra wrapper frame introduced by this
  * function, so the output starts from the caller's caller (the NVBit
@@ -177,8 +182,31 @@ __attribute__((noinline)) static std::vector<std::string> capture_cpu_callstack_
  * Frames skipped: capture_cpu_callstack_backtrace, capture_cpu_callstack,
  * enter_kernel_launch (or nvbit_at_graph_node_launch).
  */
-__attribute__((noinline)) static std::vector<std::string> capture_cpu_callstack() {
-  return capture_cpu_callstack_backtrace(64, 3);
+__attribute__((noinline)) static std::pair<std::vector<std::string>, std::string> capture_cpu_callstack() {
+  switch (cpu_callstack_mode) {
+    case CpuCallstackMode::DISABLED:
+      return {{}, ""};
+    case CpuCallstackMode::BACKTRACE:
+      return {capture_cpu_callstack_backtrace(64, 3), "backtrace"};
+    case CpuCallstackMode::PYTORCH: {
+      auto result = capture_cpu_callstack_pytorch();
+      if (result.empty()) {
+        loprintf_v(
+            "PyTorch callstack capture returned empty "
+            "(Python/GIL unavailable on this thread)\n");
+      }
+      return {std::move(result), "pytorch"};
+    }
+    case CpuCallstackMode::AUTO: {
+      auto result = capture_cpu_callstack_pytorch();
+      if (!result.empty()) {
+        return {std::move(result), "pytorch"};
+      }
+      return {capture_cpu_callstack_backtrace(64, 3), "backtrace"};
+    }
+  }
+  // Unreachable for known enum values; fallback defensively for future additions
+  return {capture_cpu_callstack_backtrace(64, 3), "backtrace"};
 }
 
 // Global mapping tables for kernel launch tracking
@@ -623,7 +651,8 @@ void init_context_state(CUcontext ctx) {
  */
 static nlohmann::json build_kernel_metadata_json(const KernelFuncMetadata& meta, const KernelDimensions& dims,
                                                  unsigned int dynamic_shmem,
-                                                 const std::vector<std::string>& cpu_callstack = {}) {
+                                                 const std::vector<std::string>& cpu_callstack = {},
+                                                 const std::string& callstack_source = "") {
   auto md = meta.to_json();
   md["type"] = "kernel_metadata";
   md["grid"] = {dims.gridDimX, dims.gridDimY, dims.gridDimZ};
@@ -631,6 +660,9 @@ static nlohmann::json build_kernel_metadata_json(const KernelFuncMetadata& meta,
   md["shmem_dynamic"] = dynamic_shmem;
   if (!cpu_callstack.empty()) {
     md["cpu_callstack"] = cpu_callstack;
+    if (!callstack_source.empty()) {
+      md["cpu_callstack_source"] = callstack_source;
+    }
   }
   return md;
 }
@@ -660,10 +692,7 @@ static bool enter_kernel_launch(CUcontext ctx, CUfunction func, uint64_t& kernel
                                 void* params, bool stream_capture = false, bool build_graph = false) {
   // Capture the CPU call stack early, before synchronization, so it reflects
   // the actual application call site that triggered this kernel launch.
-  std::vector<std::string> cpu_callstack;
-  if (cpu_callstack_enabled) {
-    cpu_callstack = capture_cpu_callstack();
-  }
+  auto [cpu_callstack, callstack_source] = capture_cpu_callstack();
 
   CTXstate* ctx_state = ctx_state_map[ctx];
   // no need to sync during stream capture or manual graph build, since no
@@ -762,7 +791,7 @@ static bool enter_kernel_launch(CUcontext ctx, CUfunction func, uint64_t& kernel
     ctx_state->trace_index_by_kernel[current_launch_id] = 0;
 
     // Write kernel_metadata as the first JSON line in the trace file.
-    auto metadata = build_kernel_metadata_json(meta, dims, dynamic_shmem, cpu_callstack);
+    auto metadata = build_kernel_metadata_json(meta, dims, dynamic_shmem, cpu_callstack, callstack_source);
     ctx_state->trace_writers[current_launch_id]->write_metadata(metadata);
 
     loprintf_v("Created TraceWriter for launch_id %lu, mode %d, file: %s\n", current_launch_id, trace_format,
@@ -1053,10 +1082,7 @@ void nvbit_at_graph_node_launch(CUcontext ctx, CUfunction func, CUstream stream,
   kernel_launch_to_dimensions_map[global_kernel_launch_id] = dims;
 
   // Capture the CPU call stack for graph node launches as well
-  std::vector<std::string> cpu_callstack;
-  if (cpu_callstack_enabled) {
-    cpu_callstack = capture_cpu_callstack();
-  }
+  auto [cpu_callstack, callstack_source] = capture_cpu_callstack();
 
   // Create TraceWriter for this graph node launch only if instrumentation is enabled
   // Otherwise, trace files would be empty (no data to write)
@@ -1070,7 +1096,8 @@ void nvbit_at_graph_node_launch(CUcontext ctx, CUfunction func, CUstream stream,
     ctx_state->trace_index_by_kernel[global_kernel_launch_id] = 0;
 
     // Write kernel_metadata for graph node launch trace files
-    auto metadata = build_kernel_metadata_json(meta, dims, config.shmem_dynamic_nbytes, cpu_callstack);
+    auto metadata =
+        build_kernel_metadata_json(meta, dims, config.shmem_dynamic_nbytes, cpu_callstack, callstack_source);
     ctx_state->trace_writers[global_kernel_launch_id]->write_metadata(metadata);
 
     loprintf_v("Created TraceWriter for graph node launch_id %lu, file: %s\n", global_kernel_launch_id,
