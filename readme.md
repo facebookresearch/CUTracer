@@ -131,8 +131,13 @@ cutracer validate output.ndjson
 - `CUTRACER_DELAY_DUMP_PATH`: Output path for delay config JSON file (for recording instrumentation patterns)
 - `CUTRACER_DELAY_LOAD_PATH`: Input path for delay config JSON file (for replay mode - deterministic reproduction)
 - `CUTRACER_OUTPUT_DIR`: Output directory for all CUTracer files (trace files and log files). Defaults to the current directory. The directory must exist and be writable.
-- `CUTRACER_CPU_CALLSTACK`: Enable/disable CPU call stack capture at each kernel launch (default: 1 = enabled)
-    - When enabled, the `kernel_metadata` trace event includes a `cpu_callstack` array with demangled C++ frame names
+- `CUTRACER_CPU_CALLSTACK`: CPU call stack capture mode at each kernel launch (default: `auto`)
+    - `auto` (default): Prefer PyTorch CapturedTraceback for Python frames, fallback to C++ backtrace if Python/PyTorch is unavailable
+    - `pytorch`: Force PyTorch CapturedTraceback only (returns empty if unavailable)
+    - `backtrace`: Force C++ backtrace only (original behavior)
+    - `1`: Same as `auto` (backward compatible)
+    - `0`: Disable call stack capture
+    - When enabled, the `kernel_metadata` trace event includes a `cpu_callstack` array and a `cpu_callstack_source` field (`"pytorch"` or `"backtrace"`) indicating the capture method used
 - `CUTRACER_KERNEL_TIMEOUT_S`: Kernel execution time limit in seconds (default: 0 = disabled)
     - Terminates the process with SIGTERM when a kernel runs longer than this value
     - Acts as a general safety valve, independent of deadlock detection (does not require `-a deadlock_detection`)
