@@ -114,7 +114,8 @@ static bool generate_random_delay_enabled() {
  * @param skip Number of leading frames to skip
  * @return Vector of frame description strings
  */
-static std::vector<std::string> capture_cpu_callstack(int max_frames = 64, int skip = 2) {
+__attribute__((noinline)) static std::vector<std::string> capture_cpu_callstack_backtrace(int max_frames = 64,
+                                                                                          int skip = 2) {
   std::vector<std::string> result;
   std::vector<void*> buffer(max_frames);
 
@@ -161,6 +162,23 @@ static std::vector<std::string> capture_cpu_callstack(int max_frames = 64, int s
   }
 
   return result;
+}
+
+/**
+ * @brief Entry point for CPU call stack capture.
+ *
+ * Currently delegates to backtrace-based implementation.
+ * Future diffs will add PyTorch CapturedTraceback as a preferred path
+ * with automatic fallback to backtrace.
+ *
+ * Uses skip=3 to account for the extra wrapper frame introduced by this
+ * function, so the output starts from the caller's caller (the NVBit
+ * callback), matching the original behavior before the refactor.
+ * Frames skipped: capture_cpu_callstack_backtrace, capture_cpu_callstack,
+ * enter_kernel_launch (or nvbit_at_graph_node_launch).
+ */
+__attribute__((noinline)) static std::vector<std::string> capture_cpu_callstack() {
+  return capture_cpu_callstack_backtrace(64, 3);
 }
 
 // Global mapping tables for kernel launch tracking
