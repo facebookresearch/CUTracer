@@ -69,6 +69,9 @@ def _extract_json_stats(
     Extract statistical summary from an NDJSON trace file.
 
     Supports Zstd-compressed files via open_trace_file().
+    Handles both legacy traces (inline "sass" per record) and new traces
+    where SASS is stored in the kernel_metadata "instructions" table and
+    looked up via opcode_id.
 
     Returns:
         Dictionary with type_counts, unique_ctas, unique_warps, unique_sass.
@@ -77,6 +80,9 @@ def _extract_json_stats(
     unique_ctas: Set[Tuple[int, ...]] = set()
     unique_warps: Set[int] = set()
     unique_sass: Set[str] = set()
+
+    # Maps opcode_id (str) -> sass string, populated from kernel_metadata
+    sass_table: Dict[str, str] = {}
 
     with open_trace_file(json_file) as f:
         for line in f:
@@ -87,6 +93,11 @@ def _extract_json_stats(
 
             msg_type = record.get("type", "unknown")
             if msg_type == "kernel_metadata":
+                # Cache instruction table for sass lookup by opcode_id
+                instructions = record.get("instructions", {})
+                for opcode_id, info in instructions.items():
+                    if isinstance(info, dict) and "sass" in info:
+                        sass_table[opcode_id] = info["sass"]
                 continue
 
             type_counts[msg_type] = type_counts.get(msg_type, 0) + 1
@@ -96,6 +107,10 @@ def _extract_json_stats(
                 unique_warps.add(record["warp"])
             if "sass" in record:
                 unique_sass.add(record["sass"])
+            elif "opcode_id" in record and sass_table:
+                sass = sass_table.get(str(record["opcode_id"]))
+                if sass:
+                    unique_sass.add(sass)
 
     return {
         "type_counts": type_counts,

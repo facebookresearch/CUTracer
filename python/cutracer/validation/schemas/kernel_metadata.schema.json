@@ -92,6 +92,35 @@
       "type": "string",
       "enum": ["pytorch", "backtrace"],
       "description": "Source of CPU call stack: pytorch (Python frames) or backtrace (C++ frames)"
+    },
+    "instructions": {
+      "type": "object",
+      "description": "Per-opcode instruction table mapping opcode_id to instruction details (sass, binary encoding, register indices)",
+      "additionalProperties": {
+        "type": "object",
+        "properties": {
+          "sass": {
+            "type": "string",
+            "description": "SASS assembly instruction string"
+          },
+          "binary": {
+            "type": "string",
+            "pattern": "^[0-9a-fA-F]+$",
+            "description": "Binary encoding of the instruction as hex string"
+          },
+          "regs": {
+            "type": "array",
+            "items": { "type": "integer" },
+            "description": "Register indices used by this instruction"
+          },
+          "uregs": {
+            "type": "array",
+            "items": { "type": "integer" },
+            "description": "Uniform register indices used by this instruction"
+          }
+        },
+        "required": ["sass"]
+      }
     }
   },
   "additionalProperties": false
