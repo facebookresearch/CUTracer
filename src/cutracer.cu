@@ -447,6 +447,17 @@ bool instrument_function_if_needed(CUcontext ctx, CUfunction func) {
       int mref_idx = 0;
       int opcode_id = instr->getIdx();
       ctx_state->id_to_sass_map[f][opcode_id] = std::string(instr->getSass());
+
+      // Collect SASS binary encoding (nvbit 1.8+)
+      {
+        std::vector<uint8_t> binary;
+        instr->getSassBinary([](uint8_t b, void* ud) { static_cast<std::vector<uint8_t>*>(ud)->push_back(b); },
+                             &binary);
+        if (!binary.empty()) {
+          ctx_state->id_to_sass_binary_map[f][opcode_id] = std::move(binary);
+        }
+      }
+
       /* iterate on the operands */
       for (int i = 0; i < instr->getNumOperands(); i++) {
         /* get the operand "i" */
@@ -648,11 +659,16 @@ void init_context_state(CUcontext ctx) {
  * Combines per-function static attributes (from KernelFuncMetadata) with
  * per-launch dynamic attributes (grid/block dims, dynamic shared memory).
  * Optionally includes the CPU-side call stack captured at kernel launch time.
+ *
+ * When func and ctx_state are provided, includes a per-instruction table with
+ * SASS strings, binary encodings, and register indices — all static data
+ * collected once during instrumentation.
  */
 static nlohmann::json build_kernel_metadata_json(const KernelFuncMetadata& meta, const KernelDimensions& dims,
                                                  unsigned int dynamic_shmem,
                                                  const std::vector<std::string>& cpu_callstack = {},
-                                                 const std::string& callstack_source = "") {
+                                                 const std::string& callstack_source = "", CUfunction func = nullptr,
+                                                 CTXstate* ctx_state = nullptr) {
   auto md = meta.to_json();
   md["type"] = "kernel_metadata";
   md["grid"] = {dims.gridDimX, dims.gridDimY, dims.gridDimZ};
@@ -664,6 +680,51 @@ static nlohmann::json build_kernel_metadata_json(const KernelFuncMetadata& meta,
       md["cpu_callstack_source"] = callstack_source;
     }
   }
+
+  // Embed per-instruction static table (SASS, binary encoding, register indices)
+  if (func && ctx_state && ctx_state->id_to_sass_map.count(func)) {
+    nlohmann::json instr_table = nlohmann::json::object();
+    for (const auto& [opcode_id, sass] : ctx_state->id_to_sass_map[func]) {
+      nlohmann::json entry;
+      entry["sass"] = sass;
+
+      // Binary encoding (hex string, from getSassBinary())
+      auto bin_func_it = ctx_state->id_to_sass_binary_map.find(func);
+      if (bin_func_it != ctx_state->id_to_sass_binary_map.end()) {
+        auto bin_it = bin_func_it->second.find(opcode_id);
+        if (bin_it != bin_func_it->second.end()) {
+          const auto& bytes = bin_it->second;
+          std::string hex;
+          hex.reserve(bytes.size() * 2);
+          for (uint8_t b : bytes) {
+            char buf[3];
+            snprintf(buf, sizeof(buf), "%02x", b);
+            hex += buf;
+          }
+          entry["binary"] = hex;
+        }
+      }
+
+      // Register indices (static data from instrumentation time)
+      auto reg_func_it = ctx_state->id_to_reg_indices_map.find(func);
+      if (reg_func_it != ctx_state->id_to_reg_indices_map.end()) {
+        auto reg_it = reg_func_it->second.find(opcode_id);
+        if (reg_it != reg_func_it->second.end()) {
+          const auto& ri = reg_it->second;
+          if (!ri.reg_indices.empty()) {
+            entry["regs"] = ri.reg_indices;
+          }
+          if (!ri.ureg_indices.empty()) {
+            entry["uregs"] = ri.ureg_indices;
+          }
+        }
+      }
+
+      instr_table[std::to_string(opcode_id)] = entry;
+    }
+    md["instructions"] = instr_table;
+  }
+
   return md;
 }
 
@@ -791,7 +852,8 @@ static bool enter_kernel_launch(CUcontext ctx, CUfunction func, uint64_t& kernel
     ctx_state->trace_index_by_kernel[current_launch_id] = 0;
 
     // Write kernel_metadata as the first JSON line in the trace file.
-    auto metadata = build_kernel_metadata_json(meta, dims, dynamic_shmem, cpu_callstack, callstack_source);
+    auto metadata =
+        build_kernel_metadata_json(meta, dims, dynamic_shmem, cpu_callstack, callstack_source, func, ctx_state);
     ctx_state->trace_writers[current_launch_id]->write_metadata(metadata);
 
     loprintf_v("Created TraceWriter for launch_id %lu, mode %d, file: %s\n", current_launch_id, trace_format,
@@ -1096,8 +1158,8 @@ void nvbit_at_graph_node_launch(CUcontext ctx, CUfunction func, CUstream stream,
     ctx_state->trace_index_by_kernel[global_kernel_launch_id] = 0;
 
     // Write kernel_metadata for graph node launch trace files
-    auto metadata =
-        build_kernel_metadata_json(meta, dims, config.shmem_dynamic_nbytes, cpu_callstack, callstack_source);
+    auto metadata = build_kernel_metadata_json(meta, dims, config.shmem_dynamic_nbytes, cpu_callstack, callstack_source,
+                                               func, ctx_state);
     ctx_state->trace_writers[global_kernel_launch_id]->write_metadata(metadata);
 
     loprintf_v("Created TraceWriter for graph node launch_id %lu, file: %s\n", global_kernel_launch_id,

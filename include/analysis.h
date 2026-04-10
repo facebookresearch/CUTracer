@@ -253,6 +253,8 @@ struct CTXstate {
 
   // Per-function SASS mappings for instruction histogram feature
   std::unordered_map<CUfunction, std::map<int, std::string>> id_to_sass_map;
+  // Per-function SASS binary encoding (from Instr::getSassBinary(), nvbit 1.8+)
+  std::unordered_map<CUfunction, std::map<int, std::vector<uint8_t>>> id_to_sass_binary_map;
   // Per-function register indices mapping (static data, collected at instrumentation time)
   std::unordered_map<CUfunction, std::map<int, RegIndices>> id_to_reg_indices_map;
   std::unordered_map<CUfunction, std::unordered_set<int>> clock_opcode_ids;
