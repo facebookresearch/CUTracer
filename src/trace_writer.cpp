@@ -570,10 +570,9 @@ void TraceWriter::write_json_format(const TraceRecord& record) {
     ss << "0x" << std::hex << reinterpret_cast<uintptr_t>(record.context);
     j["ctx"] = ss.str();
 
-    // SASS instruction (if available)
-    if (!record.sass_instruction.empty()) {
-      j["sass"] = record.sass_instruction;
-    }
+    // SASS instruction is no longer emitted per-record in JSON mode.
+    // It is available in the kernel_metadata "instructions" table (keyed by opcode_id).
+    // The Python TraceReader injects "sass" back into records on read for compatibility.
 
     // Trace index
     j["trace_index"] = record.trace_index;

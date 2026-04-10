@@ -235,6 +235,12 @@ class TraceReader(TraceReaderBase):
         """
         Iterate over all trace records in the file.
 
+        If the file contains a kernel_metadata record with an "instructions"
+        table, the SASS string is injected into each subsequent record via
+        opcode_id lookup, so downstream consumers always see a "sass" field
+        regardless of whether it was stored inline (legacy) or in the
+        instruction table (new format).
+
         Yields:
             dict: Each trace record as a dictionary
 
@@ -246,9 +252,27 @@ class TraceReader(TraceReaderBase):
             >>> for record in reader.iter_records():
             ...     process(record)
         """
+        # Maps opcode_id (str) -> sass string, populated from kernel_metadata
+        sass_table: dict[str, str] = {}
+
         with open_trace_file(self.file_path) as f:
             for line in f:
                 line = line.strip()
                 if not line:
                     continue
-                yield loads(line)
+                record = loads(line)
+
+                # Cache instruction table from kernel_metadata
+                if record.get("type") == "kernel_metadata":
+                    instructions = record.get("instructions", {})
+                    for opcode_id, info in instructions.items():
+                        if isinstance(info, dict) and "sass" in info:
+                            sass_table[opcode_id] = info["sass"]
+
+                # Inject sass from instruction table if not already present
+                if "sass" not in record and "opcode_id" in record and sass_table:
+                    opcode_key = str(record["opcode_id"])
+                    if opcode_key in sass_table:
+                        record["sass"] = sass_table[opcode_key]
+
+                yield record

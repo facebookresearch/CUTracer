@@ -7,7 +7,6 @@
   "required": [
     "type",
     "ctx",
-    "sass",
     "trace_index",
     "timestamp",
     "grid_launch_id",
