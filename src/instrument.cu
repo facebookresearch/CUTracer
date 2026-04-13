@@ -119,6 +119,9 @@ void instrument_register_trace(Instr* instr, int opcode_id, CTXstate* ctx_state,
   /* how many register values are passed next */
   nvbit_add_call_arg_const_val32(instr, operands.reg_nums.size());
   nvbit_add_call_arg_const_val32(instr, operands.ureg_nums.size());
+  /* how many predicate register values are passed next */
+  nvbit_add_call_arg_const_val32(instr, operands.pred_nums.size());
+  nvbit_add_call_arg_const_val32(instr, operands.upred_nums.size());
 
   // Pass register values (variadic)
   for (int num : operands.reg_nums) {
@@ -128,6 +131,17 @@ void instrument_register_trace(Instr* instr, int opcode_id, CTXstate* ctx_state,
   }
   for (int num : operands.ureg_nums) {
     nvbit_add_call_arg_ureg_val(instr, num, true);
+  }
+  // Pass predicate register values (variadic)
+  // NVBit currently does not provide nvbit_add_call_arg_pred_val() /
+  // nvbit_add_call_arg_upred_val(). When NVBit adds predicate register
+  // read support, remove the guard and pass actual values here.
+  // Until then, pass zero-filled placeholders so the data layout is stable.
+  for (size_t i = 0; i < operands.pred_nums.size(); i++) {
+    nvbit_add_call_arg_const_val32(instr, 0);  // placeholder for pred value
+  }
+  for (size_t i = 0; i < operands.upred_nums.size(); i++) {
+    nvbit_add_call_arg_const_val32(instr, 0);  // placeholder for upred value
   }
 }
 
