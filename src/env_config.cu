@@ -853,9 +853,12 @@ void init_config_from_env() {
   // CPU call stack capture mode (default: auto)
   // Supports: auto, pytorch, backtrace, 0 (disabled), 1 (=auto, backward compat)
   std::string cpu_callstack_str;
-  get_var_str(cpu_callstack_str, "CUTRACER_CPU_CALLSTACK", "auto", "CPU call stack mode (auto|pytorch|backtrace|0|1)");
+  get_var_str(cpu_callstack_str, "CUTRACER_CPU_CALLSTACK", "auto",
+              "CPU call stack mode (auto|auto_gil|pytorch|backtrace|0|1)");
   if (cpu_callstack_str == "auto" || cpu_callstack_str == "1") {
     cpu_callstack_mode = CpuCallstackMode::AUTO;
+  } else if (cpu_callstack_str == "auto_gil") {
+    cpu_callstack_mode = CpuCallstackMode::AUTO_GIL;
   } else if (cpu_callstack_str == "pytorch") {
     cpu_callstack_mode = CpuCallstackMode::PYTORCH;
   } else if (cpu_callstack_str == "backtrace") {

@@ -2,10 +2,11 @@
  * SPDX-FileCopyrightText: Copyright (c) Meta Platforms, Inc. and affiliates.
  * SPDX-License-Identifier: MIT
  *
- * Dynamically calls PyTorch's CapturedTraceback Python API to capture
- * the Python call stack at CUDA kernel launch time. Uses dlsym to resolve
- * Python C API functions at runtime — no compile-time dependency on
- * Python.h or libpython.
+ * Captures Python call stacks at CUDA kernel launch time. The standard
+ * path uses PyTorch's CapturedTraceback API; auto_gil uses lower-level
+ * CPython frame introspection after reacquiring the GIL. Uses dlsym to
+ * resolve Python C API functions at runtime — no compile-time dependency
+ * on Python.h or libpython.
  *
  * This is the same approach used by tritonparse (structured_logging.py),
  * adapted for C++ via the Python C API.
@@ -16,6 +17,7 @@
 #include <dlfcn.h>
 #include <sys/types.h>
 
+#include <algorithm>
 #include <memory>
 #include <mutex>
 #include <string>
@@ -24,6 +26,7 @@
 // Python C API types — defined locally to avoid requiring Python.h
 using PyObject = void;
 using Py_ssize_t = ssize_t;
+using PyThreadState = void;
 
 // ---------------------------------------------------------------------------
 // Python C API function pointers (resolved lazily via dlsym)
@@ -44,6 +47,15 @@ static void (*p_Py_DecRef)(PyObject*) = nullptr;
 static void (*p_Py_IncRef)(PyObject*) = nullptr;
 static PyObject* (*p_PyErr_Occurred)() = nullptr;
 static void (*p_PyErr_Clear)() = nullptr;
+static PyThreadState* (*p_PyGILState_GetThisThreadState)() = nullptr;
+static PyObject* (*p_PyThreadState_GetFrame)(PyThreadState*) = nullptr;
+static PyObject* (*p_PyFrame_GetBack)(PyObject*) = nullptr;
+static int (*p_PyFrame_GetLineNumber)(PyObject*) = nullptr;
+
+// GIL acquisition/release for threads that released the GIL (e.g., Triton launcher)
+// PyGILState_STATE is an int enum in CPython: PyGILState_LOCKED=0, PyGILState_UNLOCKED=1
+static int (*p_PyGILState_Ensure)() = nullptr;
+static void (*p_PyGILState_Release)(int) = nullptr;
 
 // Tri-state resolution: allows retry if Python is not yet loaded
 enum class PythonApiState {
@@ -100,6 +112,12 @@ static bool resolve_python_api() {
   decltype(p_Py_IncRef) r_Py_IncRef = nullptr;
   decltype(p_PyErr_Occurred) r_PyErr_Occurred = nullptr;
   decltype(p_PyErr_Clear) r_PyErr_Clear = nullptr;
+  decltype(p_PyGILState_GetThisThreadState) r_PyGILState_GetThisThreadState = nullptr;
+  decltype(p_PyThreadState_GetFrame) r_PyThreadState_GetFrame = nullptr;
+  decltype(p_PyFrame_GetBack) r_PyFrame_GetBack = nullptr;
+  decltype(p_PyFrame_GetLineNumber) r_PyFrame_GetLineNumber = nullptr;
+  decltype(p_PyGILState_Ensure) r_PyGILState_Ensure = nullptr;
+  decltype(p_PyGILState_Release) r_PyGILState_Release = nullptr;
 
 #define RESOLVE(name)                                         \
   r_##name = (decltype(r_##name))dlsym(handle, #name);        \
@@ -127,6 +145,17 @@ static bool resolve_python_api() {
 
 #undef RESOLVE
 
+  // Optional symbols used only by auto_gil mode. These are not required for
+  // the standard pytorch/CapturedTraceback path, so we resolve them
+  // separately without failing the entire resolve.
+  r_PyGILState_GetThisThreadState =
+      (decltype(r_PyGILState_GetThisThreadState))dlsym(handle, "PyGILState_GetThisThreadState");
+  r_PyThreadState_GetFrame = (decltype(r_PyThreadState_GetFrame))dlsym(handle, "PyThreadState_GetFrame");
+  r_PyFrame_GetBack = (decltype(r_PyFrame_GetBack))dlsym(handle, "PyFrame_GetBack");
+  r_PyFrame_GetLineNumber = (decltype(r_PyFrame_GetLineNumber))dlsym(handle, "PyFrame_GetLineNumber");
+  r_PyGILState_Ensure = (decltype(r_PyGILState_Ensure))dlsym(handle, "PyGILState_Ensure");
+  r_PyGILState_Release = (decltype(r_PyGILState_Release))dlsym(handle, "PyGILState_Release");
+
   dlclose(handle);
 
   // Publish all resolved pointers atomically
@@ -145,6 +174,12 @@ static bool resolve_python_api() {
   p_Py_IncRef = r_Py_IncRef;
   p_PyErr_Occurred = r_PyErr_Occurred;
   p_PyErr_Clear = r_PyErr_Clear;
+  p_PyGILState_GetThisThreadState = r_PyGILState_GetThisThreadState;
+  p_PyThreadState_GetFrame = r_PyThreadState_GetFrame;
+  p_PyFrame_GetBack = r_PyFrame_GetBack;
+  p_PyFrame_GetLineNumber = r_PyFrame_GetLineNumber;
+  p_PyGILState_Ensure = r_PyGILState_Ensure;
+  p_PyGILState_Release = r_PyGILState_Release;
 
   python_api_state = PythonApiState::RESOLVED;
   return true;
@@ -239,6 +274,67 @@ static PyObject* get_captured_traceback_cls() {
   // Cache with an owned reference (prevent GC from collecting it)
   cached_captured_traceback_cls = cls.release();
   return cached_captured_traceback_cls;
+}
+
+/**
+ * @brief Capture the current thread's Python frames using only CPython C APIs.
+ *
+ * Unlike CapturedTraceback.extract(), this does not import modules or execute
+ * Python code while inside the NVBit callback. That makes it suitable for
+ * auto_gil mode, where we want Python-level call stacks without the side
+ * effects of running higher-level traceback helpers during launch.
+ *
+ * The caller must already hold the GIL.
+ */
+static std::vector<std::string> capture_cpu_callstack_cpython_frames() {
+  std::vector<std::string> result;
+
+  if (!p_PyGILState_GetThisThreadState || !p_PyThreadState_GetFrame || !p_PyFrame_GetBack || !p_PyFrame_GetLineNumber) {
+    return result;
+  }
+
+  PyThreadState* tstate = p_PyGILState_GetThisThreadState();
+  if (!tstate) {
+    return result;
+  }
+
+  PyRef frame(p_PyThreadState_GetFrame(tstate));
+  if (!frame) {
+    if (p_PyErr_Occurred()) {
+      p_PyErr_Clear();
+    }
+    return result;
+  }
+
+  result.reserve(32);
+  while (frame) {
+    PyRef code_obj(p_PyObject_GetAttrString(frame, "f_code"));
+    PyRef py_filename(code_obj ? p_PyObject_GetAttrString(code_obj, "co_filename") : nullptr);
+    PyRef py_name(code_obj ? p_PyObject_GetAttrString(code_obj, "co_name") : nullptr);
+
+    const char* filename = py_filename ? p_PyUnicode_AsUTF8(py_filename) : nullptr;
+    const char* funcname = py_name ? p_PyUnicode_AsUTF8(py_name) : nullptr;
+    int lineno = p_PyFrame_GetLineNumber(frame);
+
+    if (p_PyErr_Occurred()) {
+      p_PyErr_Clear();
+      if (lineno < 0) {
+        lineno = 0;
+      }
+    }
+
+    result.push_back(std::string(filename ? filename : "??") + ":" + std::to_string(lineno) + " in " +
+                     std::string(funcname ? funcname : "??"));
+
+    PyRef next_frame(p_PyFrame_GetBack(frame));
+    if (p_PyErr_Occurred()) {
+      p_PyErr_Clear();
+    }
+    frame = std::move(next_frame);
+  }
+
+  std::reverse(result.begin(), result.end());
+  return result;
 }
 
 // ---------------------------------------------------------------------------
@@ -357,6 +453,53 @@ std::vector<std::string> capture_cpu_callstack_pytorch() {
   if (p_PyErr_Occurred()) {
     p_PyErr_Clear();
   }
+
+  return result;
+}
+
+std::vector<std::string> capture_cpu_callstack_pytorch_acquire_gil() {
+  // Reentrancy guard (shared with capture_cpu_callstack_pytorch)
+  static thread_local bool capturing_gil = false;
+  if (capturing_gil) {
+    return {};
+  }
+  capturing_gil = true;
+
+  std::vector<std::string> result;
+
+  auto reset_guard = [](bool* flag) { *flag = false; };
+  std::unique_ptr<bool, decltype(reset_guard)> guard(&capturing_gil, reset_guard);
+
+  if (!resolve_python_api()) {
+    return result;
+  }
+  if (!p_Py_IsInitialized()) {
+    return result;
+  }
+
+  bool already_holds_gil = p_PyGILState_Check();
+  if (already_holds_gil) {
+    return capture_cpu_callstack_cpython_frames();
+  }
+
+  // GIL not held — acquire it temporarily.
+  // This is safe when the current thread released the GIL via
+  // Py_BEGIN_ALLOW_THREADS (e.g., Triton launcher before cuLaunchKernelEx).
+  // The thread's PyThreadState and frame chain are preserved and frozen
+  // at the point of GIL release — exactly the callstack we want.
+  if (!p_PyGILState_Ensure || !p_PyGILState_Release) {
+    return result;
+  }
+
+  int saved_state = p_PyGILState_Ensure();
+  result = capture_cpu_callstack_cpython_frames();
+
+  if (p_PyErr_Occurred()) {
+    p_PyErr_Clear();
+  }
+
+  // Release the GIL back to the state before we acquired it
+  p_PyGILState_Release(saved_state);
 
   return result;
 }

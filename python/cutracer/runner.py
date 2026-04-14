@@ -285,9 +285,10 @@ _CUTRACER_OPTIONS = [
     ),
     click.option(
         "--cpu-callstack",
-        type=click.Choice(["auto", "pytorch", "backtrace", "0", "1"]),
+        type=click.Choice(["auto", "auto_gil", "pytorch", "backtrace", "0", "1"]),
         default=None,
-        help="CPU call stack mode: auto (default), pytorch, backtrace, 0=disabled",
+        help="CPU call stack mode: auto (default), auto_gil (acquire GIL for Triton), "
+        "pytorch, backtrace, 0=disabled",
     ),
     click.option(
         "--channel-records",
