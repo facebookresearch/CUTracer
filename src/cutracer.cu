@@ -275,6 +275,25 @@ static std::string compute_kernel_checksum(const std::string& kernel_name, const
 }
 
 /**
+ * @brief Ensure kernel_checksum is populated for the given metadata.
+ *
+ * Idempotent: if checksum is already computed, this is a no-op.
+ * Also ensures mangled_name is set (needed for checksum computation).
+ *
+ * @param meta The kernel metadata entry to populate
+ * @param ctx The CUDA context
+ * @param func The CUfunction handle
+ */
+static void ensure_kernel_checksum(KernelFuncMetadata& meta, CUcontext ctx, CUfunction func) {
+  if (!meta.kernel_checksum.empty()) return;
+  if (meta.mangled_name.empty()) {
+    meta.mangled_name = nvbit_get_func_name(ctx, func, true);
+  }
+  const std::vector<Instr*>& instrs = nvbit_get_instrs(ctx, func);
+  meta.kernel_checksum = compute_kernel_checksum(meta.mangled_name, instrs);
+}
+
+/**
  * @brief Check if an instruction should be instrumented based on category filtering.
  *
  * When category filtering is enabled (CUTRACER_INSTR_CATEGORIES is set),
@@ -312,8 +331,9 @@ static bool should_instrument_instr_by_category(Instr* instr) {
  * @brief Get or create per-function metadata entry.
  *
  * If the function is seen for the first time, inserts a new entry and
- * populates lightweight fields (name, func_addr, nregs, shmem) via
- * CUDA driver API.  Subsequent calls return the existing entry directly.
+ * populates all fields (name, func_addr, nregs, shmem, checksum) via
+ * CUDA driver API and NVBit.  Subsequent calls return the existing entry
+ * directly.
  */
 static KernelFuncMetadata& get_or_create_kernel_func_metadata(CUfunction func, CUcontext ctx) {
   auto [it, inserted] = kernel_metadata_by_func.emplace(func, KernelFuncMetadata{});
@@ -322,6 +342,7 @@ static KernelFuncMetadata& get_or_create_kernel_func_metadata(CUfunction func, C
     it->second.func_addr = nvbit_get_func_addr(ctx, func);
     CUDA_SAFECALL(cuFuncGetAttribute(&it->second.nregs, CU_FUNC_ATTRIBUTE_NUM_REGS, func));
     CUDA_SAFECALL(cuFuncGetAttribute(&it->second.shmem_static_nbytes, CU_FUNC_ATTRIBUTE_SHARED_SIZE_BYTES, func));
+    ensure_kernel_checksum(it->second, ctx, func);
   }
   return it->second;
 }
@@ -394,11 +415,9 @@ bool instrument_function_if_needed(CUcontext ctx, CUfunction func) {
     const std::vector<Instr*>& instrs = nvbit_get_instrs(ctx, f);
     loprintf_v("Inspecting kernel %s at address 0x%lx\n", nvbit_get_func_name(ctx, f), nvbit_get_func_addr(ctx, f));
 
-    // Get or create per-function metadata (basic fields filled by helper)
+    // Get or create per-function metadata (checksum already computed by helper)
     auto& meta = get_or_create_kernel_func_metadata(f, ctx);
-    meta.mangled_name = mangled_name;
-    meta.kernel_checksum = compute_kernel_checksum(mangled_name, instrs);
-    loprintf_v("Computed kernel checksum for %s: %s\n", mangled_name, meta.kernel_checksum.c_str());
+    loprintf_v("Kernel checksum for %s: %s\n", meta.mangled_name.c_str(), meta.kernel_checksum.c_str());
 
     if (dump_cubin) {
       // Use the same "kernel_{checksum}_{name}" prefix as trace files
