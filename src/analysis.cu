@@ -984,6 +984,7 @@ static void check_kernel_hang(CTXstate* ctx_state, uint64_t current_kernel_launc
       if (ctx_state->deadlock_consecutive_hits >= 3) {
         loprintf("Deadlock sustained for %d checks; sending SIGTERM.\n", ctx_state->deadlock_consecutive_hits);
         ctx_state->deadlock_termination_initiated = true;
+        flush_log_files();
         fflush(stdout);
         fflush(stderr);
         raise(SIGTERM);
@@ -1021,6 +1022,7 @@ static void check_kernel_timeout(CTXstate* ctx_state, uint64_t current_kernel_la
       print_warp_status_summary(ctx_state, current_kernel_launch_id);
     }
     ctx_state->deadlock_termination_initiated = true;
+    flush_log_files();
     fflush(stdout);
     fflush(stderr);
     raise(SIGTERM);
@@ -1078,6 +1080,7 @@ static void check_no_data_timeout(CTXstate* ctx_state, uint64_t current_kernel_l
       print_warp_status_summary(ctx_state, current_kernel_launch_id);
     }
     ctx_state->deadlock_termination_initiated = true;
+    flush_log_files();
     fflush(stdout);
     fflush(stderr);
     raise(SIGTERM);
