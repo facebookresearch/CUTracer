@@ -82,6 +82,12 @@ bool skip_callback_flag = false;
 /* The kernel launch is identified by a global id */
 uint64_t global_kernel_launch_id = 0;
 
+/* Kernel events writer for structured launch event recording */
+static TraceWriter* g_kernel_events_writer = nullptr;
+
+/* Callstack dedup table: FNV-1a hash → already emitted */
+static std::unordered_map<uint64_t, bool> callstack_seen;
+
 /* Random number generator for delay injection on/off control.
  * Uses std::random_device to seed std::mt19937 for true randomness
  * across different runs/processes. */
@@ -207,6 +213,93 @@ __attribute__((noinline)) static std::pair<std::vector<std::string>, std::string
   }
   // Unreachable for known enum values; fallback defensively for future additions
   return {capture_cpu_callstack_backtrace(64, 3), "backtrace"};
+}
+
+/**
+ * @brief Compute FNV-1a hash of a callstack (vector of frame strings).
+ *
+ * Uses the same FNV-1a constants as compute_kernel_checksum().
+ * Includes an inter-frame separator byte (0xFF) to prevent collisions
+ * between e.g. {"a","bc"} and {"ab","c"}.
+ */
+static uint64_t hash_callstack(const std::vector<std::string>& frames) {
+  const uint64_t FNV_OFFSET = 14695981039346656037ULL;
+  const uint64_t FNV_PRIME = 1099511628211ULL;
+  uint64_t hash = FNV_OFFSET;
+  for (const auto& frame : frames) {
+    for (char c : frame) {
+      hash ^= static_cast<uint64_t>(c);
+      hash *= FNV_PRIME;
+    }
+    hash ^= 0xFF;
+    hash *= FNV_PRIME;
+  }
+  return hash;
+}
+
+/**
+ * @brief Write a kernel launch event to the kernel events file.
+ *
+ * In DEDUP mode, emits a callstack_def record on first occurrence and
+ * references it by callstack_id in subsequent launch events.
+ * In FULL mode, inlines the complete callstack in every launch event.
+ * In NOSTACK mode, omits callstack information entirely.
+ */
+static void write_kernel_launch_event(const KernelFuncMetadata& meta, const KernelDimensions& dims,
+                                      unsigned int dynamic_shmem, uint64_t stream_id, uint64_t launch_id,
+                                      const std::vector<std::string>& callstack, const std::string& callstack_source) {
+  if (!g_kernel_events_writer || kernel_events_mode == KernelEventsMode::DISABLED) {
+    return;
+  }
+
+  nlohmann::json event;
+  event["type"] = "kernel_launch";
+  event["kernel_launch_id"] = launch_id;
+  event["kernel_name"] = meta.unmangled_name;
+  event["kernel_checksum"] = meta.kernel_checksum;
+  event["grid"] = {dims.gridDimX, dims.gridDimY, dims.gridDimZ};
+  event["block"] = {dims.blockDimX, dims.blockDimY, dims.blockDimZ};
+  event["nregs"] = meta.nregs;
+  event["shmem"] = meta.shmem_static_nbytes + dynamic_shmem;
+  event["stream_id"] = stream_id;
+
+  if (kernel_events_mode == KernelEventsMode::DEDUP) {
+    if (callstack.empty()) {
+      event["callstack_id"] = nullptr;
+    } else {
+      uint64_t cs_hash = hash_callstack(callstack);
+      std::ostringstream oss;
+      oss << std::hex << cs_hash;
+      std::string callstack_id = oss.str();
+      event["callstack_id"] = callstack_id;
+
+      if (callstack_seen.emplace(cs_hash, true).second) {
+        nlohmann::json def;
+        def["type"] = "callstack_def";
+        def["callstack_id"] = callstack_id;
+        def["frames"] = callstack;
+        if (!callstack_source.empty()) {
+          def["source"] = callstack_source;
+        }
+        g_kernel_events_writer->write_metadata(def);
+      }
+    }
+  } else if (kernel_events_mode == KernelEventsMode::FULL) {
+    if (!callstack.empty()) {
+      event["cpu_callstack"] = callstack;
+      if (!callstack_source.empty()) {
+        event["cpu_callstack_source"] = callstack_source;
+      }
+    }
+  }
+  // NOSTACK mode: no callstack fields added
+
+  g_kernel_events_writer->write_metadata(event);
+
+  // Flush immediately — kernel events writer only uses write_metadata() (not
+  // write_trace()), so the internal json_buffer_ would never reach the flush
+  // threshold and data would stay in memory until process exit.
+  g_kernel_events_writer->flush();
 }
 
 // Global mapping tables for kernel launch tracking
@@ -845,6 +938,18 @@ static bool enter_kernel_launch(CUcontext ctx, CUfunction func, uint64_t& kernel
     }
     kernel_launch_to_dimensions_map[kernel_launch_id] = dims;
 
+    // Write structured kernel launch event (applies to ALL kernels, not just instrumented)
+    if (kernel_events_mode != KernelEventsMode::DISABLED) {
+      uint64_t stream_id = 0;
+      if (cbid == API_CUDA_cuLaunchKernelEx_ptsz || cbid == API_CUDA_cuLaunchKernelEx) {
+        stream_id = (uint64_t)((cuLaunchKernelEx_params*)params)->config->hStream;
+      } else {
+        stream_id = (uint64_t)((cuLaunchKernel_params*)params)->hStream;
+      }
+      write_kernel_launch_event(meta, dims, dynamic_shmem, stream_id, kernel_launch_id, cpu_callstack,
+                                callstack_source);
+    }
+
     // increment kernel launch id for next launch
     // kernel id can be changed here, since nvbit_set_at_launch() has copied
     // its value above.
@@ -1126,6 +1231,14 @@ void nvbit_at_ctx_term(CUcontext ctx) {
 
   cleanup_log_handle();
 
+  // Cleanup kernel events writer (only once, guard with nullptr check)
+  if (g_kernel_events_writer) {
+    g_kernel_events_writer->flush();
+    delete g_kernel_events_writer;
+    g_kernel_events_writer = nullptr;
+    callstack_seen.clear();
+  }
+
   // Finalize delay configuration (saves to JSON if path is set)
   finalize_delay_config();
 }
@@ -1164,6 +1277,13 @@ void nvbit_at_graph_node_launch(CUcontext ctx, CUfunction func, CUstream stream,
 
   // Capture the CPU call stack for graph node launches as well
   auto [cpu_callstack, callstack_source] = capture_cpu_callstack();
+
+  // Write structured kernel launch event for graph node launches
+  if (kernel_events_mode != KernelEventsMode::DISABLED) {
+    const auto& meta_ev = get_or_create_kernel_func_metadata(func, ctx);
+    write_kernel_launch_event(meta_ev, dims, config.shmem_dynamic_nbytes, (uint64_t)stream, global_kernel_launch_id,
+                              cpu_callstack, callstack_source);
+  }
 
   // Create TraceWriter for this graph node launch only if instrumentation is enabled
   // Otherwise, trace files would be empty (no data to write)
@@ -1205,4 +1325,27 @@ void nvbit_at_init() {
   pthread_mutex_init(&mutex, &attr);
 
   pthread_mutex_init(&cuda_event_mutex, &attr);
+
+  // Create kernel events writer if enabled
+  if (kernel_events_mode != KernelEventsMode::DISABLED) {
+    // Generate timestamped filename in output_dir
+    char time_buf[32];
+    time_t now = time(nullptr);
+    struct tm tm_info;
+    localtime_r(&now, &tm_info);
+    strftime(time_buf, sizeof(time_buf), "%Y%m%d_%H%M%S", &tm_info);
+
+    std::string events_basename;
+    if (!output_dir.empty()) {
+      events_basename = output_dir + (output_dir.back() != '/' ? "/" : "") + "cutracer_kernel_events_" + time_buf;
+    } else {
+      events_basename = std::string("cutracer_kernel_events_") + time_buf;
+    }
+    g_kernel_events_writer = new TraceWriter(events_basename, trace_format);
+    loprintf("Kernel events writer created: %s (mode: %s)\n", events_basename.c_str(),
+             kernel_events_mode == KernelEventsMode::DEDUP     ? "dedup"
+             : kernel_events_mode == KernelEventsMode::FULL    ? "full"
+             : kernel_events_mode == KernelEventsMode::NOSTACK ? "nostack"
+                                                               : "unknown");
+  }
 }

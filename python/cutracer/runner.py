@@ -100,6 +100,7 @@ def _build_cutracer_env(
     delay_load_path: Optional[str] = None,
     cpu_callstack: Optional[str] = None,
     channel_records: Optional[int] = None,
+    kernel_events: Optional[str] = None,
     dump_cubin: bool = False,
     trace_size_limit_mb: int = 0,
     kernel_timeout_s: int = 0,
@@ -140,6 +141,8 @@ def _build_cutracer_env(
         env["CUTRACER_CPU_CALLSTACK"] = str(cpu_callstack)
     if channel_records is not None:
         env["CUTRACER_CHANNEL_RECORDS"] = str(channel_records)
+    if kernel_events is not None:
+        env["CUTRACER_KERNEL_EVENTS"] = kernel_events
     if dump_cubin:
         env["CUTRACER_DUMP_CUBIN"] = "1"
     env["CUTRACER_TRACE_SIZE_LIMIT_MB"] = str(trace_size_limit_mb)
@@ -181,6 +184,7 @@ def _print_config_summary(env: dict) -> None:
         "CUTRACER_DELAY_LOAD_PATH",
         "CUTRACER_CPU_CALLSTACK",
         "CUTRACER_CHANNEL_RECORDS",
+        "CUTRACER_KERNEL_EVENTS",
         "CUTRACER_TRACE_SIZE_LIMIT_MB",
         "CUTRACER_KERNEL_TIMEOUT_S",
         "CUTRACER_NO_DATA_TIMEOUT_S",
@@ -293,6 +297,13 @@ _CUTRACER_OPTIONS = [
         "Set to 1 for per-record flush (useful for hang debugging)",
     ),
     click.option(
+        "--kernel-events",
+        type=click.Choice(["0", "dedup", "full", "nostack"]),
+        default=None,
+        help="Kernel events recording: 0=disabled (default), dedup=callstack dedup, "
+        "full=full callstack per launch, nostack=metadata only",
+    ),
+    click.option(
         "--dump-cubin/--no-dump-cubin",
         default=None,
         help="Dump cubin files for instrumented kernels (for SASS disassembly via nvdisasm). "
@@ -359,6 +370,7 @@ def trace_command(
     delay_load_path: Optional[str],
     cpu_callstack: Optional[str],
     channel_records: Optional[int],
+    kernel_events: Optional[str],
     dump_cubin: Optional[bool],
     trace_size_limit_mb: int,
     kernel_timeout_s: int,
@@ -412,6 +424,7 @@ def trace_command(
         delay_load_path=delay_load_path,
         cpu_callstack=cpu_callstack,
         channel_records=channel_records,
+        kernel_events=kernel_events,
         dump_cubin=dump_cubin,
         trace_size_limit_mb=trace_size_limit_mb,
         kernel_timeout_s=kernel_timeout_s,
