@@ -148,7 +148,9 @@ extern CpuCallstackMode cpu_callstack_mode;
 // Kernel events recording mode
 // Set via CUTRACER_KERNEL_EVENTS environment variable
 // Records structured kernel launch events (with optional Python callstack) to a
-// separate NDJSON file. Callstacks can be deduplicated to minimize file size.
+// separate file. Always uses NDJSON format regardless of CUTRACER_TRACE_FORMAT,
+// since kernel events are structured JSON records.
+// Callstacks can be deduplicated to minimize file size.
 enum class KernelEventsMode {
   DISABLED,  // No kernel events file (default)
   DEDUP,     // Record events with deduplicated callstacks

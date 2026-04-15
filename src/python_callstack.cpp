@@ -318,9 +318,9 @@ static std::vector<std::string> capture_cpu_callstack_cpython_frames() {
 
     if (p_PyErr_Occurred()) {
       p_PyErr_Clear();
-      if (lineno < 0) {
-        lineno = 0;
-      }
+    }
+    if (lineno < 0) {
+      lineno = 0;
     }
 
     result.push_back(std::string(filename ? filename : "??") + ":" + std::to_string(lineno) + " in " +

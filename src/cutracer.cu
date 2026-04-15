@@ -303,9 +303,10 @@ static void write_kernel_launch_event(const KernelFuncMetadata& meta, const Kern
 
   g_kernel_events_writer->write_metadata(event);
 
-  // Flush immediately — kernel events writer only uses write_metadata() (not
-  // write_trace()), so the internal json_buffer_ would never reach the flush
-  // threshold and data would stay in memory until process exit.
+  // Flush after each event for reliability — kernel events are metadata-only
+  // (low volume), so the overhead is acceptable. Without explicit flush,
+  // write_metadata() data stays in memory (no threshold-based auto-flush)
+  // and would be lost on abnormal process exit.
   g_kernel_events_writer->flush();
 }
 
@@ -1233,21 +1234,23 @@ void nvbit_at_ctx_term(CUcontext ctx) {
   skip_callback_flag = false;
   ctx_state_map.erase(ctx);
   delete ctx_state;
-  pthread_mutex_unlock(&mutex);
-  // Cleanup log handle system
 
-  cleanup_log_handle();
+  // Global cleanup: only when the last context is destroyed.
+  // g_kernel_events_writer is shared across all contexts, so we must not
+  // delete it while other contexts may still record events.
+  if (ctx_state_map.empty()) {
+    if (g_kernel_events_writer) {
+      g_kernel_events_writer->flush();
+      delete g_kernel_events_writer;
+      g_kernel_events_writer = nullptr;
+      callstack_seen.clear();
+    }
 
-  // Cleanup kernel events writer (only once, guard with nullptr check)
-  if (g_kernel_events_writer) {
-    g_kernel_events_writer->flush();
-    delete g_kernel_events_writer;
-    g_kernel_events_writer = nullptr;
-    callstack_seen.clear();
+    cleanup_log_handle();
+    finalize_delay_config();
   }
 
-  // Finalize delay configuration (saves to JSON if path is set)
-  finalize_delay_config();
+  pthread_mutex_unlock(&mutex);
 }
 
 // Reference code from NVIDIA nvbit mem_trace tool
@@ -1348,7 +1351,16 @@ void nvbit_at_init() {
     } else {
       events_basename = std::string("cutracer_kernel_events_") + time_buf;
     }
-    g_kernel_events_writer = new TraceWriter(events_basename, trace_format);
+    // Kernel events are structured JSON records — always use NDJSON format
+    // regardless of CUTRACER_TRACE_FORMAT (text mode would silently drop them,
+    // zstd adds overhead for small files).
+    const int kernel_events_format = 2;  // NDJSON (uncompressed)
+    if (trace_format == 0) {
+      loprintf(
+          "WARNING: CUTRACER_TRACE_FORMAT=text but CUTRACER_KERNEL_EVENTS is enabled; "
+          "kernel events will use NDJSON format\n");
+    }
+    g_kernel_events_writer = new TraceWriter(events_basename, kernel_events_format);
     loprintf("Kernel events writer created: %s (mode: %s)\n", events_basename.c_str(),
              kernel_events_mode == KernelEventsMode::DEDUP     ? "dedup"
              : kernel_events_mode == KernelEventsMode::FULL    ? "full"
