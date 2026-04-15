@@ -210,6 +210,13 @@ __attribute__((noinline)) static std::pair<std::vector<std::string>, std::string
       }
       return {capture_cpu_callstack_backtrace(64, 3), "backtrace"};
     }
+    case CpuCallstackMode::AUTO_GIL: {
+      auto result = capture_cpu_callstack_pytorch_acquire_gil();
+      if (!result.empty()) {
+        return {std::move(result), "cpython_gil"};
+      }
+      return {capture_cpu_callstack_backtrace(64, 3), "backtrace"};
+    }
   }
   // Unreachable for known enum values; fallback defensively for future additions
   return {capture_cpu_callstack_backtrace(64, 3), "backtrace"};
