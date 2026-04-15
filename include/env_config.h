@@ -144,6 +144,18 @@ enum class CpuCallstackMode {
 };
 extern CpuCallstackMode cpu_callstack_mode;
 
+// Kernel events recording mode
+// Set via CUTRACER_KERNEL_EVENTS environment variable
+// Records structured kernel launch events (with optional Python callstack) to a
+// separate NDJSON file. Callstacks can be deduplicated to minimize file size.
+enum class KernelEventsMode {
+  DISABLED,  // No kernel events file (default)
+  DEDUP,     // Record events with deduplicated callstacks
+  FULL,      // Record events with full callstack per launch
+  NOSTACK,   // Record events without callstacks (metadata only)
+};
+extern KernelEventsMode kernel_events_mode;
+
 // GPU channel buffer size for GPU→CPU communication (in bytes)
 // Computed from CUTRACER_CHANNEL_RECORDS (number of records the buffer can hold)
 // or defaults to 4MB if not set. Smaller values force more frequent flushes,

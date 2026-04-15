@@ -70,6 +70,9 @@ std::string output_dir;
 // CPU call stack capture mode at kernel launch (default: AUTO)
 CpuCallstackMode cpu_callstack_mode;
 
+// Kernel events recording mode (default: DISABLED)
+KernelEventsMode kernel_events_mode;
+
 // GPU channel buffer size (in bytes), computed from CUTRACER_CHANNEL_RECORDS
 // Default: 4MB (1 << 22)
 int channel_buffer_size;
@@ -862,6 +865,35 @@ void init_config_from_env() {
   } else {
     printf("WARNING: Invalid CUTRACER_CPU_CALLSTACK='%s'. Using 'auto'.\n", cpu_callstack_str.c_str());
     cpu_callstack_mode = CpuCallstackMode::AUTO;
+  }
+
+  // Kernel events recording mode (default: disabled)
+  // Records structured kernel launch events with optional callstack to a separate NDJSON file
+  std::string kernel_events_str;
+  get_var_str(kernel_events_str, "CUTRACER_KERNEL_EVENTS", "0",
+              "Kernel events mode (0=disabled, dedup=callstack dedup, full=full callstack, nostack=metadata only)");
+  if (kernel_events_str == "0" || kernel_events_str.empty()) {
+    kernel_events_mode = KernelEventsMode::DISABLED;
+  } else if (kernel_events_str == "dedup" || kernel_events_str == "1") {
+    kernel_events_mode = KernelEventsMode::DEDUP;
+  } else if (kernel_events_str == "full") {
+    kernel_events_mode = KernelEventsMode::FULL;
+  } else if (kernel_events_str == "nostack") {
+    kernel_events_mode = KernelEventsMode::NOSTACK;
+  } else {
+    loprintf("WARNING: Invalid CUTRACER_KERNEL_EVENTS='%s'. Using '0' (disabled).\n", kernel_events_str.c_str());
+    kernel_events_mode = KernelEventsMode::DISABLED;
+  }
+
+  // Cross-validate: callstack capture must be enabled for dedup/full modes
+  if ((kernel_events_mode == KernelEventsMode::DEDUP || kernel_events_mode == KernelEventsMode::FULL) &&
+      cpu_callstack_mode == CpuCallstackMode::DISABLED) {
+    loprintf(
+        "WARNING: CUTRACER_KERNEL_EVENTS=%s requires callstack capture, "
+        "but CUTRACER_CPU_CALLSTACK=0 (disabled).\n"
+        "Launch events will have null callstack_id. Consider using 'nostack' mode "
+        "or enabling cpu_callstack.\n",
+        kernel_events_str.c_str());
   }
 
   // Channel buffer size configuration
