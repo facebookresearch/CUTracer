@@ -1,8 +1,6 @@
-# (c) Meta Platforms, Inc. and affiliates. Confidential and proprietary.
+# Copyright (c) Meta Platforms, Inc. and affiliates.
 #
 # Common Analysis Context
-#
-# NOT SYNCED TO OSS - This file contains internal analysis logic.
 
 """
 Common analysis context shared across analyze submodules.

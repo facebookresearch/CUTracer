@@ -30,8 +30,6 @@ git clone git@github.com:facebookresearch/CUTracer.git
 cd CUTracer
 ```
 
-> **Note for Meta internal users**: CUTracer is also available at `fbcode/triton/tools/CUTracer/` within fbsource. You can build via `buck2 build fbcode//triton/tools/CUTracer:cutracer.so` instead of the Makefile workflow.
-
 2. Install system dependencies (libzstd static library for self-contained builds):
 
 ```bash
