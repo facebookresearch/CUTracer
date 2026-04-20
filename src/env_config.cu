@@ -55,8 +55,15 @@ uint32_t g_delay_ns;
 // Minimum delay value in nanoseconds (floor for random mode)
 uint32_t g_delay_min_ns;
 
-// Delay mode: 0 = fixed (same delay for all threads), 1 = random (per-thread random)
+// Delay distribution: 0 = fixed (max_delay_ns for all delayed threads),
+// 1 = random (per-thread random in [min_delay_ns, max_delay_ns])
 int g_delay_mode;
+
+// CTA targeting: 0 = all CTAs delayed, 1 = one CTA per cluster delayed
+int g_delay_cta_target;
+
+// One-per-cluster CTA selection override (-1 = random per point, >= 0 = force CTA index)
+int g_cluster_cta_id;
 
 // Delay config dump output path (optional)
 std::string delay_dump_path;
@@ -320,23 +327,49 @@ void parse_delay_config() {
   }
   g_delay_min_ns = (uint32_t)delay_min_val;
 
-  // Parse delay mode: "random" (1, default) or "fixed" (0)
-  // random: each thread gets a random delay in [min_delay_ns, delay_ns] for asymmetric timing (recommended)
-  // fixed: all threads get the same delay (preserves relative timing, often masks races)
+  // Parse delay mode (distribution) and CTA targeting (orthogonal axes).
+  //
+  // Accepted CUTRACER_DELAY_MODE values:
+  //   "random"        — distribution=random (per-thread), targeting=all CTAs (default)
+  //   "fixed"         — distribution=fixed, targeting=all CTAs
+  //   "cluster"       — distribution=random, targeting=one CTA per cluster
+  //   "cluster_fixed" — distribution=fixed,  targeting=one CTA per cluster
+  //
+  // Internally these map to two independent globals (g_delay_mode for
+  // distribution, g_delay_cta_target for targeting) so the device function can
+  // dispatch on each independently.
   std::string delay_mode_str;
   get_var_str(delay_mode_str, "CUTRACER_DELAY_MODE", "random",
-              "Delay mode: 'random' (per-thread random delay, default) or 'fixed' (same delay for all threads)");
+              "Delay mode: 'random' (per-thread random, default), 'fixed' (uniform delay), "
+              "'cluster' (one CTA per cluster, random within), or 'cluster_fixed' (one CTA "
+              "per cluster, fixed within)");
   if (delay_mode_str == "random") {
     g_delay_mode = 1;
+    g_delay_cta_target = 0;
   } else if (delay_mode_str == "fixed") {
     g_delay_mode = 0;
+    g_delay_cta_target = 0;
+  } else if (delay_mode_str == "cluster") {
+    g_delay_mode = 1;
+    g_delay_cta_target = 1;
+  } else if (delay_mode_str == "cluster_fixed") {
+    g_delay_mode = 0;
+    g_delay_cta_target = 1;
   } else {
     fprintf(stderr,
             "FATAL: Invalid CUTRACER_DELAY_MODE '%s'.\n"
-            "Valid values: 'random' (default) or 'fixed'.\n",
+            "Valid values: 'random' (default), 'fixed', 'cluster', or 'cluster_fixed'.\n",
             delay_mode_str.c_str());
     exit(1);
   }
+
+  // One-per-cluster CTA selection override (only meaningful when targeting=one_per_cluster)
+  get_var_int(g_cluster_cta_id, "CUTRACER_CLUSTER_CTA_ID", -1,
+              "Cluster targeting override: force every instrumentation point to delay this CTA "
+              "index in every cluster (-1 = random per point via cluster_seed). "
+              "Only meaningful with --delay-mode cluster or cluster_fixed. "
+              "When set together with --delay-load-path, the override wins — replay is no "
+              "longer bit-identical to the recording.");
 
   // Get delay config dump output path
   get_var_str(delay_dump_path, "CUTRACER_DELAY_DUMP_PATH", "", "Output path to dump delay config JSON for replay");
@@ -351,6 +384,19 @@ void parse_delay_config() {
             "FATAL: Both CUTRACER_DELAY_DUMP_PATH and CUTRACER_DELAY_LOAD_PATH are set.\n"
             "Please use only one: DUMP for recording, LOAD for replay.\n");
     exit(1);
+  }
+
+  // Warn if cluster CTA override is combined with replay: the override wins
+  // over per-point cluster_seed loaded from config, so replay is no longer
+  // bit-identical to the recording.
+  if (!delay_load_path.empty() && g_cluster_cta_id >= 0 && g_delay_cta_target == 1) {
+    fprintf(stderr,
+            "WARNING: CUTRACER_CLUSTER_CTA_ID=%d is set together with CUTRACER_DELAY_LOAD_PATH.\n"
+            "  The override forces every instrumentation point to delay CTA %d, ignoring the\n"
+            "  per-point cluster_seed values stored in the replay config. Replay is therefore\n"
+            "  NOT bit-identical to the recording. Unset CUTRACER_CLUSTER_CTA_ID (or set to -1)\n"
+            "  for exact replay.\n",
+            g_cluster_cta_id, g_cluster_cta_id);
   }
 }
 

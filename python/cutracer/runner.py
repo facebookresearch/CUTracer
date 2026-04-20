@@ -96,6 +96,7 @@ def _build_cutracer_env(
     delay_ns: Optional[int],
     delay_min_ns: Optional[int] = None,
     delay_mode: Optional[str] = None,
+    delay_cluster_cta_id: Optional[int] = None,
     delay_dump_path: Optional[str] = None,
     delay_load_path: Optional[str] = None,
     cpu_callstack: Optional[str] = None,
@@ -133,6 +134,8 @@ def _build_cutracer_env(
         env["CUTRACER_DELAY_MIN_NS"] = str(delay_min_ns)
     if delay_mode is not None:
         env["CUTRACER_DELAY_MODE"] = delay_mode
+    if delay_cluster_cta_id is not None:
+        env["CUTRACER_CLUSTER_CTA_ID"] = str(delay_cluster_cta_id)
     if delay_dump_path is not None:
         env["CUTRACER_DELAY_DUMP_PATH"] = delay_dump_path
     if delay_load_path is not None:
@@ -180,6 +183,7 @@ def _print_config_summary(env: dict) -> None:
         "CUTRACER_DELAY_NS",
         "CUTRACER_DELAY_MIN_NS",
         "CUTRACER_DELAY_MODE",
+        "CUTRACER_CLUSTER_CTA_ID",
         "CUTRACER_DELAY_DUMP_PATH",
         "CUTRACER_DELAY_LOAD_PATH",
         "CUTRACER_CPU_CALLSTACK",
@@ -268,10 +272,24 @@ _CUTRACER_OPTIONS = [
     ),
     click.option(
         "--delay-mode",
-        type=click.Choice(["random", "fixed"]),
+        type=click.Choice(["random", "fixed", "cluster", "cluster_fixed"]),
         default=None,
-        help="Delay mode: 'random' (per-thread random delay, default) or "
-        "'fixed' (same delay for all threads, often masks races)",
+        help="Delay mode (combines distribution and CTA targeting): "
+        "'random' = per-thread random delay, all CTAs (default); "
+        "'fixed' = same delay for all threads, all CTAs (often masks races); "
+        "'cluster' = per-thread random delay, one CTA per cluster (exposes inter-CTA sync issues); "
+        "'cluster_fixed' = fixed delay, one CTA per cluster (per-CTA timing skew without intra-CTA jitter).",
+    ),
+    click.option(
+        "--delay-cluster-cta-id",
+        type=int,
+        default=None,
+        help="Cluster mode only: force every instrumentation point to delay this CTA "
+        "index in every cluster (e.g. 0 = always slow CTA 0). Default: random per point. "
+        "Useful for deterministic A/B bisection of inter-CTA sync issues. "
+        "Precedence: when set together with --delay-load-path, this override wins over "
+        "the per-point cluster_seed in the replay config — replay is no longer bit-identical "
+        "to the recording. Unset (or omit) for exact replay.",
     ),
     click.option(
         "--delay-dump-path",
@@ -367,6 +385,7 @@ def trace_command(
     delay_ns: Optional[int],
     delay_min_ns: Optional[int],
     delay_mode: Optional[str],
+    delay_cluster_cta_id: Optional[int],
     delay_dump_path: Optional[str],
     delay_load_path: Optional[str],
     cpu_callstack: Optional[str],
@@ -421,6 +440,7 @@ def trace_command(
         delay_ns=delay_ns,
         delay_min_ns=delay_min_ns,
         delay_mode=delay_mode,
+        delay_cluster_cta_id=delay_cluster_cta_id,
         delay_dump_path=delay_dump_path,
         delay_load_path=delay_load_path,
         cpu_callstack=cpu_callstack,

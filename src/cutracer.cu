@@ -94,16 +94,102 @@ static std::unordered_map<uint64_t, bool> callstack_seen;
 static std::mt19937 g_delay_rng;
 static bool g_delay_rng_initialized = false;
 
-/* Generate random enabled state (50% probability) */
-static bool generate_random_delay_enabled() {
+/* Lazily initialize the RNG with true randomness */
+static void ensure_delay_rng_initialized() {
   if (!g_delay_rng_initialized) {
-    // Seed with std::random_device for true randomness each run
     std::random_device rd;
     g_delay_rng.seed(rd());
     g_delay_rng_initialized = true;
   }
+}
+
+/* Generate random enabled state (50% probability) */
+static bool generate_random_delay_enabled() {
+  ensure_delay_rng_initialized();
   std::uniform_int_distribution<int> dist(0, 1);
   return dist(g_delay_rng) == 1;
+}
+
+/* Generate a random seed for cluster mode CTA selection */
+static uint32_t generate_cluster_seed() {
+  ensure_delay_rng_initialized();
+  return g_delay_rng();
+}
+
+/**
+ * @brief Extract the cluster_dim attribute from a cuLaunchKernelEx params
+ *        struct, if present. Returns true and fills (cx, cy, cz) on hit;
+ *        returns false (and leaves outputs unchanged) if either the cbid is
+ *        not a cuLaunchKernelEx variant or the attribute is absent.
+ *
+ * Centralizes the launch-attr scan that's needed in two places: at every
+ * direct launch (so graph-node launches can later look up the dim) and at the
+ * direct-launch logging site itself.
+ */
+static bool extract_cluster_dim_from_launch_ex(nvbit_api_cuda_t cbid, void* params, unsigned int& cx, unsigned int& cy,
+                                               unsigned int& cz) {
+  if (cbid != API_CUDA_cuLaunchKernelEx_ptsz && cbid != API_CUDA_cuLaunchKernelEx) {
+    return false;
+  }
+  cuLaunchKernelEx_params* p = (cuLaunchKernelEx_params*)params;
+  for (unsigned int i = 0; i < p->config->numAttrs; ++i) {
+    if (p->config->attrs[i].id == CU_LAUNCH_ATTRIBUTE_CLUSTER_DIMENSION) {
+      cx = p->config->attrs[i].value.clusterDim.x;
+      cy = p->config->attrs[i].value.clusterDim.y;
+      cz = p->config->attrs[i].value.clusterDim.z;
+      return true;
+    }
+  }
+  return false;
+}
+
+/**
+ * @brief Log cluster dimensions for a kernel under --delay-mode cluster, once
+ *        per CUfunction.
+ *
+ * If the caller has a launch-time cluster dim (via CU_LAUNCH_ATTRIBUTE_CLUSTER_DIMENSION
+ * on cuLaunchKernelEx), pass it in via dyn_*; otherwise pass 0 and we fall back
+ * to the kernel-declared __cluster_dims__ via cuFuncGetAttribute. When the
+ * resulting cluster size is <= 1 we emit a WARNING because cluster mode is a
+ * no-op for non-cluster-launched kernels (the device function short-circuits).
+ */
+static void log_cluster_info_once(CUcontext /*ctx*/, CUfunction func, const char* func_name, unsigned int dyn_cx,
+                                  unsigned int dyn_cy, unsigned int dyn_cz) {
+  // The set tracks "have we already emitted the [CLUSTER] log for this
+  // CUfunction?". Both call sites (enter_kernel_launch, nvbit_at_graph_node_launch)
+  // hold *different* outer mutexes (cuda_event_mutex vs mutex), so we need our
+  // own lock to serialize concurrent inserts safely.
+  static std::unordered_set<CUfunction> g_cluster_logged_funcs;
+  static pthread_mutex_t g_cluster_logged_mutex = PTHREAD_MUTEX_INITIALIZER;
+  pthread_mutex_lock(&g_cluster_logged_mutex);
+  bool inserted = g_cluster_logged_funcs.insert(func).second;
+  pthread_mutex_unlock(&g_cluster_logged_mutex);
+  if (!inserted) {
+    return;
+  }
+  unsigned int cx = dyn_cx, cy = dyn_cy, cz = dyn_cz;
+  if (cx == 0 || cy == 0 || cz == 0) {
+    int rcw = 0, rch = 0, rcd = 0;
+    if (cuFuncGetAttribute(&rcw, CU_FUNC_ATTRIBUTE_REQUIRED_CLUSTER_WIDTH, func) != CUDA_SUCCESS) rcw = 0;
+    if (cuFuncGetAttribute(&rch, CU_FUNC_ATTRIBUTE_REQUIRED_CLUSTER_HEIGHT, func) != CUDA_SUCCESS) rch = 0;
+    if (cuFuncGetAttribute(&rcd, CU_FUNC_ATTRIBUTE_REQUIRED_CLUSTER_DEPTH, func) != CUDA_SUCCESS) rcd = 0;
+    cx = rcw > 0 ? (unsigned int)rcw : 1;
+    cy = rch > 0 ? (unsigned int)rch : 1;
+    cz = rcd > 0 ? (unsigned int)rcd : 1;
+  }
+  unsigned int cluster_size = cx * cy * cz;
+  if (cluster_size <= 1) {
+    loprintf(
+        "[CLUSTER] WARNING: kernel=%s cluster_dim=(%u,%u,%u) size=%u - "
+        "cluster delay mode is a NO-OP for non-cluster-launched kernels; "
+        "use --delay-mode random to expose intra-CTA races instead\n",
+        func_name, cx, cy, cz, cluster_size);
+  } else {
+    loprintf(
+        "[CLUSTER] kernel=%s cluster_dim=(%u,%u,%u) size=%u - "
+        "cluster delay will affect 1 of %u CTAs per cluster\n",
+        func_name, cx, cy, cz, cluster_size, cluster_size);
+  }
 }
 
 /**
@@ -314,6 +400,18 @@ static void write_kernel_launch_event(const KernelFuncMetadata& meta, const Kern
 std::map<uint64_t, std::pair<CUcontext, CUfunction>> kernel_launch_to_func_map;
 std::map<uint64_t, uint32_t> kernel_launch_to_iter_map;
 std::map<uint64_t, KernelDimensions> kernel_launch_to_dimensions_map;
+
+// Cluster dim observed at the most recent cuLaunchKernelEx for a given
+// CUfunction (including stream-captured launches). This lets the graph-node
+// launch path see the launch-time cluster dim that Triton sets via
+// CU_LAUNCH_ATTRIBUTE_CLUSTER_DIMENSION, which cuFuncGetAttribute can't see
+// because Triton doesn't use the static __cluster_dims__ kernel attribute.
+struct ObservedClusterDim {
+  unsigned int x = 0, y = 0, z = 0;
+};
+
+std::unordered_map<CUfunction, ObservedClusterDim> g_func_to_observed_cluster;
+pthread_mutex_t g_cluster_obs_mutex = PTHREAD_MUTEX_INITIALIZER;
 
 // map to store the iteration count for each kernel
 static std::map<CUfunction, uint32_t> kernel_iter_map;
@@ -694,12 +792,13 @@ bool instrument_function_if_needed(CUcontext ctx, CUfunction func) {
           shouldInjectDelay(instr, DELAY_INJECTION_PATTERNS)) {
         bool enabled;
         uint32_t delay_ns;
+        uint32_t cluster_seed = 0;
         bool found = true;
 
         if (is_delay_replay_mode()) {
           // Replay mode: always use config values, no random
           uint64_t pc_offset = instr->getOffset();
-          found = lookup_replay_config(replay_points, pc_offset, enabled, delay_ns);
+          found = lookup_replay_config(replay_points, pc_offset, enabled, delay_ns, cluster_seed);
           if (!found) {
             // Point not found in config - skip instrumentation for this point
             loprintf("Replay mode: kernel=%s pc=0x%lx NOT FOUND in config, skipping\n", unmangled_name, pc_offset);
@@ -709,25 +808,39 @@ bool instrument_function_if_needed(CUcontext ctx, CUfunction func) {
           enabled = generate_random_delay_enabled();
           delay_ns = g_delay_ns;
 
+          // Generate cluster seed only when cluster targeting is active —
+          // it's the per-instrumentation-point selector for which CTA gets
+          // delayed and is persisted to config for deterministic replay.
+          if (g_delay_cta_target == 1) {
+            cluster_seed = generate_cluster_seed();
+          }
+
           // Register the point for config output if kernel_delay_config was created
           if (kernel_delay_config) {
-            register_delay_instrumentation_point(kernel_delay_config, instr, delay_ns, enabled);
+            register_delay_instrumentation_point(kernel_delay_config, instr, delay_ns, enabled, cluster_seed);
           }
         }
 
         if (found && enabled) {
-          if (g_delay_mode == 1) {
-            // Random mode: per-thread random delay in [min_delay_ns, delay_ns]
+          if (g_delay_cta_target == 1) {
+            // Cluster targeting: delay one CTA per cluster (random per point via
+            // cluster_seed, or forced via g_cluster_cta_id). Distribution within
+            // the selected CTA is fixed (g_delay_mode==0) or per-thread random
+            // (g_delay_mode==1) — orthogonal to targeting.
+            instrument_cluster_delay_injection(instr, g_delay_min_ns, delay_ns, cluster_seed, g_cluster_cta_id,
+                                               /*use_fixed_delay=*/(g_delay_mode == 0) ? 1 : 0);
+          } else if (g_delay_mode == 1) {
+            // All-CTA random: per-thread random delay in [min_delay_ns, delay_ns]
             instrument_random_delay_injection(instr, g_delay_min_ns, delay_ns);
           } else {
-            // Fixed mode: same delay for all threads (original behavior)
+            // All-CTA fixed: same delay for all threads (original behavior)
             instrument_delay_injection(instr, delay_ns);
           }
         }
         if (found) {
-          loprintf("Delay injection: kernel=%s pc=0x%lx sass='%s' enabled=%s delay=%u%s\n", unmangled_name,
+          loprintf("Delay injection: kernel=%s pc=0x%lx sass='%s' enabled=%s delay=%u%s%s\n", unmangled_name,
                    instr->getOffset(), instr->getSass(), enabled ? "true" : "false", enabled ? delay_ns : 0,
-                   is_delay_replay_mode() ? " [REPLAY]" : "");
+                   g_delay_cta_target == 1 ? " [CLUSTER]" : "", is_delay_replay_mode() ? " [REPLAY]" : "");
         }
       }
     }
@@ -876,6 +989,22 @@ static bool enter_kernel_launch(CUcontext ctx, CUfunction func, uint64_t& kernel
   auto [cpu_callstack, callstack_source] = capture_cpu_callstack();
 
   CTXstate* ctx_state = ctx_state_map[ctx];
+
+  // Cluster targeting only: record cluster dim from launch attrs (including
+  // during stream capture) so graph-node launches can later look up the runtime
+  // cluster dim Triton set via CU_LAUNCH_ATTRIBUTE_CLUSTER_DIMENSION. The map
+  // is only read inside other `g_delay_cta_target == 1` branches, so skipping
+  // the mutex/insert when targeting all CTAs saves work on every launch.
+  if (g_delay_cta_target == 1) {
+    unsigned int cx = 0, cy = 0, cz = 0;
+    if (extract_cluster_dim_from_launch_ex(cbid, params, cx, cy, cz)) {
+      ObservedClusterDim d{cx, cy, cz};
+      pthread_mutex_lock(&g_cluster_obs_mutex);
+      g_func_to_observed_cluster[func] = d;
+      pthread_mutex_unlock(&g_cluster_obs_mutex);
+    }
+  }
+
   // no need to sync during stream capture or manual graph build, since no
   // kernel is actually launched.
   if (!stream_capture && !build_graph) {
@@ -923,6 +1052,14 @@ static bool enter_kernel_launch(CUcontext ctx, CUfunction func, uint64_t& kernel
           (uint64_t)ctx, pc, func_name, meta.kernel_checksum.c_str(), kernel_launch_id, p->gridDimX, p->gridDimY,
           p->gridDimZ, p->blockDimX, p->blockDimY, p->blockDimZ, meta.nregs,
           meta.shmem_static_nbytes + p->sharedMemBytes, (uint64_t)p->hStream);
+    }
+
+    // Cluster targeting: log cluster dimensions once per function (see
+    // log_cluster_info_once for details).
+    if (g_delay_cta_target == 1) {
+      unsigned int dyn_cx = 0, dyn_cy = 0, dyn_cz = 0;
+      extract_cluster_dim_from_launch_ex(cbid, params, dyn_cx, dyn_cy, dyn_cz);
+      log_cluster_info_once(ctx, func, func_name, dyn_cx, dyn_cy, dyn_cz);
     }
 
     // For histogram analysis, we need to map the kernel launch ID back to its
@@ -1275,6 +1412,24 @@ void nvbit_at_graph_node_launch(CUcontext ctx, CUfunction func, CUstream stream,
       (uint64_t)ctx, pc, func_name, global_kernel_launch_id, config.gridDimX, config.gridDimY, config.gridDimZ,
       config.blockDimX, config.blockDimY, config.blockDimZ, config.num_registers,
       config.shmem_static_nbytes + config.shmem_dynamic_nbytes, (uint64_t)stream);
+
+  // Cluster targeting: log cluster dims once per function. Look up the
+  // runtime cluster dim observed at the most recent cuLaunchKernelEx for this
+  // CUfunction (including the stream-capture launch that built this graph
+  // node). Falls back to the kernel-declared __cluster_dims__ inside the
+  // helper if neither source has dynamic info.
+  if (g_delay_cta_target == 1) {
+    unsigned int dyn_cx = 0, dyn_cy = 0, dyn_cz = 0;
+    pthread_mutex_lock(&g_cluster_obs_mutex);
+    auto it = g_func_to_observed_cluster.find(func);
+    if (it != g_func_to_observed_cluster.end()) {
+      dyn_cx = it->second.x;
+      dyn_cy = it->second.y;
+      dyn_cz = it->second.z;
+    }
+    pthread_mutex_unlock(&g_cluster_obs_mutex);
+    log_cluster_info_once(ctx, func, func_name, dyn_cx, dyn_cy, dyn_cz);
+  }
 
   // Store kernel launch mapping for graph node launches
   kernel_launch_to_func_map[global_kernel_launch_id] = {ctx, func};

@@ -112,6 +112,27 @@ void instrument_delay_injection(Instr* instr, uint32_t delay_ns);
 void instrument_random_delay_injection(Instr* instr, uint32_t min_delay_ns, uint32_t max_delay_ns);
 
 /**
+ * @brief Instruments an instruction to inject a random delay on one CTA per cluster.
+ *
+ * Inserts a call to the `instrument_delay_random_cluster` device function before
+ * the instruction. Only the CTA selected by `cluster_seed % cluster_size` receives
+ * the delay; other CTAs in the cluster skip entirely. This creates inter-CTA timing
+ * asymmetry to expose missing cluster-level synchronization.
+ *
+ * @param instr The instruction to instrument
+ * @param min_delay_ns Minimum delay in nanoseconds
+ * @param max_delay_ns Maximum delay in nanoseconds
+ * @param cluster_seed Host-generated seed for CTA selection (stored in config for replay)
+ * @param cta_id_override If >= 0, force this CTA index for every instrumentation
+ *        point (overrides cluster_seed-based random selection). -1 = random.
+ * @param use_fixed_delay 0 = per-thread random delay in [min, max] within the
+ *        selected CTA. 1 = fixed delay = max_delay_ns for all threads in the
+ *        selected CTA (cluster targeting orthogonal to delay distribution).
+ */
+void instrument_cluster_delay_injection(Instr* instr, uint32_t min_delay_ns, uint32_t max_delay_ns,
+                                        uint32_t cluster_seed, int32_t cta_id_override, int32_t use_fixed_delay);
+
+/**
  * @brief SASS instruction patterns for delay injection.
  */
 static const std::vector<const char*> DELAY_INJECTION_PATTERNS = {
