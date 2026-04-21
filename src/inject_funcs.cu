@@ -354,3 +354,112 @@ extern "C" __device__ __noinline__ void instrument_delay_random(int pred, uint32
   }
 #endif
 }
+
+/**
+ * @brief Device function to inject a random delay on exactly one CTA within a cluster.
+ *
+ * Uses cluster_ctaid/cluster_nctaid PTX registers to determine the CTA's
+ * position within its cluster. A host-provided seed selects which CTA index
+ * in the cluster receives the delay; all other CTAs skip entirely. This
+ * creates timing asymmetry between CTAs in the same cluster, exposing
+ * missing inter-CTA synchronization.
+ *
+ * If the cluster has only one CTA (no clustering), the delay is skipped
+ * since there is no inter-CTA synchronization to test.
+ *
+ * Within the selected CTA, each thread still gets a per-thread random
+ * delay (same as instrument_delay_random) for additional timing skew.
+ *
+ * @param pred Guard predicate value (from nvbit_add_call_arg_guard_pred_val)
+ * @param min_delay_ns Minimum delay in nanoseconds (floor)
+ * @param max_delay_ns Maximum delay in nanoseconds (ceiling)
+ * @param cluster_seed Host-generated seed that determines which CTA in the
+ *        cluster gets delayed. Stored in delay config JSON for replay.
+ */
+extern "C" __device__ __noinline__ void instrument_delay_random_cluster(int pred, uint32_t min_delay_ns,
+                                                                        uint32_t max_delay_ns, uint32_t cluster_seed,
+                                                                        int32_t cta_id_override,
+                                                                        int32_t use_fixed_delay) {
+  // The %cluster_ctaid / %cluster_nctaid PTX special registers used by
+  // get_cluster_ctaid()/get_cluster_nctaid() require sm_90+. On older arches
+  // (e.g. sm_80) ptxas rejects them, so compile this whole body into a no-op
+  // there. Cluster mode itself is meaningless on pre-Hopper hardware.
+#if defined(__CUDA_ARCH__) && (__CUDA_ARCH__ >= 900)
+  if (!pred) {
+    return;
+  }
+
+  // Determine cluster geometry
+  int4 cluster_nctaid = get_cluster_nctaid();
+  int total_ctas = cluster_nctaid.x * cluster_nctaid.y * cluster_nctaid.z;
+
+  // No clustering or single-CTA cluster — skip delay
+  if (total_ctas <= 1) {
+    return;
+  }
+
+  // Compute this CTA's linear index within the cluster
+  int4 cluster_ctaid = get_cluster_ctaid();
+  int my_cta_linear =
+      cluster_ctaid.x + cluster_ctaid.y * cluster_nctaid.x + cluster_ctaid.z * cluster_nctaid.x * cluster_nctaid.y;
+
+  // Select which CTA in the cluster gets delayed. Precedence:
+  //   1. cta_id_override >= 0 (set host-side via --delay-cluster-cta-id):
+  //      target_cta = cta_id_override % total_ctas. ALWAYS WINS — including
+  //      in --delay-load-path replay mode. Setting the override during replay
+  //      intentionally overrides the recorded cluster_seed for every point,
+  //      so replay is no longer bit-identical to the recording. Useful for
+  //      A/B-bisecting "did the bug fire because CTA X was delayed?".
+  //   2. cluster_seed (host-generated per instrumentation point in record
+  //      mode, loaded from config in replay mode):
+  //      target_cta = cluster_seed % total_ctas. Deterministic across runs
+  //      that share the same delay config AND do not set the override.
+  int target_cta = (cta_id_override >= 0) ? (cta_id_override % total_ctas) : (int)(cluster_seed % (uint32_t)total_ctas);
+
+  if (my_cta_linear != target_cta) {
+    return;  // Not the selected CTA, no delay
+  }
+
+  // Selected CTA: compute delay either as fixed (= max_delay_ns) or per-thread
+  // random in [min_delay_ns, max_delay_ns]. Cluster targeting is orthogonal to
+  // distribution: cluster + fixed delays the selected CTA's threads in lockstep,
+  // cluster + random adds intra-CTA timing skew on top of inter-CTA targeting.
+  uint32_t delay;
+  if (use_fixed_delay) {
+    delay = max_delay_ns;
+  } else {
+    uint32_t seed = (uint32_t)clock() ^ (threadIdx.x * 2654435761u) ^ (threadIdx.y * 2246822519u) ^
+                    (threadIdx.z * 3266489917u) ^ (blockIdx.x * 668265263u) ^ (blockIdx.y * 374761393u) ^
+                    (blockIdx.z * 1103515245u);
+
+    seed ^= seed << 13;
+    seed ^= seed >> 17;
+    seed ^= seed << 5;
+
+    uint32_t range = max_delay_ns - min_delay_ns;
+    delay = min_delay_ns + (range > 0 ? seed % (range + 1) : 0);
+  }
+
+  // CUDA __nanosleep has an implementation-defined per-call maximum
+  // (~1ms in practice on Hopper/Blackwell). For larger requested delays we
+  // loop in 1ms chunks so a 50ms or 500ms request actually sleeps that long
+  // instead of silently capping at the hardware limit.
+  const uint32_t CHUNK_NS = 1000000u;  // 1 ms
+  uint32_t remaining = delay;
+  while (remaining > CHUNK_NS) {
+    __nanosleep(CHUNK_NS);
+    remaining -= CHUNK_NS;
+  }
+  if (remaining > 0) {
+    __nanosleep(remaining);
+  }
+#else
+  // Reference args to silence unused-parameter warnings under -Wall.
+  (void)pred;
+  (void)min_delay_ns;
+  (void)max_delay_ns;
+  (void)cluster_seed;
+  (void)cta_id_override;
+  (void)use_fixed_delay;
+#endif
+}

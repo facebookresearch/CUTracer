@@ -65,6 +65,9 @@ bool DelayInjectConfig::save_to_file(const std::string& filepath) const {
       point_json["sass"] = ip.sass;
       point_json["delay"] = ip.delay_ns;
       point_json["on"] = ip.enabled;
+      if (ip.cluster_seed != 0) {
+        point_json["cluster_seed"] = ip.cluster_seed;
+      }
       points_json[std::to_string(pc_offset)] = point_json;
     }
     kernel_json["instrumentation_points"] = points_json;
@@ -109,7 +112,8 @@ KernelDelayInjectConfig* create_kernel_delay_config(const std::string& kernel_na
   return &g_delay_inject_config.kernels[key];
 }
 
-void register_delay_instrumentation_point(KernelDelayInjectConfig* kdc, Instr* instr, uint32_t delay_ns, bool enabled) {
+void register_delay_instrumentation_point(KernelDelayInjectConfig* kdc, Instr* instr, uint32_t delay_ns, bool enabled,
+                                          uint32_t cluster_seed) {
   if (!kdc || !instr) {
     return;
   }
@@ -125,6 +129,7 @@ void register_delay_instrumentation_point(KernelDelayInjectConfig* kdc, Instr* i
   ip.sass = std::string(instr->getSass());
   ip.delay_ns = delay_ns;
   ip.enabled = enabled;
+  ip.cluster_seed = cluster_seed;
 }
 
 void finalize_delay_config() {
@@ -169,6 +174,7 @@ bool load_delay_config(const std::string& filepath) {
             ip.sass = point_json.value("sass", "");
             ip.delay_ns = point_json.value("delay", 0u);
             ip.enabled = point_json.value("on", false);
+            ip.cluster_seed = point_json.value("cluster_seed", 0u);
             kdc.instrumentation_points[ip.pc_offset] = ip;
           }
         }
@@ -219,7 +225,7 @@ const std::map<uint64_t, DelayInstrumentationPoint>* get_replay_instrumentation_
 }
 
 bool lookup_replay_config(const std::map<uint64_t, DelayInstrumentationPoint>* replay_points, uint64_t pc_offset,
-                          bool& enabled, uint32_t& delay_ns) {
+                          bool& enabled, uint32_t& delay_ns, uint32_t& cluster_seed) {
   if (!replay_points) {
     return false;
   }
@@ -228,6 +234,7 @@ bool lookup_replay_config(const std::map<uint64_t, DelayInstrumentationPoint>* r
   if (it != replay_points->end()) {
     enabled = it->second.enabled;
     delay_ns = it->second.delay_ns;
+    cluster_seed = it->second.cluster_seed;
     return true;
   }
 

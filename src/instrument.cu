@@ -220,6 +220,25 @@ void instrument_random_delay_injection(Instr* instr, uint32_t min_delay_ns, uint
   nvbit_add_call_arg_const_val32(instr, max_delay_ns);
 }
 
+void instrument_cluster_delay_injection(Instr* instr, uint32_t min_delay_ns, uint32_t max_delay_ns,
+                                        uint32_t cluster_seed, int32_t cta_id_override, int32_t use_fixed_delay) {
+  /* insert call to the cluster-level delay function */
+  nvbit_insert_call(instr, "instrument_delay_random_cluster",
+                    get_ipoint_from_config(InstrumentType::RANDOM_DELAY, IPOINT_BEFORE));
+  /* guard predicate value */
+  nvbit_add_call_arg_guard_pred_val(instr);
+  /* min delay in nanoseconds */
+  nvbit_add_call_arg_const_val32(instr, min_delay_ns);
+  /* max delay in nanoseconds */
+  nvbit_add_call_arg_const_val32(instr, max_delay_ns);
+  /* seed for selecting which CTA in the cluster gets delayed */
+  nvbit_add_call_arg_const_val32(instr, cluster_seed);
+  /* host-side CTA selection override: -1 = random via seed, >=0 = force this CTA index */
+  nvbit_add_call_arg_const_val32(instr, (uint32_t)cta_id_override);
+  /* delay distribution: 0 = per-thread random in [min, max], 1 = fixed = max */
+  nvbit_add_call_arg_const_val32(instr, (uint32_t)use_fixed_delay);
+}
+
 /**
  * @brief Instruments a memory instruction to trace memory access with values.
  *

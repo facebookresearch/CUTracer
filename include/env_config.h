@@ -113,12 +113,35 @@ extern uint32_t g_delay_ns;
 // which can help narrow the search space for race detection.
 extern uint32_t g_delay_min_ns;
 
-// Delay mode: controls how delays are applied per-thread (default: random)
-// 0 = fixed: all threads get the same delay (preserves relative timing, often masks races)
-// 1 = random (default): each thread gets a random delay in [min_delay_ns, delay_ns] using
-//     thread-local entropy (threadIdx, blockIdx, clock) to create
-//     asymmetric timing that better exposes data races
+// Delay distribution mode (orthogonal to CTA targeting; see g_delay_cta_target):
+// 0 = fixed: all delayed threads sleep `delay_ns` exactly (preserves relative
+//     timing, often masks races)
+// 1 = random (default): each delayed thread sleeps a random duration in
+//     [min_delay_ns, delay_ns] using thread-local entropy (threadIdx, blockIdx,
+//     clock) to create asymmetric timing that better exposes data races
 extern int g_delay_mode;
+
+// CTA targeting mode (orthogonal to delay distribution; see g_delay_mode):
+// 0 = all (default): every CTA's threads receive the delay
+// 1 = one_per_cluster: only one CTA per cluster (selected via cluster_seed or
+//     g_cluster_cta_id) receives the delay; other CTAs in the cluster skip
+//     entirely. Exposes missing inter-CTA synchronization. Requires sm_90+ and
+//     a cluster-launched kernel; on non-cluster kernels the device function
+//     short-circuits and a host-side WARNING is emitted once per CUfunction.
+extern int g_delay_cta_target;
+
+// One-CTA-per-cluster targeting override (only meaningful when
+// g_delay_cta_target == 1).
+// -1 (default) = random per instrumentation point (uses cluster_seed % cluster_size).
+// >= 0        = force every instrumentation point to delay this CTA index in every cluster.
+// Useful for deterministic A/B bisection of inter-CTA sync issues, or systematic
+// sweeps over CTA indices instead of relying on random coverage.
+//
+// Precedence vs replay (delay_load_path): when this is set, it overrides the
+// per-point cluster_seed loaded from the replay config — i.e. setting both
+// makes the replay no longer bit-identical to the recording. A startup warning
+// is emitted in that case (see init_config_from_env).
+extern int g_cluster_cta_id;
 
 // Delay dump output path (optional)
 // If set, instrumentation points will be written to this JSON file for later replay

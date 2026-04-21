@@ -28,6 +28,7 @@ struct DelayInstrumentationPoint {
   std::string sass;
   uint32_t delay_ns;
   bool enabled;
+  uint32_t cluster_seed;  // Seed for cluster mode CTA selection (0 when not in cluster mode)
 };
 
 /**
@@ -86,7 +87,8 @@ KernelDelayInjectConfig* create_kernel_delay_config(const std::string& kernel_na
  * @param delay_ns The delay value in nanoseconds
  * @param enabled Whether this point is enabled
  */
-void register_delay_instrumentation_point(KernelDelayInjectConfig* kdc, Instr* instr, uint32_t delay_ns, bool enabled);
+void register_delay_instrumentation_point(KernelDelayInjectConfig* kdc, Instr* instr, uint32_t delay_ns, bool enabled,
+                                          uint32_t cluster_seed = 0);
 
 /**
  * @brief Finalize and save delay config at context termination.
@@ -121,7 +123,7 @@ bool is_delay_replay_mode();
  * @return true if found, false if not found
  */
 bool lookup_replay_config(const std::map<uint64_t, DelayInstrumentationPoint>* replay_points, uint64_t pc_offset,
-                          bool& enabled, uint32_t& delay_ns);
+                          bool& enabled, uint32_t& delay_ns, uint32_t& cluster_seed);
 
 /**
  * @brief Get the instrumentation points map for a kernel in replay mode.
