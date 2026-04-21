@@ -51,7 +51,7 @@ declare -A CUDA_FULL_VERSION=(
   ["12.8"]="12.8.1"
   ["12.9"]="12.9.1"
   ["13.0"]="13.0.2"
-  ["13.2"]="13.2.0"
+  ["13.2"]="13.2.1"
 )
 
 declare -A CUDA_RUNFILE=(
@@ -59,7 +59,7 @@ declare -A CUDA_RUNFILE=(
   ["12.8"]="cuda_12.8.1_570.124.06_linux"
   ["12.9"]="cuda_12.9.1_575.57.08_linux"
   ["13.0"]="cuda_13.0.2_580.95.05_linux"
-  ["13.2"]="cuda_13.2.0_595.45.04_linux"
+  ["13.2"]="cuda_13.2.1_595.58.03_linux"
 )
 
 declare -A CUDNN_VERSIONS=(
@@ -382,6 +382,13 @@ function install_nccl {
   fi
 
   echo "Installing NCCL for CUDA ${CUDA_VERSION}..."
+
+  # Use the NCCL version for CUDA 12.6 due to sm50 support.
+  # Synced with PyTorch .ci/docker/common/install_nccl.sh
+  if [[ ${CUDA_VERSION:0:4} == "12.6" ]]; then
+    NCCL_VERSION="v2.29.3-1"
+  fi
+
   if [[ -z "${NCCL_VERSION}" ]]; then
     error_exit "NCCL_VERSION is empty"
   fi
