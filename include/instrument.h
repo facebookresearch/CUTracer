@@ -33,6 +33,7 @@ enum class InstrumentType {
 struct OperandLists {
   std::vector<int> reg_nums;   // Regular register numbers
   std::vector<int> ureg_nums;  // Uniform register numbers
+  std::vector<int> desc_urs;   // UR numbers from MEM_DESC operands (TMA descriptor pointers, NVBit 1.8+)
   // Future: add support for other types like pred_nums, generic_vals, etc.
 };
 

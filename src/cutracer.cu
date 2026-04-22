@@ -720,7 +720,14 @@ bool instrument_function_if_needed(CUcontext ctx, CUfunction func) {
           }
         } else if (op->type == InstrType::OperandType::MEM_DESC) {
           loprintf_v("  MEM_DESC operand[%d]: ureg_num=%d\n", i, op->u.mem_desc.ureg_num);
-          op_ctx.desc_urs.push_back(op->u.mem_desc.ureg_num);
+          int desc_lo = op->u.mem_desc.ureg_num;
+          op_ctx.desc_urs.push_back(desc_lo);
+          // NVBit 1.8+: TMA descriptor pointer is exposed as MEM_DESC instead of MREF.has_ur.
+          // Mirror it into operands.desc_urs (consumed by instrument_tma_trace) and
+          // operands.ureg_nums (so reg_trace captures both 32-bit halves of the descriptor address).
+          operands.desc_urs.push_back(desc_lo);
+          operands.ureg_nums.push_back(desc_lo);
+          operands.ureg_nums.push_back(desc_lo + 1);
         } else if (op->type == InstrType::OperandType::MREF) {
           if (op->u.mref.has_ra) {
             operands.reg_nums.push_back(op->u.mref.ra_num);
@@ -745,6 +752,41 @@ bool instrument_function_if_needed(CUcontext ctx, CUfunction func) {
             instrument_memory_value_trace(instr, opcode_id, ctx_state, mref_idx, mem_space);
           }
           mref_idx++;
+        } else if (op->type == InstrType::OperandType::TMA_PARAM_HANDLE) {
+          // NVBit 1.8+: UTMALDG/UTMASTG/UTMAREDG no longer expose their two
+          // [URx] memory-reference operands as separate MREFs with has_ur=true.
+          // Instead, NVBit packs them into a single TMA_PARAM_HANDLE operand
+          // whose ureg_num[] array holds:
+          //   ureg_num[0] = URb (barrier / data smem address)
+          //   ureg_num[1] = URa (descriptor low; descriptor is 64-bit, hi = URa+1)
+          //   ureg_num[2..3] = unused (URZ / -1)
+          //
+          // To keep downstream logic (collect_implicit_regs, instrument_tma_trace,
+          // reg_trace serialization) unchanged, we mirror the URs into the same
+          // op_ctx.mref_urs / operands.ureg_nums slots that the legacy
+          // MREF.has_ur path used. We additionally expose the descriptor low
+          // (URa) via op_ctx.desc_urs / operands.desc_urs so instrument_tma_trace
+          // can locate it directly without relying on positional indexing
+          // (which would break for MULTICAST variants).
+          loprintf_v("  TMA_PARAM_HANDLE operand[%d]: ureg_nums=[%d,%d,%d,%d]\n", i, op->u.tma_param_handle.ureg_num[0],
+                     op->u.tma_param_handle.ureg_num[1], op->u.tma_param_handle.ureg_num[2],
+                     op->u.tma_param_handle.ureg_num[3]);
+          for (int t = 0; t < InstrType::MAX_TMA_REGS; t++) {
+            int ur = op->u.tma_param_handle.ureg_num[t];
+            if (ur < 0 || ur == InstrType::URZ) {
+              continue;  // skip unused / URZ slots
+            }
+            op_ctx.mref_urs.push_back(ur);
+            operands.ureg_nums.push_back(ur);
+          }
+          // Slot [1] (URa) is the descriptor low; route it through desc_urs.
+          int ura_slot = op->u.tma_param_handle.ureg_num[1];
+          if (ura_slot >= 0 && ura_slot != InstrType::URZ) {
+            op_ctx.desc_urs.push_back(ura_slot);
+            operands.desc_urs.push_back(ura_slot);
+          }
+        } else {
+          loprintf_v("  Unhandled operand[%d] type=%s\n", i, InstrType::OperandTypeStr[(int)op->type]);
         }
       }
 
