@@ -97,6 +97,7 @@ def _build_cutracer_env(
     delay_min_ns: Optional[int] = None,
     delay_mode: Optional[str] = None,
     delay_cluster_cta_id: Optional[int] = None,
+    delay_patterns: Optional[str] = None,
     delay_dump_path: Optional[str] = None,
     delay_load_path: Optional[str] = None,
     cpu_callstack: Optional[str] = None,
@@ -136,6 +137,8 @@ def _build_cutracer_env(
         env["CUTRACER_DELAY_MODE"] = delay_mode
     if delay_cluster_cta_id is not None:
         env["CUTRACER_CLUSTER_CTA_ID"] = str(delay_cluster_cta_id)
+    if delay_patterns is not None:
+        env["CUTRACER_DELAY_PATTERNS"] = delay_patterns
     if delay_dump_path is not None:
         env["CUTRACER_DELAY_DUMP_PATH"] = delay_dump_path
     if delay_load_path is not None:
@@ -184,6 +187,7 @@ def _print_config_summary(env: dict) -> None:
         "CUTRACER_DELAY_MIN_NS",
         "CUTRACER_DELAY_MODE",
         "CUTRACER_CLUSTER_CTA_ID",
+        "CUTRACER_DELAY_PATTERNS",
         "CUTRACER_DELAY_DUMP_PATH",
         "CUTRACER_DELAY_LOAD_PATH",
         "CUTRACER_CPU_CALLSTACK",
@@ -292,6 +296,12 @@ _CUTRACER_OPTIONS = [
         "to the recording. Unset (or omit) for exact replay.",
     ),
     click.option(
+        "--delay-patterns",
+        default=None,
+        help="Comma-separated SASS instruction substrings for delay injection "
+        "(overrides built-in patterns). Example: 'SYNCS.EXCH' for mbarrier init only",
+    ),
+    click.option(
         "--delay-dump-path",
         default=None,
         help="Output path to dump delay config JSON for replay",
@@ -386,6 +396,7 @@ def trace_command(
     delay_min_ns: Optional[int],
     delay_mode: Optional[str],
     delay_cluster_cta_id: Optional[int],
+    delay_patterns: Optional[str],
     delay_dump_path: Optional[str],
     delay_load_path: Optional[str],
     cpu_callstack: Optional[str],
@@ -441,6 +452,7 @@ def trace_command(
         delay_min_ns=delay_min_ns,
         delay_mode=delay_mode,
         delay_cluster_cta_id=delay_cluster_cta_id,
+        delay_patterns=delay_patterns,
         delay_dump_path=delay_dump_path,
         delay_load_path=delay_load_path,
         cpu_callstack=cpu_callstack,

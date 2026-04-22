@@ -9,6 +9,7 @@
 #include <stdlib.h>
 
 #include <filesystem>
+#include <sstream>
 
 #include "env_config.h"
 #include "instr_category.h"
@@ -64,6 +65,9 @@ int g_delay_cta_target;
 
 // One-per-cluster CTA selection override (-1 = random per point, >= 0 = force CTA index)
 int g_cluster_cta_id;
+
+// User-specified delay injection patterns
+std::vector<std::string> g_delay_patterns;
 
 // Delay config dump output path (optional)
 std::string delay_dump_path;
@@ -370,6 +374,23 @@ void parse_delay_config() {
               "Only meaningful with --delay-mode cluster or cluster_fixed. "
               "When set together with --delay-load-path, the override wins — replay is no "
               "longer bit-identical to the recording.");
+
+  // Parse user-specified delay patterns (optional, overrides DELAY_INJECTION_PATTERNS)
+  std::string delay_patterns_str;
+  get_var_str(delay_patterns_str, "CUTRACER_DELAY_PATTERNS", "",
+              "Comma-separated SASS substrings for delay injection (overrides built-in patterns)");
+  if (!delay_patterns_str.empty()) {
+    std::istringstream ss(delay_patterns_str);
+    std::string token;
+    while (std::getline(ss, token, ',')) {
+      while (!token.empty() && std::isspace(token.front())) token.erase(0, 1);
+      while (!token.empty() && std::isspace(token.back())) token.pop_back();
+      if (!token.empty()) {
+        g_delay_patterns.push_back(token);
+      }
+    }
+    loprintf("Using %zu user-specified delay patterns\n", g_delay_patterns.size());
+  }
 
   // Get delay config dump output path
   get_var_str(delay_dump_path, "CUTRACER_DELAY_DUMP_PATH", "", "Output path to dump delay config JSON for replay");
