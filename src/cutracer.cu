@@ -1098,7 +1098,7 @@ static bool enter_kernel_launch(CUcontext ctx, CUfunction func, uint64_t& kernel
 
     // Cluster targeting: log cluster dimensions once per function (see
     // log_cluster_info_once for details).
-    if (g_delay_cta_target == 1) {
+    if (should_instrument && g_delay_cta_target == 1) {
       unsigned int dyn_cx = 0, dyn_cy = 0, dyn_cz = 0;
       extract_cluster_dim_from_launch_ex(cbid, params, dyn_cx, dyn_cy, dyn_cz);
       log_cluster_info_once(ctx, func, func_name, dyn_cx, dyn_cy, dyn_cz);
@@ -1447,7 +1447,7 @@ void nvbit_at_graph_node_launch(CUcontext ctx, CUfunction func, CUstream stream,
   nvbit_get_func_config(ctx, func, &config);
 
   loprintf(
-      "MEMTRACE: CTX 0x%016lx - LAUNCH - Kernel pc 0x%016lx - "
+      "CUTracer: CTX 0x%016lx - LAUNCH - Kernel pc 0x%016lx - "
       "Kernel name %s - grid launch id %ld - grid size %d,%d,%d "
       "- block size %d,%d,%d - nregs %d - shmem %d - cuda stream "
       "id %ld\n",
