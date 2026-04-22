@@ -43,10 +43,18 @@ TraceWriter::TraceWriter(const std::string& filename, int trace_mode, size_t buf
   if (trace_mode_ == TraceMode::TEXT) {
     // Mode 0: Text format - use FILE* for fprintf compatibility
     actual_filename = filename + ".log";
-    file_handle_ = fopen(actual_filename.c_str(), "w");
-
+    int text_fd = open(actual_filename.c_str(), O_CREAT | O_WRONLY | O_TRUNC, 0644);
+    if (text_fd < 0) {
+      fprintf(stderr, "TraceWriter: Failed to open %s (errno=%d: %s)\n", actual_filename.c_str(), errno,
+              strerror(errno));
+      enabled_ = false;
+      return;
+    }
+    file_handle_ = fdopen(text_fd, "w");
     if (!file_handle_) {
-      fprintf(stderr, "TraceWriter: Failed to open %s\n", actual_filename.c_str());
+      fprintf(stderr, "TraceWriter: Failed to fdopen %s (errno=%d: %s)\n", actual_filename.c_str(), errno,
+              strerror(errno));
+      ::close(text_fd);
       enabled_ = false;
       return;
     }
