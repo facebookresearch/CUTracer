@@ -13,6 +13,9 @@ on:
             - ".github/workflows/test_install_cuda.yml"
     workflow_dispatch:
 
+permissions:
+    contents: read
+
 jobs:
     test-install-cuda:
         runs-on: 8-core-ubuntu
