@@ -17,6 +17,7 @@ EXAMPLE_INPUTS_DIR = Path(__file__).parent / "example_inputs"
 REG_TRACE_NDJSON = EXAMPLE_INPUTS_DIR / "reg_trace_sample.ndjson"
 REG_TRACE_NDJSON_ZST = EXAMPLE_INPUTS_DIR / "reg_trace_sample.ndjson.zst"
 REG_TRACE_LOG = EXAMPLE_INPUTS_DIR / "reg_trace_sample.log"
+KERNEL_EVENTS_NDJSON = EXAMPLE_INPUTS_DIR / "kernel_events_sample.ndjson"
 INVALID_SYNTAX_NDJSON = EXAMPLE_INPUTS_DIR / "invalid_syntax.ndjson"
 INVALID_SCHEMA_NDJSON = EXAMPLE_INPUTS_DIR / "invalid_schema.ndjson"
 
@@ -24,6 +25,26 @@ INVALID_SCHEMA_NDJSON = EXAMPLE_INPUTS_DIR / "invalid_schema.ndjson"
 REG_TRACE_NDJSON_RECORD_COUNT = 100
 REG_TRACE_NDJSON_ZST_RECORD_COUNT = 100
 REG_TRACE_LOG_RECORD_COUNT = 67
+
+
+def count_records_of_type(path: Path, record_type: str) -> int:
+    """
+    Count NDJSON records in `path` whose "type" field equals `record_type`.
+
+    Used to keep tests decoupled from hardcoded fixture sizes — adding a
+    new record line to a fixture should not silently break unrelated tests.
+    """
+    import json
+
+    n = 0
+    with open(path) as f:
+        for line in f:
+            line = line.strip()
+            if not line:
+                continue
+            if json.loads(line).get("type") == record_type:
+                n += 1
+    return n
 
 
 class BaseValidationTest(unittest.TestCase):

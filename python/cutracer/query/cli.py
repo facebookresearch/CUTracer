@@ -299,7 +299,9 @@ def query_command(
     Query and view trace data from FILE.
 
     Reads NDJSON trace files (plain or Zstd-compressed) and displays
-    records in a formatted table.
+    records in a formatted table. Supports both instruction-level traces
+    and kernel events files (callstack_def records are automatically
+    resolved and hidden).
 
     \b
     Examples:
@@ -315,6 +317,13 @@ def query_command(
       cutracer query trace.ndjson --group-by warp
       cutracer query trace.ndjson --group-by warp --count
       cutracer query trace.ndjson --group-by sass --count --top 20
+
+    \b
+    Kernel events examples:
+      cutracer query kernel_events.ndjson --head 20
+      cutracer query kernel_events.ndjson --group-by kernel_checksum --count
+      cutracer query kernel_events.ndjson --filter "stream_id=0" --all-lines
+      cutracer query kernel_events.ndjson --fields "kernel_launch_id,kernel_name,caller"
     """
     # Validate option combinations
     if count and not group_by:

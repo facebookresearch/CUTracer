@@ -8,7 +8,13 @@ import unittest
 
 from click.testing import CliRunner
 from cutracer.cli import main
-from tests.test_base import BaseValidationTest, REG_TRACE_NDJSON, REG_TRACE_NDJSON_ZST
+from tests.test_base import (
+    BaseValidationTest,
+    count_records_of_type,
+    KERNEL_EVENTS_NDJSON,
+    REG_TRACE_NDJSON,
+    REG_TRACE_NDJSON_ZST,
+)
 
 
 class TestQueryCommand(BaseValidationTest):
@@ -793,6 +799,113 @@ class TestQueryCommand(BaseValidationTest):
             # Second record should NOT have 'regs' added
             self.assertIn("uregs", out_records[1])
             self.assertNotIn("regs", out_records[1])
+
+
+class TestQueryKernelEvents(BaseValidationTest):
+    """Tests for query command with kernel events files."""
+
+    def setUp(self):
+        super().setUp()
+        self.runner = CliRunner()
+
+    def test_kernel_events_default(self):
+        """Test querying kernel events file with default options."""
+        result = self.runner.invoke(main, ["query", str(KERNEL_EVENTS_NDJSON)])
+        self.assertEqual(result.exit_code, 0, result.output)
+        # Should display kernel_launch records, not callstack_def
+        self.assertNotIn("callstack_def", result.output)
+        self.assertIn("kernel_launch", result.output)
+        # Should have caller field from callstack resolution
+        self.assertIn("CALLER", result.output)
+
+    def test_kernel_events_no_callstack_def_in_output(self):
+        """Test that callstack_def records are excluded from output."""
+        result = self.runner.invoke(
+            main,
+            ["query", str(KERNEL_EVENTS_NDJSON), "--all-lines", "--format", "json"],
+        )
+        self.assertEqual(result.exit_code, 0)
+        import json
+
+        records = json.loads(result.output)
+        for r in records:
+            self.assertNotEqual(r.get("type"), "callstack_def")
+        # Output count must equal the number of kernel_launch records in
+        # the fixture — fixture changes should not silently break this test.
+        expected = count_records_of_type(KERNEL_EVENTS_NDJSON, "kernel_launch")
+        self.assertEqual(len(records), expected)
+
+    def test_kernel_events_filter_stream_id(self):
+        """Test filtering kernel events by stream_id."""
+        result = self.runner.invoke(
+            main,
+            [
+                "query",
+                str(KERNEL_EVENTS_NDJSON),
+                "--filter",
+                "stream_id=0",
+                "--all-lines",
+                "--format",
+                "json",
+            ],
+        )
+        self.assertEqual(result.exit_code, 0)
+        import json
+
+        records = json.loads(result.output)
+        for r in records:
+            self.assertEqual(r["stream_id"], 0)
+
+    def test_kernel_events_group_by_kernel_name_count(self):
+        """Test grouping kernel events by kernel_name with count."""
+        result = self.runner.invoke(
+            main,
+            [
+                "query",
+                str(KERNEL_EVENTS_NDJSON),
+                "--group-by",
+                "kernel_checksum",
+                "--count",
+            ],
+        )
+        self.assertEqual(result.exit_code, 0)
+        self.assertIn("KERNEL_CHECKSUM", result.output)
+        self.assertIn("COUNT", result.output)
+
+    def test_kernel_events_caller_field_visible(self):
+        """Test that caller field is visible in output."""
+        result = self.runner.invoke(
+            main,
+            [
+                "query",
+                str(KERNEL_EVENTS_NDJSON),
+                "--fields",
+                "kernel_launch_id,caller",
+                "--head",
+                "3",
+            ],
+        )
+        self.assertEqual(result.exit_code, 0)
+        self.assertIn("CALLER", result.output)
+        self.assertIn("test_matmul", result.output)
+
+    def test_kernel_events_fields_filter(self):
+        """Test custom fields selection for kernel events."""
+        result = self.runner.invoke(
+            main,
+            [
+                "query",
+                str(KERNEL_EVENTS_NDJSON),
+                "--fields",
+                "kernel_launch_id,grid,block,stream_id",
+                "--head",
+                "3",
+            ],
+        )
+        self.assertEqual(result.exit_code, 0)
+        self.assertIn("KERNEL_LAUNCH_ID", result.output)
+        self.assertIn("GRID", result.output)
+        self.assertIn("STREAM_ID", result.output)
 
 
 if __name__ == "__main__":

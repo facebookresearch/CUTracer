@@ -11,6 +11,8 @@ import unittest
 from cutracer.query import parse_filter_expr, select_records, TraceReader
 from tests.test_base import (
     BaseValidationTest,
+    count_records_of_type,
+    KERNEL_EVENTS_NDJSON,
     REG_TRACE_NDJSON,
     REG_TRACE_NDJSON_RECORD_COUNT,
     REG_TRACE_NDJSON_ZST,
@@ -341,6 +343,103 @@ class TestIntegration(BaseValidationTest):
         self.assertLessEqual(len(result), 5)
         for record in result:
             self.assertEqual(record["warp"], 0)
+
+
+class TestTraceReaderKernelEvents(BaseValidationTest):
+    """Tests for TraceReader with kernel events files."""
+
+    def test_callstack_def_records_are_filtered(self):
+        """Test that callstack_def records are not yielded."""
+        reader = TraceReader(KERNEL_EVENTS_NDJSON)
+        records = list(reader.iter_records())
+
+        types = {r.get("type") for r in records}
+        self.assertNotIn("callstack_def", types)
+        self.assertIn("kernel_launch", types)
+
+    def test_kernel_launch_count(self):
+        """Test that correct number of kernel_launch records are yielded."""
+        reader = TraceReader(KERNEL_EVENTS_NDJSON)
+        records = list(reader.iter_records())
+
+        # callstack_def records must be filtered out — count yielded
+        # records against the actual number of kernel_launch lines in
+        # the fixture (decoupled from any specific fixture size).
+        expected = count_records_of_type(KERNEL_EVENTS_NDJSON, "kernel_launch")
+        self.assertEqual(len(records), expected)
+
+    def test_caller_field_injected(self):
+        """Test that caller field is injected from callstack resolution."""
+        reader = TraceReader(KERNEL_EVENTS_NDJSON)
+        records = list(reader.iter_records())
+
+        # All kernel_launch records have callstack_id, so all should have caller
+        for record in records:
+            self.assertIn("caller", record)
+            self.assertIsInstance(record["caller"], str)
+            self.assertGreater(len(record["caller"]), 0)
+
+    def test_caller_matches_callstack(self):
+        """Test that injected caller matches the correct callstack."""
+        reader = TraceReader(KERNEL_EVENTS_NDJSON)
+        records = list(reader.iter_records())
+
+        # First record has callstack_id "aaa111" -> last frame is test_matmul_basic
+        first = records[0]
+        self.assertIn("test_matmul_basic", first["caller"])
+
+        # Third record (launch_id=2) has callstack_id "bbb222" -> test_matmul_large
+        third = records[2]
+        self.assertIn("test_matmul_large", third["caller"])
+
+    def test_kernel_launch_fields_preserved(self):
+        """Test that all kernel_launch fields are preserved."""
+        reader = TraceReader(KERNEL_EVENTS_NDJSON)
+        records = list(reader.iter_records())
+
+        first = records[0]
+        self.assertEqual(first["type"], "kernel_launch")
+        self.assertEqual(first["kernel_launch_id"], 0)
+        self.assertIn("kernel_name", first)
+        self.assertIn("grid", first)
+        self.assertIn("block", first)
+        self.assertIn("stream_id", first)
+        self.assertIn("kernel_checksum", first)
+
+    def test_inline_callstack_not_overwritten(self):
+        """Test that records with existing caller field are not overwritten."""
+        content = (
+            '{"callstack_id":"x1","frames":["a.py:1 in f"],"type":"callstack_def"}\n'
+            '{"type":"kernel_launch","callstack_id":"x1","caller":"already_set","kernel_launch_id":0}\n'
+        )
+        filepath = self.create_temp_file("inline_caller.ndjson", content)
+        reader = TraceReader(filepath)
+        records = list(reader.iter_records())
+
+        self.assertEqual(len(records), 1)
+        self.assertEqual(records[0]["caller"], "already_set")
+
+    def test_caller_not_injected_into_non_kernel_launch_records(self):
+        """Test that caller is only injected into kernel_launch records.
+
+        Even if another record type happens to carry a callstack_id, we
+        must not synthesize a 'caller' field on it — that would silently
+        change its schema.
+        """
+        content = (
+            '{"callstack_id":"x1","frames":["a.py:1 in f"],"type":"callstack_def"}\n'
+            '{"type":"some_other_event","callstack_id":"x1","payload":42}\n'
+            '{"type":"kernel_launch","callstack_id":"x1","kernel_launch_id":0}\n'
+        )
+        filepath = self.create_temp_file("non_launch_callstack.ndjson", content)
+        reader = TraceReader(filepath)
+        records = list(reader.iter_records())
+
+        self.assertEqual(len(records), 2)
+        non_launch = next(r for r in records if r["type"] == "some_other_event")
+        launch = next(r for r in records if r["type"] == "kernel_launch")
+        self.assertNotIn("caller", non_launch)
+        self.assertIn("caller", launch)
 
 
 if __name__ == "__main__":

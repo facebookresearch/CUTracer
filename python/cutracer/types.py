@@ -32,6 +32,11 @@ class TraceRecord(TypedDict, total=False):
     At runtime this is a plain dict (json.loads() output is directly compatible).
     total=False because different record types (reg_trace / mem_trace) have
     different field sets — not all fields are present on every record.
+
+    Some fields are *derived*: they are not present in the raw NDJSON and
+    are synthesized by `TraceReader` while iterating (see the "Derived"
+    section at the bottom). Downstream consumers can treat them like any
+    other field.
     """
 
     # Common fields across record types
@@ -70,3 +75,13 @@ class TraceRecord(TypedDict, total=False):
     block: list[int]
     cubin_path: str
     func_addr: str
+
+    # kernel_launch specific (kernel events file)
+    kernel_launch_id: int
+    kernel_name: str
+    shmem: int
+    stream_id: int
+    callstack_id: str
+
+    # Derived (synthesized by TraceReader, not present in raw NDJSON)
+    caller: str  # Innermost frame from callstack_def resolution (kernel_launch only)

@@ -254,6 +254,8 @@ class TraceReader(TraceReaderBase):
         """
         # Maps opcode_id (str) -> sass string, populated from kernel_metadata
         sass_table: dict[str, str] = {}
+        # Maps callstack_id -> frames list, populated from callstack_def
+        callstack_table: dict[str, list[str]] = {}
 
         with open_trace_file(self.file_path) as f:
             for line in f:
@@ -262,17 +264,42 @@ class TraceReader(TraceReaderBase):
                     continue
                 record = loads(line)
 
+                record_type = record.get("type")
+
                 # Cache instruction table from kernel_metadata
-                if record.get("type") == "kernel_metadata":
+                if record_type == "kernel_metadata":
                     instructions = record.get("instructions", {})
                     for opcode_id, info in instructions.items():
                         if isinstance(info, dict) and "sass" in info:
                             sass_table[opcode_id] = info["sass"]
+
+                # Cache callstack definitions (don't yield — metadata only)
+                if record_type == "callstack_def":
+                    cid = record.get("callstack_id")
+                    frames = record.get("frames")
+                    if cid and isinstance(frames, list):
+                        callstack_table[cid] = frames
+                    continue
 
                 # Inject sass from instruction table if not already present
                 if "sass" not in record and "opcode_id" in record and sass_table:
                     opcode_key = str(record["opcode_id"])
                     if opcode_key in sass_table:
                         record["sass"] = sass_table[opcode_key]
+
+                # Inject caller from callstack table for kernel_launch records.
+                # `caller` = innermost (deepest) frame, which is the direct call
+                # site. Note: this may still be framework code (e.g., torch
+                # dispatch) rather than user code, depending on how the
+                # callstack was captured.
+                if (
+                    record_type == "kernel_launch"
+                    and "callstack_id" in record
+                    and callstack_table
+                    and "caller" not in record
+                ):
+                    frames = callstack_table.get(record["callstack_id"])
+                    if frames:
+                        record["caller"] = frames[-1]
 
                 yield record
