@@ -143,6 +143,10 @@ extern int g_delay_cta_target;
 // is emitted in that case (see init_config_from_env).
 extern int g_cluster_cta_id;
 
+// User-specified delay injection patterns (optional, overrides DELAY_INJECTION_PATTERNS)
+// Comma-separated SASS substrings, e.g. "SYNCS.EXCH,BAR.SYNC"
+extern std::vector<std::string> g_delay_patterns;
+
 // Delay dump output path (optional)
 // If set, instrumentation points will be written to this JSON file for later replay
 extern std::string delay_dump_path;

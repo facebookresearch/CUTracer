@@ -524,6 +524,33 @@ static bool should_instrument_instr_by_category(Instr* instr) {
   return should_instrument;
 }
 
+/**
+ * @brief Check if an instruction should receive delay injection.
+ *
+ * Uses user-specified patterns (g_delay_patterns / --delay-patterns) if provided,
+ * otherwise falls back to the built-in DELAY_INJECTION_PATTERNS list.
+ * Special case: "*" matches all instructions.
+ */
+static bool shouldInjectDelayWithPatterns(Instr* instr) {
+  static std::vector<const char*> user_patterns_cstr;
+  static bool user_patterns_built = false;
+  static bool delay_all_instructions = false;
+  if (!user_patterns_built && !g_delay_patterns.empty()) {
+    delay_all_instructions = (g_delay_patterns.size() == 1 && g_delay_patterns[0] == "*");
+    if (!delay_all_instructions) {
+      for (const auto& p : g_delay_patterns) {
+        user_patterns_cstr.push_back(p.c_str());
+      }
+    }
+    user_patterns_built = true;
+  }
+  if (delay_all_instructions) {
+    return true;
+  }
+  const auto& active_patterns = g_delay_patterns.empty() ? DELAY_INJECTION_PATTERNS : user_patterns_cstr;
+  return shouldInjectDelay(instr, active_patterns);
+}
+
 /* ===== Main Functionality ===== */
 
 /**
@@ -830,8 +857,7 @@ bool instrument_function_if_needed(CUcontext ctx, CUfunction func) {
       }
 
       // Delay instrumentation for synchronization instructions
-      if (is_instrument_type_enabled(InstrumentType::RANDOM_DELAY) &&
-          shouldInjectDelay(instr, DELAY_INJECTION_PATTERNS)) {
+      if (is_instrument_type_enabled(InstrumentType::RANDOM_DELAY) && shouldInjectDelayWithPatterns(instr)) {
         bool enabled;
         uint32_t delay_ns;
         uint32_t cluster_seed = 0;

@@ -137,6 +137,7 @@ void instrument_cluster_delay_injection(Instr* instr, uint32_t min_delay_ns, uin
  * @brief SASS instruction patterns for delay injection.
  */
 static const std::vector<const char*> DELAY_INJECTION_PATTERNS = {
+    "SYNCS.EXCH",                      // mbarrier init
     "SYNCS.PHASECHK.TRANS64.TRYWAIT",  // mbarrier try_wait
     "SYNCS.ARRIVE.TRANS64.RED.A1T0",   // mbarrier arrive
     "UTMASTG",                         // TMA store
