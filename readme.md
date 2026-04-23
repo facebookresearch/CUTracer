@@ -265,6 +265,25 @@ The [`examples/`](examples/) directory contains reference trace outputs for comm
 
 This repository contains code under the MIT license (Meta) and the BSD-3-Clause license (NVIDIA). See [LICENSE](LICENSE) and [LICENSE-BSD](LICENSE-BSD) for details.
 
-## More Documentation
+## 📚 Documentation
 
-The full documentation lives in the [Wiki](https://github.com/facebookresearch/CUTracer/wiki). Key topics include Quickstart, Analyses, Post-processing, Configuration, Outputs, API & Data Structures, Developer Guide, and Troubleshooting.
+The full project documentation lives in [`docs/`](docs/) and is automatically
+synced to the [GitHub Wiki](https://github.com/facebookresearch/CUTracer/wiki)
+on every push to `main` via
+[`.github/workflows/sync-wiki.yml`](.github/workflows/sync-wiki.yml).
+
+**Edit `docs/*.md`, not the wiki directly** — direct wiki edits will be
+overwritten on the next sync.
+
+Key topics: [Quickstart](docs/Quickstart.md), [Concepts](docs/Concepts.md),
+[Configuration](docs/Configuration.md),
+[Instrumentation Modes](docs/Instrumentation-Modes.md),
+[Outputs and File Formats](docs/Outputs-and-File-Formats.md),
+[API and Data Structures](docs/API-and-Data-Structures.md),
+[Analyses](docs/Analyses.md),
+[Post-processing: IPC Merge](docs/Post-processing-IPC-Merge.md),
+[Triton/Proton Integration](docs/Triton_Proton-Integration.md),
+[Architecture](docs/Architecture.md),
+[Developer Guide](docs/Developer-Guide.md),
+[Build, Test, and CI](docs/Build-Test-and-CI.md),
+[Troubleshooting](docs/Troubleshooting.md), [FAQ](docs/FAQ.md).
