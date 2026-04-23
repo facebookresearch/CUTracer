@@ -131,18 +131,20 @@ struct RegIndices {
 
 #endif /* __cplusplus */
 
+/* Maximum size of the TMA parameter handle buffer (bytes).
+ * Mirrors the NVBit reference tool (tools/mem_trace_tma/common.h). */
+#define TMA_PARAM_HANDLE_MAX_BYTES 128
+
 /**
  * @brief TMA (Tensor Memory Accelerator) access tracing structure.
  *
- * This structure captures TMA descriptor information for UTMALDG (load),
- * UTMASTG (store), and UTMAREDG (reduction) instructions. It reads the
- * 128-byte TMA descriptor from the address pointed to by the uniform register operand.
+ * Captures the TMA parameter handle for UBLKCP/UBLKPF/UBLKRED/UTMALDG/UTMAPF/
+ * UTMAREDG/UTMASTG instructions. The handle is a runtime-provided buffer that
+ * NVBit hands to the injected device function via
+ * nvbit_add_call_arg_tma_param_handle_and_size(). Host-side parsing is done in
+ * recv_thread_fun() via nvbit_parse_tma_transfer_info().
  *
- * The TMA descriptor contains tensor metadata for bulk async memory transfers
- * between global and shared memory on Hopper/Blackwell GPUs.
- *
- * Enabled via CUTRACER_INSTR_CATEGORIES=TMA.
- *
+ * Enabled via CUTRACER_INSTRUMENT=tma_trace.
  */
 typedef struct {
   message_header_t header;  // type=MSG_TYPE_TMA_ACCESS
@@ -154,10 +156,15 @@ typedef struct {
   int warp_id;
   int opcode_id;
 
-  // TMA descriptor address
-  uint64_t desc_addr;
+  // TMA parameter handle (NVBit 1.8): raw bytes captured on the GPU side and
+  // parsed on the CPU side via nvbit_parse_tma_transfer_info().
+  uint32_t tma_param_size;
+  uint8_t tma_param_handle_raw[TMA_PARAM_HANDLE_MAX_BYTES];
 
-  // Raw TMA descriptor
+  // Deprecated: legacy 128-byte CUtensorMap snapshot from the pre-NVBit-1.8
+  // pipeline. Left in the struct so old trace files remain readable; not
+  // populated by the current GPU path.
+  uint64_t desc_addr;
   uint64_t desc_raw[16];
 } tma_access_t;
 

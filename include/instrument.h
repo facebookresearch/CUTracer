@@ -180,13 +180,13 @@ bool shouldInjectDelay(Instr* instr, const std::vector<const char*>& patterns);
  * @param instr The instruction to instrument
  * @param opcode_id The opcode identifier
  * @param ctx_state The context state
- * @param operands The operand lists with ureg_nums populated
+ * @param ctx The CUDA context
  */
-inline void instrument_tma_trace(Instr* instr, int opcode_id, CTXstate* ctx_state, const OperandLists& operands) {
+inline void instrument_tma_trace(Instr* instr, int opcode_id, CTXstate* ctx_state, CUcontext ctx) {
   (void)instr;
   (void)opcode_id;
   (void)ctx_state;
-  (void)operands;
+  (void)ctx;
 }
 
 #endif  // __has_include

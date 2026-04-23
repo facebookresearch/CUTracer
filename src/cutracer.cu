@@ -780,37 +780,21 @@ bool instrument_function_if_needed(CUcontext ctx, CUfunction func) {
           }
           mref_idx++;
         } else if (op->type == InstrType::OperandType::TMA_PARAM_HANDLE) {
-          // NVBit 1.8+: UTMALDG/UTMASTG/UTMAREDG no longer expose their two
-          // [URx] memory-reference operands as separate MREFs with has_ur=true.
-          // Instead, NVBit packs them into a single TMA_PARAM_HANDLE operand
-          // whose ureg_num[] array holds:
-          //   ureg_num[0] = URb (barrier / data smem address)
-          //   ureg_num[1] = URa (descriptor low; descriptor is 64-bit, hi = URa+1)
-          //   ureg_num[2..3] = unused (URZ / -1)
-          //
-          // To keep downstream logic (collect_implicit_regs, instrument_tma_trace,
-          // reg_trace serialization) unchanged, we mirror the URs into the same
-          // op_ctx.mref_urs / operands.ureg_nums slots that the legacy
-          // MREF.has_ur path used. We additionally expose the descriptor low
-          // (URa) via op_ctx.desc_urs / operands.desc_urs so instrument_tma_trace
-          // can locate it directly without relying on positional indexing
-          // (which would break for MULTICAST variants).
+          // NVBit 1.8 packs the TMA URs (URb at slot 0, URa at slot 1) into a
+          // single TMA_PARAM_HANDLE operand. The actual handle bytes are
+          // pushed to the device function via
+          // nvbit_add_call_arg_tma_param_handle_and_size() inside
+          // instrument_tma_trace(); here we only mirror the UR numbers into
+          // operands.ureg_nums so reg_trace can capture their values.
           loprintf_v("  TMA_PARAM_HANDLE operand[%d]: ureg_nums=[%d,%d,%d,%d]\n", i, op->u.tma_param_handle.ureg_num[0],
                      op->u.tma_param_handle.ureg_num[1], op->u.tma_param_handle.ureg_num[2],
                      op->u.tma_param_handle.ureg_num[3]);
           for (int t = 0; t < InstrType::MAX_TMA_REGS; t++) {
             int ur = op->u.tma_param_handle.ureg_num[t];
             if (ur < 0 || ur == InstrType::URZ) {
-              continue;  // skip unused / URZ slots
+              continue;
             }
-            op_ctx.mref_urs.push_back(ur);
             operands.ureg_nums.push_back(ur);
-          }
-          // Slot [1] (URa) is the descriptor low; route it through desc_urs.
-          int ura_slot = op->u.tma_param_handle.ureg_num[1];
-          if (ura_slot >= 0 && ura_slot != InstrType::URZ) {
-            op_ctx.desc_urs.push_back(ura_slot);
-            operands.desc_urs.push_back(ura_slot);
           }
         } else {
           loprintf_v("  Unhandled operand[%d] type=%s\n", i, InstrType::OperandTypeStr[(int)op->type]);
@@ -848,10 +832,12 @@ bool instrument_function_if_needed(CUcontext ctx, CUfunction func) {
           instrument_register_trace(instr, opcode_id, ctx_state, operands);
         }
 
-        // TMA_TRACE: tensor memory descriptor tracing (independent of REG_TRACE/OPCODE_ONLY)
+        // TMA_TRACE: tensor memory accelerator tracing (independent of REG_TRACE/OPCODE_ONLY).
+        // NVBit 1.8 exposes first-class classification via isTMAMem()/isTMATensor(),
+        // replacing the SASS-substring check used previously.
         if (is_instrument_type_enabled(InstrumentType::TMA_TRACE)) {
-          if (is_instr_category(instr->getSass(), InstrCategory::TMA)) {
-            instrument_tma_trace(instr, opcode_id, ctx_state, operands);
+          if (instr->isTMAMem() || instr->isTMATensor()) {
+            instrument_tma_trace(instr, opcode_id, ctx_state, ctx);
           }
         }
       }
