@@ -1,0 +1,53 @@
+# Copyright (c) Meta Platforms, Inc. and affiliates.
+
+# pyre-strict
+
+from __future__ import annotations
+
+import json
+from pathlib import Path
+
+from cutracer.debugger.types import CudaKernelSample, TraceRecordType
+from cutracer.types import TraceRecord
+
+
+def samples_to_trace_records(samples: list[CudaKernelSample]) -> list[TraceRecord]:
+    # Caller is expected to emit samples in monotonic sample_index order.
+    # Within each sample we sort warps for stable trace_index assignment so
+    # the analyzer sees per-warp records grouped consistently.
+    records: list[TraceRecord] = []
+    for sample in samples:
+        for warp in sorted(
+            sample.warps,
+            key=lambda w: (
+                w.identity.device,
+                w.identity.sm,
+                w.identity.cta,
+                w.identity.warp_id,
+            ),
+        ):
+            records.append(
+                {
+                    "type": TraceRecordType.OPCODE_ONLY,
+                    "cta": list(warp.identity.cta),
+                    "warp": warp.identity.warp_id,
+                    "pc": _normalize_pc(warp.pc),
+                    "sass": warp.sass,
+                    "trace_index": len(records),
+                }
+            )
+    return records
+
+
+def write_samples_trace_file(path: Path, samples: list[CudaKernelSample]) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with path.open("w") as output:
+        for record in samples_to_trace_records(samples):
+            output.write(json.dumps(record) + "\n")
+
+
+def _normalize_pc(pc: str) -> str:
+    try:
+        return hex(int(pc, 16))
+    except ValueError:
+        return pc.lower()

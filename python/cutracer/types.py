@@ -1,4 +1,6 @@
 # Copyright (c) Meta Platforms, Inc. and affiliates.
+from __future__ import annotations
+
 
 """
 Shared type definitions for CUTracer trace analysis.
