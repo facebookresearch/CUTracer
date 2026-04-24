@@ -1428,9 +1428,43 @@ void* recv_thread_fun(void* args) {
             }
           }
 
-          loprintf_v("TMA: cta=[%d,%d,%d] warp=%d pc=0x%lx %s desc_addr=0x%lx\n", tma->cta_id_x, tma->cta_id_y,
-                     tma->cta_id_z, tma->warp_id, tma->pc,
-                     (sass_str_cpp.find("UTMALDG") != std::string::npos) ? "LOAD" : "STORE", tma->desc_addr);
+          // Extract the FULL opcode (e.g. "UTMALDG.2D") from the SASS string.
+          // nvbit_parse_tma_transfer_info()'s internal parseDim() reads the
+          // dimension token (".2D") FROM this opcode string — stripping it
+          // causes a fatal assert. The NVBit reference tool (mem_trace_tma)
+          // uses instr->getOpcode() which returns the full form, so we mirror
+          // that: stop at whitespace, NOT at '.'.
+          //
+          // SASS format: "[@P0 ]OPCODE[.modifiers] args ;"
+          std::string opcode_full;
+          {
+            size_t p = 0;
+            if (p < sass_str_cpp.size() && sass_str_cpp[p] == '@') {
+              size_t sp = sass_str_cpp.find(' ', p);
+              if (sp != std::string::npos) {
+                p = sp + 1;
+              }
+            }
+            size_t end = p;
+            while (end < sass_str_cpp.size() && sass_str_cpp[end] != ' ' && sass_str_cpp[end] != '\t') {
+              ++end;
+            }
+            opcode_full = sass_str_cpp.substr(p, end - p);
+          }
+
+          // Parse the TMA descriptor on the host side (NVBit 1.8). The full
+          // opcode (with .2D / .3D modifier) is required — see the SASS
+          // parser above.
+          TMATransferInfo_t tma_info{};
+          bool tma_info_valid = false;
+          if (!opcode_full.empty() && tma->tma_param_size > 0) {
+            tma_info =
+                nvbit_parse_tma_transfer_info(ctx, opcode_full.c_str(), tma->tma_param_handle_raw, tma->tma_param_size);
+            tma_info_valid = true;
+          }
+
+          loprintf_v("TMA: cta=[%d,%d,%d] warp=%d pc=0x%lx opcode=%s handle_size=%u\n", tma->cta_id_x, tma->cta_id_y,
+                     tma->cta_id_z, tma->warp_id, tma->pc, opcode_full.c_str(), tma->tma_param_size);
 
           // Unified TraceWriter output (per-launch files)
           {
@@ -1439,7 +1473,8 @@ void* recv_thread_fun(void* args) {
             if (it != ctx_state->trace_writers.end() && it->second) {
               uint64_t trace_idx = ctx_state->trace_index_by_kernel[tma->kernel_launch_id]++;
               uint64_t timestamp = get_timestamp_ns();
-              auto record = TraceRecord::create_tma_trace(ctx, sass_str_cpp, trace_idx, timestamp, tma);
+              auto record = TraceRecord::create_tma_trace(ctx, sass_str_cpp, trace_idx, timestamp, tma,
+                                                          tma_info_valid ? &tma_info : nullptr);
               it->second->write_trace(record);
             } else {
               loprintf("WARNING: No TraceWriter for TMA kernel_launch_id=%lu\n", tma->kernel_launch_id);

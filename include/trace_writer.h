@@ -100,6 +100,14 @@ struct TraceRecord {
    */
   const RegIndices* reg_indices = nullptr;
 
+  /**
+   * @brief Parsed TMA transfer info from nvbit_parse_tma_transfer_info().
+   *
+   * Set only for MSG_TYPE_TMA_ACCESS records produced by the NVBit-1.8 path.
+   * Lifetime: Caller ensures pointed-to TMATransferInfo_t outlives write_trace() call.
+   */
+  const TMATransferInfo_t* tma_info = nullptr;
+
   // ========== Constructors for convenience ==========
 
   /**
@@ -165,9 +173,13 @@ struct TraceRecord {
 
   /**
    * @brief Create a TraceRecord for tma_access_t.
+   *
+   * @param tma_info Optional parsed TMA transfer info (NVBit 1.8). When
+   *                 non-null, structured tensor metadata is serialized into
+   *                 the trace; when null, only raw fields are emitted.
    */
   static TraceRecord create_tma_trace(CUcontext ctx, const std::string& sass, uint64_t trace_idx, uint64_t ts,
-                                      const tma_access_t* tma) {
+                                      const tma_access_t* tma, const TMATransferInfo_t* tma_info = nullptr) {
     TraceRecord record;
     record.context = ctx;
     record.sass_instruction = sass;
@@ -175,6 +187,7 @@ struct TraceRecord {
     record.timestamp = ts;
     record.type = MSG_TYPE_TMA_ACCESS;
     record.data.tma_access = tma;
+    record.tma_info = tma_info;
     return record;
   }
 };
@@ -352,6 +365,10 @@ class TraceWriter {
 
   /**
    * @brief Serialize tma_access_t fields to JSON object.
+   *
+   * @param tma Raw GPU-side TMA record (always non-null on dispatch).
+   * @param info Parsed transfer info from nvbit_parse_tma_transfer_info(); may
+   *             be null for legacy paths or when parsing failed.
    */
-  void serialize_tma_access(nlohmann::json& j, const tma_access_t* tma);
+  void serialize_tma_access(nlohmann::json& j, const tma_access_t* tma, const TMATransferInfo_t* info);
 };

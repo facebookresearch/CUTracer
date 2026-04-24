@@ -10,7 +10,6 @@
 #include <sys/stat.h>
 #include <unistd.h>
 
-#include <iomanip>
 #include <nlohmann/json.hpp>
 #include <sstream>
 
@@ -435,28 +434,103 @@ void TraceWriter::serialize_mem_value_access(nlohmann::json& j, const mem_value_
   j["values"] = values_array;
 }
 
-void TraceWriter::serialize_tma_access(nlohmann::json& j, const tma_access_t* tma) {
+// Helper: format a 64-bit unsigned int as a "0x..." hex string.
+static std::string hex64(uint64_t v) {
+  std::stringstream ss;
+  ss << "0x" << std::hex << v;
+  return ss.str();
+}
+
+// Helper: look up a string from an InstrType enum-string table. Falls back to
+// the integer value if the enum is out of range.
+template <size_t N>
+static std::string enum_str(const char* const (&table)[N], int idx) {
+  if (idx < 0 || static_cast<size_t>(idx) >= N) {
+    return std::to_string(idx);
+  }
+  return table[idx];
+}
+
+// Serialize the parsed tiled-mode tensor map fields. Only call when
+// info.is_tensor is true and info.tensor.mode == TILED.
+static void serialize_tma_tiled_map(nlohmann::json& j, const TMATransferInfo_t& info) {
+  const auto& tiled = info.tensor.map.tiled;
+  j["data_type"] = enum_str(InstrType::CUtensorMapDataTypeStr, static_cast<int>(tiled.tensorDataType));
+  j["data_type_id"] = static_cast<int>(tiled.tensorDataType);
+  j["rank"] = tiled.tensorRank;
+  j["global_address"] = hex64(reinterpret_cast<uint64_t>(tiled.globalAddress));
+  j["global_dim"] = std::vector<uint64_t>(tiled.globalDim, tiled.globalDim + InstrType::MAX_TMA_DIM);
+  j["global_strides"] = std::vector<uint64_t>(tiled.globalStrides, tiled.globalStrides + InstrType::MAX_TMA_DIM - 1);
+  j["box_dim"] = std::vector<uint32_t>(tiled.boxDim, tiled.boxDim + InstrType::MAX_TMA_DIM);
+  j["element_strides"] = std::vector<uint32_t>(tiled.elementStrides, tiled.elementStrides + InstrType::MAX_TMA_DIM);
+  j["interleave"] = enum_str(InstrType::CUtensorMapInterleaveStr, static_cast<int>(tiled.interleave));
+  j["interleave_id"] = static_cast<int>(tiled.interleave);
+  j["swizzle"] = enum_str(InstrType::CUtensorMapSwizzleStr, static_cast<int>(tiled.swizzle));
+  j["swizzle_id"] = static_cast<int>(tiled.swizzle);
+  j["l2_promotion"] = enum_str(InstrType::CUtensorMapL2promotionStr, static_cast<int>(tiled.l2Promotion));
+  j["oob_fill"] = enum_str(InstrType::CUtensorMapFloatOOBfillStr, static_cast<int>(tiled.oobFill));
+}
+
+static void serialize_tma_transfer_info(nlohmann::json& j, const TMATransferInfo_t& info) {
+  using json = nlohmann::json;
+
+  j["is_bulk"] = info.is_bulk;
+  j["is_tensor"] = info.is_tensor;
+  j["is_prefetch"] = info.is_prefetch;
+  j["is_multicast"] = info.is_multicast;
+  j["transfer_count"] = info.transfer_count;
+  j["transfer_size"] = info.transfer_size;
+  j["byte_count"] = info.byte_count;
+  j["multicast_cta_mask"] = info.multicast_cta_mask;
+  j["src_memspace"] = enum_str(InstrType::MemorySpaceStr, static_cast<int>(info.src_memspace));
+  j["dst_memspace"] = enum_str(InstrType::MemorySpaceStr, static_cast<int>(info.dst_memspace));
+
+  if (!info.is_tensor) {
+    return;
+  }
+
+  json tensor;
+  tensor["dim"] = info.tensor.dim;
+  tensor["mode"] = enum_str(InstrType::TMALoadModeStr, static_cast<int>(info.tensor.mode));
+  tensor["coords"] = std::vector<int32_t>(info.tensor.coords, info.tensor.coords + InstrType::MAX_TMA_DIM);
+  tensor["intended_transfer_count"] = info.tensor.intended_transfer_count;
+  tensor["oob_transfer_count"] = info.tensor.oob_transfer_count;
+
+  // Only TILED mode is fully serialized today — GEMM/Triton kernels use TILED.
+  // IM2COL variants would emit different sub-fields; leave as TODO.
+  if (info.tensor.mode == InstrType::TMALoadMode::TILED) {
+    json tiled;
+    serialize_tma_tiled_map(tiled, info);
+    tensor["tiled"] = std::move(tiled);
+  }
+
+  j["tensor"] = std::move(tensor);
+}
+
+void TraceWriter::serialize_tma_access(nlohmann::json& j, const tma_access_t* tma, const TMATransferInfo_t* info) {
   if (!tma) {
     return;
   }
 
-  using json = nlohmann::json;
-
   serialize_common_fields(j, tma);
 
-  // Descriptor address (as hex string for readability)
-  std::stringstream desc_ss;
-  desc_ss << "0x" << std::hex << tma->desc_addr;
-  j["desc_addr"] = desc_ss.str();
+  // Always emit the captured handle size for debugging / re-parse.
+  j["tma_param_size"] = tma->tma_param_size;
 
-  // Raw descriptor bytes (as hex strings for debugging)
-  json::array_t desc_raw_array;
-  for (int i = 0; i < 16; i++) {
-    std::stringstream ss;
-    ss << "0x" << std::hex << std::setfill('0') << std::setw(16) << tma->desc_raw[i];
-    desc_raw_array.emplace_back(ss.str());
+  if (info != nullptr) {
+    nlohmann::json info_json;
+    serialize_tma_transfer_info(info_json, *info);
+    j["tma_transfer_info"] = std::move(info_json);
+
+    // Stable per-tensor key for downstream analyzer dedup. Prefer the parsed
+    // global tensor address; for non-tensor (bulk) transfers fall back to the
+    // raw bulk source address.
+    if (info->is_tensor && info->tensor.mode == InstrType::TMALoadMode::TILED) {
+      j["desc_addr"] = hex64(reinterpret_cast<uint64_t>(info->tensor.map.tiled.globalAddress));
+    } else if (info->is_bulk) {
+      j["desc_addr"] = hex64(info->src.global.bulk_copy_address);
+    }
   }
-  j["desc_raw"] = desc_raw_array;
 }
 
 // ============================================================================
@@ -602,7 +676,7 @@ void TraceWriter::write_json_format(const TraceRecord& record) {
         serialize_opcode_only(j, record.data.opcode_only);
         break;
       case MSG_TYPE_TMA_ACCESS:
-        serialize_tma_access(j, record.data.tma_access);
+        serialize_tma_access(j, record.data.tma_access, record.tma_info);
         break;
     }
 
