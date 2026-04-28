@@ -970,6 +970,114 @@ test_hang_test() {
     fi
   fi
 
+  # Verify text-mode warp status output prints inactive=Xs for LOOPING entries
+  # (regression guard: inactive_secs must be visible for non-BARRIER warps too).
+  if ! grep -q "LOOPING(inactive=" hang_output.log; then
+    echo "❌ Expected 'LOOPING(inactive=...' line missing from hang_output.log."
+    echo "     Recent WARP STATUS lines:"
+    grep -E "WARP STATUS|Warp[0-9]+\[" hang_output.log | tail -20
+    cd "$PROJECT_ROOT"
+    return 1
+  fi
+  echo "  ✅ LOOPING entries include inactive=Xs in text output."
+
+  cd "$PROJECT_ROOT"
+  return 0
+}
+
+# Function to verify NDJSON warp status output (append-mode, per-snapshot lines).
+# Exercises the trace_format != 0 branch and ensures multiple hang-detection ticks
+# produce one JSON object per line in <basename>_warp_status_summary.ndjson.
+test_hang_test_warp_status_ndjson() {
+  echo "🧪 Testing hang detection (NDJSON warp status output)..."
+  cd "$PROJECT_ROOT/tests/hang_test"
+
+  # Clean up old artifacts from previous runs to avoid stale-file false positives
+  rm -f *.log *.csv *.chrome_trace *_warp_status_summary.ndjson *_warp_status_summary.json
+
+  if [ ! -f "test_hang.py" ]; then
+    echo "❌ test_hang.py not found."
+    ls -la
+    cd "$PROJECT_ROOT"
+    return 1
+  fi
+
+  if ! timeout "$TIMEOUT" env \
+       CUTRACER_TRACE_FORMAT=2 \
+       CUDA_INJECTION64_PATH="$PROJECT_ROOT/lib/cutracer.so" \
+       CUTRACER_ANALYSIS=deadlock_detection \
+       KERNEL_FILTERS=add_kernel \
+       python "./test_hang.py" >hang_ndjson_output.log 2>&1; then
+    exit_code=$?
+    if [ "$exit_code" -eq 124 ]; then
+      echo "❌ Hang NDJSON test timed out (no detection within $TIMEOUT s)."
+      cat hang_ndjson_output.log
+      cd "$PROJECT_ROOT"
+      return 1
+    fi
+    if ! grep -q "Deadlock sustained" hang_ndjson_output.log; then
+      echo "❌ Hang NDJSON test failed without detection (exit $exit_code)."
+      cat hang_ndjson_output.log
+      cd "$PROJECT_ROOT"
+      return 1
+    fi
+  fi
+
+  # The legacy single-file JSON name must NOT exist anymore
+  if ls *_warp_status_summary.json >/dev/null 2>&1; then
+    echo "❌ Unexpected legacy *_warp_status_summary.json file found (should be NDJSON now):"
+    ls -la *_warp_status_summary.json
+    cd "$PROJECT_ROOT"
+    return 1
+  fi
+
+  ndjson_file=$(ls -1 *_warp_status_summary.ndjson 2>/dev/null | head -n 1)
+  if [ -z "$ndjson_file" ] || [ ! -f "$ndjson_file" ]; then
+    echo "❌ No *_warp_status_summary.ndjson file produced."
+    echo "     Listing current directory contents:"
+    ls -la
+    cd "$PROJECT_ROOT"
+    return 1
+  fi
+  echo "  ✅ Found NDJSON warp status file: $ndjson_file"
+
+  # Validate NDJSON contents:
+  # - every line parses as JSON
+  # - kernel_launch_id is consistent across lines
+  # - each warp entry has inactive_secs (consistency with text output)
+  # - at least one entry is LOOPING (the test kernel hangs in a loop)
+  if ! python - "$ndjson_file" <<'PY'
+import json, sys
+path = sys.argv[1]
+with open(path) as f:
+    lines = [ln for ln in (raw.strip() for raw in f) if ln]
+assert lines, f"{path} is empty"
+records = []
+for i, ln in enumerate(lines):
+    try:
+        records.append(json.loads(ln))
+    except json.JSONDecodeError as e:
+        sys.exit(f"line {i+1} is not valid JSON: {e}")
+ids = {r.get("kernel_launch_id") for r in records}
+assert len(ids) == 1, f"kernel_launch_id not consistent across snapshots: {ids}"
+saw_looping = False
+for r in records:
+    for w in r.get("active_warps", []):
+        assert "inactive_secs" in w, f"warp entry missing inactive_secs: {w}"
+        if w.get("status") == "LOOPING":
+            saw_looping = True
+assert saw_looping, "expected at least one LOOPING warp entry across snapshots"
+print(f"validated {len(lines)} NDJSON snapshot(s) with consistent kernel_launch_id")
+PY
+  then
+    echo "❌ NDJSON content validation failed for $ndjson_file."
+    echo "     --- First 3 lines ---"
+    head -n 3 "$ndjson_file"
+    cd "$PROJECT_ROOT"
+    return 1
+  fi
+  echo "  ✅ NDJSON warp status content validated."
+
   cd "$PROJECT_ROOT"
   return 0
 }
@@ -1145,6 +1253,12 @@ run_all_tests() {
     failed_suites+=("hang-test")
   fi
 
+  if test_hang_test_warp_status_ndjson; then
+    passed_suites+=("hang-test-warp-status-ndjson")
+  else
+    failed_suites+=("hang-test-warp-status-ndjson")
+  fi
+
   if test_trace_formats; then
     passed_suites+=("trace-formats")
   else
@@ -1235,6 +1349,9 @@ case "$TEST_TYPE" in
   ;;
 "hang")
   test_hang_test
+  ;;
+"hang-ndjson")
+  test_hang_test_warp_status_ndjson
   ;;
 "python-module")
   test_python_module
