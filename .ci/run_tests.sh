@@ -44,13 +44,54 @@ if [ "$SKIP_CONDA" = "1" ]; then
 elif [ -f "/opt/miniconda3/etc/profile.d/conda.sh" ]; then
   echo "🐍 Activating conda environment..."
   source /opt/miniconda3/etc/profile.d/conda.sh
-  conda activate $CONDA_ENV
+  conda activate "$CONDA_ENV"
+
+  # Sanity check: make sure `python` and `pip` resolve to the activated env.
+  # `conda activate` typically returns 0 even when something goes subtly wrong
+  # (env missing, env name typo, PATH shadowing by another Python on the
+  # runner), so `set -e` alone won't catch the mismatch. Validate explicitly
+  # against $CONDA_PREFIX (set by conda activate) so we don't hard-code the
+  # miniconda install path here.
+  echo "Verifying active Python interpreter..."
+  echo "  CONDA_PREFIX:   ${CONDA_PREFIX:-<unset>}"
+  echo "  which python:   $(command -v python || echo 'not found')"
+  echo "  which pip:      $(command -v pip || echo 'not found')"
+  echo "  sys.executable: $(python -c 'import sys; print(sys.executable)')"
+  ACTUAL_PYTHON=$(python -c 'import sys; print(sys.executable)')
+  if [[ -z "${CONDA_PREFIX:-}" ]]; then
+    echo "❌ CONDA_PREFIX is not set — 'conda activate $CONDA_ENV' did not"
+    echo "   take effect. Aborting."
+    exit 1
+  fi
+  if [[ "$(basename "$CONDA_PREFIX")" != "$CONDA_ENV" ]]; then
+    echo "❌ Active conda env ($(basename "$CONDA_PREFIX")) does not match"
+    echo "   the requested env ($CONDA_ENV). Aborting."
+    exit 1
+  fi
+  if [[ "$ACTUAL_PYTHON" != "$CONDA_PREFIX"/* ]]; then
+    echo "❌ Python interpreter ($ACTUAL_PYTHON) is NOT inside the activated"
+    echo "   conda env (\$CONDA_PREFIX=$CONDA_PREFIX). Something earlier on"
+    echo "   PATH is shadowing the env's python. Aborting to avoid"
+    echo "   pip/python mismatch."
+    exit 1
+  fi
+
+  # Ensure pip is available inside the env. Older cached envs may have been
+  # created without pip; bootstrap via ensurepip if needed.
+  if ! python -m pip --version >/dev/null 2>&1; then
+    echo "⚠️ pip not found in env, bootstrapping via ensurepip..."
+    python -m ensurepip --upgrade || conda install -n "$CONDA_ENV" -y -c conda-forge pip
+  fi
+  python -m pip --version
+
   conda install -y -c conda-forge libstdcxx-ng=15.1.0
-  pip install pandas
+  # Use `python -m pip` (NOT bare `pip`) so installs always target the same
+  # interpreter we use for verification / running tests below.
+  python -m pip install pandas
 
   # Install cutracer Python package in editable mode (includes all dependencies)
   echo "📦 Installing cutracer Python package..."
-  pip install -e "$PROJECT_ROOT/python"
+  python -m pip install -e "$PROJECT_ROOT/python"
 else
   echo "⚠️ Conda activation script not found, skipping."
 fi
