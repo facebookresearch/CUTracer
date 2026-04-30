@@ -30,6 +30,10 @@
 // Forward declaration for TraceWriter (defined in trace_writer.h)
 class TraceWriter;
 
+// Length of the per-warp instruction ring buffer (WarpLoopState::history).
+// Defined here so warp_status.cu and analysis.cu share a single source of truth.
+#define PC_HISTORY_LEN 32
+
 /* Thread state enum */
 enum class RecvThreadState {
   INIT,
